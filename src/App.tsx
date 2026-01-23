@@ -70,6 +70,10 @@ function App() {
 
   const capturePhoto = useCallback(async () => {
     console.log(' capturePhoto 호출됨');
+      // 찰칵 소리
+      const audio = new Audio('data:audio/wav;base64,UklGRl9vT19teleXRhdmVmbXQgAAAAEACABBAAgAQAEBBGRhdGFv');
+      audio.volume = 0.3;
+      audio.play().catch(() => {});
     if (webcamRef.current) {
       console.log(' webcamRef 있음');
       const imageSrc = webcamRef.current.getScreenshot();
@@ -285,6 +289,8 @@ function App() {
 }
 
 export default App
+
+
 
 
 
