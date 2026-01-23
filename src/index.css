@@ -1,0 +1,74 @@
+﻿@import "tailwindcss";
+
+/* GeoCam v2 - Premium Dark Theme */
+:root {
+  --color-verified: 34, 197, 94;
+  --color-inconclusive: 234, 179, 8;
+  --color-mismatch: 239, 68, 68;
+  --color-bg-primary: 10, 10, 12;
+  --color-bg-secondary: 18, 18, 22;
+  --color-bg-card: 24, 24, 28;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: rgb(var(--color-bg-primary));
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 고급스러운 글래스모피즘 */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 상태별 글로우 카드 */
+.status-verified {
+  background: rgba(var(--color-verified), 0.08);
+  border: 1px solid rgba(var(--color-verified), 0.25);
+  box-shadow: 0 0 40px rgba(var(--color-verified), 0.1),
+              inset 0 1px 0 rgba(var(--color-verified), 0.1);
+}
+
+.status-inconclusive {
+  background: rgba(var(--color-inconclusive), 0.08);
+  border: 1px solid rgba(var(--color-inconclusive), 0.25);
+  box-shadow: 0 0 40px rgba(var(--color-inconclusive), 0.1),
+              inset 0 1px 0 rgba(var(--color-inconclusive), 0.1);
+}
+
+.status-mismatch {
+  background: rgba(var(--color-mismatch), 0.08);
+  border: 1px solid rgba(var(--color-mismatch), 0.25);
+  box-shadow: 0 0 40px rgba(var(--color-mismatch), 0.1),
+              inset 0 1px 0 rgba(var(--color-mismatch), 0.1);
+}
+
+/* 프리미엄 버튼 */
+.btn-primary {
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.08) 100%);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
