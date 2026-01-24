@@ -5,7 +5,7 @@
 
 import { detectGeocode as aiDetect } from './geocodeAiRunner';
 
-export type GeocodeStatus = 'DETECTED' | 'NOT_DETECTED' | 'ERROR';
+export type GeocodeStatus = 'DETECTED' | 'NOT_DETECTED' | 'ERROR' | 'SKIPPED';
 
 export interface GeocodeResult {
   status: GeocodeStatus;
@@ -20,3 +20,4 @@ export interface GeocodeResult {
 export async function detectGeocode(imageUri: string): Promise<GeocodeResult> {
   return await aiDetect(imageUri);
 }
+

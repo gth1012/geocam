@@ -1,83 +1,179 @@
 ﻿/**
- * GeoCode AI Runner v1.0
- * - ONNX 모델을 이용한 GeoCode 감지
+ * GeoCode AI Runner v2.0
+ * - ONNX Runtime Web 실제 연동
  * - 오프라인 동작 지원
+ * - AI 실패 시 스킵 처리
  */
 
-export type GeocodeStatus = 'DETECTED' | 'NOT_DETECTED' | 'ERROR';
+import * as ort from 'onnxruntime-web';
+
+export type GeocodeStatus = 'DETECTED' | 'NOT_DETECTED' | 'ERROR' | 'SKIPPED';
+export type AiMode = 'real' | 'stub';
+export type AiStatus = 'success' | 'skipped' | 'unavailable';
 
 export interface GeocodeResult {
   status: GeocodeStatus;
   geocodeId: string | null;
   confidence: number | null;
   reason?: string;
+  ai_mode: AiMode;
+  ai_status: AiStatus;
+  model_name: string;
+  model_version: string;
 }
 
 // 감지 임계값
 const DETECTION_THRESHOLD = 0.5;
+const MODEL_NAME = 'GeoCodeModel';
+const MODEL_VERSION = '1.0.0';
+
+// ONNX 세션 캐시
+let session: ort.InferenceSession | null = null;
+let modelLoaded = false;
+let loadError: string | null = null;
+
+/**
+ * ONNX 모델 로드
+ */
+async function loadModel(): Promise<boolean> {
+  if (modelLoaded && session) return true;
+  if (loadError) return false;
+  
+  try {
+    session = await ort.InferenceSession.create('/GeoCodeModel.onnx');
+    modelLoaded = true;
+    console.log('[AI] GeoCodeModel.onnx 로드 성공');
+    return true;
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : 'MODEL_LOAD_FAIL';
+    console.warn('[AI] 모델 로드 실패:', loadError);
+    return false;
+  }
+}
+
+/**
+ * 이미지를 텐서로 변환 (224x224 RGB)
+ */
+async function imageToTensor(imageUri: string): Promise<ort.Tensor> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 224;
+      canvas.height = 224;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas context failed'));
+        return;
+      }
+      
+      ctx.drawImage(img, 0, 0, 224, 224);
+      const imageData = ctx.getImageData(0, 0, 224, 224);
+      const { data } = imageData;
+      
+      // RGB 정규화 (0-255 -> 0-1)
+      const float32Data = new Float32Array(1 * 3 * 224 * 224);
+      for (let i = 0; i < 224 * 224; i++) {
+        float32Data[i] = data[i * 4] / 255.0;                    // R
+        float32Data[224 * 224 + i] = data[i * 4 + 1] / 255.0;    // G
+        float32Data[2 * 224 * 224 + i] = data[i * 4 + 2] / 255.0; // B
+      }
+      
+      const tensor = new ort.Tensor('float32', float32Data, [1, 3, 224, 224]);
+      resolve(tensor);
+    };
+    img.onerror = () => reject(new Error('Image load failed'));
+    img.src = imageUri;
+  });
+}
 
 /**
  * 이미지 URI를 분석하여 GeoCode 감지 결과 반환
- * 
- * 현재: 시뮬레이션 모드 (ONNX 런타임 미연결)
- * 추후: ONNX Runtime Web 연결 예정
- * 
- * @param imageUri - base64 이미지 또는 URI
- * @returns GeocodeResult
  */
 export async function detectGeocode(imageUri: string): Promise<GeocodeResult> {
-  try {
-    // 입력 검증
-    if (!imageUri || imageUri === 'scan-mode-no-image') {
-      return {
-        status: 'NOT_DETECTED',
-        geocodeId: null,
-        confidence: null,
-        reason: 'NO_IMAGE'
-      };
-    }
+  // 입력 검증
+  if (!imageUri || imageUri === 'scan-mode-no-image') {
+    return {
+      status: 'NOT_DETECTED',
+      geocodeId: null,
+      confidence: null,
+      reason: 'NO_IMAGE',
+      ai_mode: 'real',
+      ai_status: 'skipped',
+      model_name: MODEL_NAME,
+      model_version: MODEL_VERSION
+    };
+  }
 
-    // TODO: ONNX Runtime Web 연동
-    // 현재는 시뮬레이션 - 이미지 해시 기반 pseudo-random confidence
-    const confidence = simulateInference(imageUri);
+  // 모델 로드 시도
+  const loaded = await loadModel();
+  
+  if (!loaded || !session) {
+    // AI 실패 시 스킵 처리 (파이프라인 중단 금지)
+    console.warn('[AI] 모델 사용 불가 - 스킵 처리');
+    return {
+      status: 'SKIPPED',
+      geocodeId: null,
+      confidence: null,
+      reason: loadError || 'MODEL_UNAVAILABLE',
+      ai_mode: 'real',
+      ai_status: 'unavailable',
+      model_name: MODEL_NAME,
+      model_version: MODEL_VERSION
+    };
+  }
+
+  try {
+    // 이미지  텐서 변환
+    const inputTensor = await imageToTensor(imageUri);
+    
+    // ONNX 추론 실행
+    const feeds = { input: inputTensor };
+    const results = await session.run(feeds);
+    
+    // 결과 추출 (sigmoid 출력 0~1)
+    const output = results.output || results[Object.keys(results)[0]];
+    const confidence = (output.data as Float32Array)[0];
+    
+    console.log('[AI] 추론 완료 - confidence:', confidence);
 
     if (confidence >= DETECTION_THRESHOLD) {
       return {
         status: 'DETECTED',
         geocodeId: generateGeocodeId(),
-        confidence: confidence
+        confidence: confidence,
+        ai_mode: 'real',
+        ai_status: 'success',
+        model_name: MODEL_NAME,
+        model_version: MODEL_VERSION
       };
     } else {
       return {
         status: 'NOT_DETECTED',
         geocodeId: null,
-        confidence: confidence
+        confidence: confidence,
+        ai_mode: 'real',
+        ai_status: 'success',
+        model_name: MODEL_NAME,
+        model_version: MODEL_VERSION
       };
     }
   } catch (error) {
+    // 추론 실패 시 스킵 처리
+    const errorMsg = error instanceof Error ? error.message : 'INFER_FAIL';
+    console.warn('[AI] 추론 실패 - 스킵 처리:', errorMsg);
     return {
-      status: 'ERROR',
+      status: 'SKIPPED',
       geocodeId: null,
       confidence: null,
-      reason: error instanceof Error ? error.message : 'UNKNOWN_ERROR'
+      reason: errorMsg,
+      ai_mode: 'real',
+      ai_status: 'skipped',
+      model_name: MODEL_NAME,
+      model_version: MODEL_VERSION
     };
   }
-}
-
-/**
- * 시뮬레이션 추론 (ONNX 연동 전 임시)
- * 이미지 데이터 기반 pseudo-random confidence 생성
- */
-function simulateInference(imageUri: string): number {
-  // 이미지 URI 해시 기반 시뮬레이션
-  let hash = 0;
-  for (let i = 0; i < Math.min(imageUri.length, 1000); i++) {
-    hash = ((hash << 5) - hash) + imageUri.charCodeAt(i);
-    hash = hash & hash;
-  }
-  // 0.3 ~ 0.8 범위의 confidence 생성
-  const normalized = Math.abs(hash % 1000) / 1000;
-  return 0.3 + (normalized * 0.5);
 }
 
 /**
@@ -95,9 +191,10 @@ function generateGeocodeId(): string {
 /**
  * 모델 상태 확인
  */
-export function getModelStatus(): { loaded: boolean; version: string } {
+export function getModelStatus(): { loaded: boolean; version: string; mode: AiMode } {
   return {
-    loaded: true,
-    version: '1.0.0-sim' // 시뮬레이션 버전
+    loaded: modelLoaded,
+    version: MODEL_VERSION,
+    mode: 'real'
   };
 }
