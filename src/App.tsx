@@ -229,9 +229,9 @@ function App() {
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: chainValid ? '#4ade80' : '#f87171' }} />
               <span style={{ fontSize: '13px', fontWeight: '500', color: chainValid ? '#4ade80' : '#f87171' }}>{chainValid ? '검증되었습니다' : '검증 실패'}</span>
             </div>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '24px' }}>{isCamera ? '증거가 생성되어 로컬에 저장되었습니다.' : '참고용 기록이 생성되었습니다.'}</p>
+            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '12px' }}>{isCamera ? '증거가 생성되어 로컬에 저장되었습니다.' : '참고용 기록이 생성되었습니다.'}</p>
             {recordInfo && (
-              <div style={{ paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>Pack Hash</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.packHash.slice(0, 16)}...</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>생성 시각</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
@@ -396,6 +396,7 @@ function App() {
 }
 
 export default App
+
 
 
 
