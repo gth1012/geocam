@@ -239,7 +239,7 @@ function App() {
             )}
             {error && <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}><span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span></div>}
           </div>
-          <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
+          <div style={{ marginTop: '0', display: 'flex', gap: '12px' }}>
             <button onClick={() => setScreen('home')} style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
             <button onClick={() => { setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setScreen(isCamera ? 'camera' : 'scan'); }} style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{isCamera ? '다시 촬영' : '다시 스캔'}</button>
           </div>
@@ -396,6 +396,7 @@ function App() {
 }
 
 export default App
+
 
 
 
