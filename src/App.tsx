@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useCallback, useEffect } from 'react'
+import jsQR from 'jsqr'
 import Webcam from 'react-webcam'
 import { Scanner } from '@yudiel/react-qr-scanner'
 import { runEvidencePipeline } from './evidencePipeline'
@@ -286,10 +287,32 @@ function App() {
   // Preview Screen - 미리보기 + 검증하기 버튼
   const PreviewScreen = () => {
     const [verifying, setVerifying] = useState(false);
+    const [scanError, setScanError] = useState<string | null>(null);
     const handleVerify = async () => {
       setVerifying(true);
+      setScanError(null);
       if (previewImage) {
-        await runPipeline('GALLERY-VERIFY', previewImage);
+        try {
+          const img = new Image();
+          img.src = previewImage;
+          await new Promise((resolve) => { img.onload = resolve; });
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            if (code && code.data && code.data.includes('DINA-')) {
+              await runPipeline(code.data, previewImage);
+            } else {
+              setScanError('QR 코드를 찾을 수 없거나 유효한 DINA 코드가 아닙니다.');
+            }
+          }
+        } catch (e) {
+          setScanError('이미지 처리 중 오류가 발생했습니다.');
+        }
       }
       setVerifying(false);
     };
@@ -303,6 +326,7 @@ function App() {
           <img src={previewImage} alt="" style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: '12px' }} />
         </div>
         <div style={{ padding: '20px' }}>
+          {scanError && <p style={{ color: '#f87171', fontSize: '14px', marginBottom: '12px', textAlign: 'center' }}>{scanError}</p>}
           <button onClick={handleVerify} disabled={verifying} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: verifying ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '16px', fontWeight: '500', cursor: verifying ? 'default' : 'pointer' }}>{verifying ? '검증 중...' : '검증하기'}</button>
         </div>
       </div>
@@ -372,6 +396,9 @@ function App() {
 }
 
 export default App
+
+
+
 
 
 
