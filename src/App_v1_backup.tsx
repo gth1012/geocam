@@ -5,7 +5,7 @@ import { runEvidencePipeline } from './evidencePipeline'
 import { validateChain, getChain } from './appendOnlyStore'
 import './App.css'
 
-type Screen = 'home' | 'camera' | 'scan' | 'result' | 'records' | 'gallery' | 'preview' | 'settings'
+type Screen = 'home' | 'camera' | 'scan' | 'result' | 'records'
 type ScanMode = 'camera' | 'scan'
 
 interface RecordInfo {
@@ -20,7 +20,6 @@ function App() {
   const [qrDetected, setQrDetected] = useState(false)
   const [qrData, setQrData] = useState<string | null>(null)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
-  const [previewImage, setPreviewImage] = useState<string>('')
   const [recordInfo, setRecordInfo] = useState<RecordInfo | null>(null)
   const [chainValid, setChainValid] = useState<boolean>(true)
   const [processing, setProcessing] = useState(false)
@@ -130,7 +129,7 @@ function App() {
         <div style={{ height: '50px' }} />
         <button onClick={() => { setScanMode('scan'); setQrData(null); setRecordInfo(null); setError(null); setScreen('scan'); }} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Scan</button>
         <div style={{ height: '30px' }} />
-        <button onClick={() => setScreen('gallery')} style={{ width: '100%', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', fontWeight: '300', letterSpacing: '0.1em', fontSize: '14px', cursor: 'pointer' }}>Gallery</button>
+        <button onClick={() => setScreen('records')} style={{ width: '100%', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', fontWeight: '300', letterSpacing: '0.1em', fontSize: '14px', cursor: 'pointer' }}>기록 보기</button>
       </div>
       <div style={{ position: 'absolute', bottom: '40px', textAlign: 'center' }}>
         <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '10px', letterSpacing: '0.2em' }}>Powered by Artion</p>
@@ -228,7 +227,7 @@ function App() {
           <div style={{ background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: '20px', padding: '24px' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '9999px', background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, marginBottom: '16px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: chainValid ? '#4ade80' : '#f87171' }} />
-              <span style={{ fontSize: '13px', fontWeight: '500', color: chainValid ? '#4ade80' : '#f87171' }}>{chainValid ? '검증되었습니다' : '검증 실패'}</span>
+              <span style={{ fontSize: '13px', fontWeight: '500', color: chainValid ? '#4ade80' : '#f87171' }}>{chainValid ? '기록 완료' : '체인 오류'}</span>
             </div>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginBottom: '24px' }}>{isCamera ? '증거가 생성되어 로컬에 저장되었습니다.' : '참고용 기록이 생성되었습니다.'}</p>
             {recordInfo && (
@@ -248,81 +247,6 @@ function App() {
       </div>
     )
   }
-
-    // Gallery Screen - 이미지 목록
-  const GalleryScreen = () => {
-    const [images, setImages] = useState<string[]>([]);
-    useEffect(() => {
-      const chain = getChain();
-      const imgs = chain.map((r: any) => r.imageSrc).filter(Boolean);
-      setImages(imgs);
-    }, []);
-    return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
-          <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
-          <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>Gallery</h2>
-          <div style={{ marginLeft: 'auto' }}><button onClick={() => setScreen('settings')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '20px' }}></span></button></div>
-        </div>
-        {images.length === 0 ? (
-          <div style={{ textAlign: 'center', paddingTop: '100px' }}><p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>저장된 이미지가 없습니다</p></div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            {images.map((img, i) => (
-              <div key={i} onClick={() => { setPreviewImage(img); setScreen('preview'); }} style={{ aspectRatio: '1', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer' }}>
-                <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Preview Screen - 미리보기 + 검증하기 버튼
-  const PreviewScreen = () => {
-    const [verifying, setVerifying] = useState(false);
-    const handleVerify = async () => {
-      setVerifying(true);
-      if (previewImage) {
-        await runPipeline('GALLERY-VERIFY', previewImage);
-      }
-      setVerifying(false);
-    };
-    return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0c', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '20px', display: 'flex', alignItems: 'center' }}>
-          <button onClick={() => setScreen('gallery')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-          <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0, marginLeft: '16px' }}>미리보기</h2>
-        </div>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <img src={previewImage} alt="" style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: '12px' }} />
-        </div>
-        <div style={{ padding: '20px' }}>
-          <button onClick={handleVerify} disabled={verifying} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: verifying ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '16px', fontWeight: '500', cursor: verifying ? 'default' : 'pointer' }}>{verifying ? '검증 중...' : '검증하기'}</button>
-        </div>
-      </div>
-    );
-  };
-
-  // Settings Screen - 설정 (기록 접근)
-  const SettingsScreen = () => {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
-          <button onClick={() => setScreen('gallery')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
-          <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>설정</h2>
-        </div>
-        <div style={{ marginTop: '20px' }}>
-          <button onClick={() => setScreen('records')} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>검증 기록</span><span style={{ color: 'rgba(255,255,255,0.3)' }}></span></button>
-        </div>
-        <div style={{ marginTop: '40px', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
-          <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', margin: 0 }}>GeoCam V2.0</p>
-          <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px', margin: '4px 0 0 0' }}>Powered by Artion</p>
-        </div>
-      </div>
-    );
-  };
 
   const RecordsScreen = () => {
     const [records, setRecords] = useState<any[]>([]);
@@ -360,23 +284,11 @@ function App() {
       {screen === 'scan' && <ScanScreen />}
       {screen === 'result' && <ResultScreen />}
       {screen === 'records' && <RecordsScreen />}
-      {screen === 'gallery' && <GalleryScreen />}
-      {screen === 'preview' && <PreviewScreen />}
-      {screen === 'settings' && <SettingsScreen />}
     </>
   )
 }
 
 export default App
-
-
-
-
-
-
-
-
-
 
 
 
