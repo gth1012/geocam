@@ -217,13 +217,13 @@ function App() {
     const isCamera = scanMode === 'camera';
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
-        <div style={{ flex: '0.95', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
+        <div style={{ flex: '0.70', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
           {capturedImage && <img src={capturedImage} alt="captured" style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '96px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
           <button onClick={() => setScreen('home')} style={{ position: 'absolute', top: '16px', left: '16px', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
           <div style={{ position: 'absolute', top: '20px', right: '16px', padding: '6px 14px', borderRadius: '9999px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{isCamera ? '실물 촬영' : '참고 스캔'}</div>
         </div>
-        <div style={{ flex: '0.35', padding: '0 16px', marginTop: '16px', position: 'relative', zIndex: 10 }}>
+        <div style={{ flex: '0.30', padding: '0 16px', marginTop: '16px', position: 'relative', zIndex: 10 }}>
           <div style={{ background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: '20px', padding: '24px' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '9999px', background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, marginBottom: '16px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: chainValid ? '#4ade80' : '#f87171' }} />
@@ -396,6 +396,9 @@ function App() {
 }
 
 export default App
+
+
+
 
 
 
