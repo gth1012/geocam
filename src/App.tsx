@@ -40,7 +40,7 @@ function App() {
     </svg>
   )
 
-  const runPipeline = async (qrRaw: string, imageUri: string) => {
+  const runPipeline = async (qrRaw: string | null, imageUri: string) => {
     setProcessing(true);
     setError(null);
     try {
@@ -81,18 +81,8 @@ function App() {
       if (imageSrc) {
         setCapturedImage(imageSrc);
         console.log(' 파이프라인 실행 시작');
-        if (qrData) {
-            await runPipeline(qrData, imageSrc);
-          } else {
-            // QR 없이 촬영만 - 테스트용 결과 표시
-            setRecordInfo({
-              recordId: 'TEST-' + Date.now(),
-              packHash: 'test-hash-' + Date.now(),
-              createdAt: new Date().toISOString()
-            });
-            setChainValid(true);
-            setScreen('result');
-          }
+        // QR 있든 없든 파이프라인 실행 (AI 항상 동작)
+        await runPipeline(qrData || null, imageSrc);
         console.log(' 파이프라인 완료');
       }
     } else {

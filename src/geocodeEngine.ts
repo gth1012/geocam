@@ -2,16 +2,21 @@
  * GeoCode Engine v2.0
  * - geocodeAiRunner 연동
  */
-
 import { detectGeocode as aiDetect } from './geocodeAiRunner';
 
 export type GeocodeStatus = 'DETECTED' | 'NOT_DETECTED' | 'ERROR' | 'SKIPPED';
+export type AiMode = 'real' | 'stub';
+export type AiStatus = 'success' | 'skipped' | 'unavailable';
 
 export interface GeocodeResult {
   status: GeocodeStatus;
   geocodeId: string | null;
   confidence: number | null;
   reason?: string;
+  ai_mode: AiMode;
+  ai_status: AiStatus;
+  model_name: string;
+  model_version: string;
 }
 
 /**
@@ -20,4 +25,3 @@ export interface GeocodeResult {
 export async function detectGeocode(imageUri: string): Promise<GeocodeResult> {
   return await aiDetect(imageUri);
 }
-
