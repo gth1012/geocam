@@ -216,7 +216,7 @@ function App() {
   const ResultScreen = () => {
     const isCamera = scanMode === 'camera';
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
         <div style={{ flex: '0.70', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
           {capturedImage && <img src={capturedImage} alt="captured" style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '96px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
@@ -357,7 +357,7 @@ function App() {
     const [isValid, setIsValid] = useState(true);
     useEffect(() => { const chain = getChain(); setRecords(chain); validateChain().then(result => setIsValid(result.ok)); }, []);
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
         <div style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
           <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300' }}>기록 목록</span>
@@ -396,6 +396,7 @@ function App() {
 }
 
 export default App
+
 
 
 
