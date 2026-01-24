@@ -121,7 +121,7 @@ function App() {
 
   const HomeScreen = () => (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c' }}>
-      <div style={{ paddingTop: '200px', textAlign: 'center' }}>
+      <div style={{ paddingTop: '120px', textAlign: 'center' }}>
         <h1 style={{ fontSize: '2.25rem', fontWeight: '200', letterSpacing: '0.25em', marginBottom: '12px', color: 'rgba(255,255,255,0.9)' }}>Geo Cam</h1>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', letterSpacing: '0.2em' }}>정품 인증 서비스</p>
       </div>
@@ -251,30 +251,36 @@ function App() {
 
     // Gallery Screen - 이미지 목록
   const GalleryScreen = () => {
-    const [images, setImages] = useState<string[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
-      const chain = getChain();
-      const imgs = chain.map((r: any) => r.imageSrc).filter(Boolean);
-      setImages(imgs);
+      fileInputRef.current?.click();
     }, []);
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const imageData = event.target?.result as string;
+          setPreviewImage(imageData);
+          setScreen('preview');
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setScreen('home');
+      }
+    };
     return (
       <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px' }}>
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
           <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
           <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>Gallery</h2>
           <div style={{ marginLeft: 'auto' }}><button onClick={() => setScreen('settings')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '20px' }}></span></button></div>
         </div>
-        {images.length === 0 ? (
-          <div style={{ textAlign: 'center', paddingTop: '100px' }}><p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>저장된 이미지가 없습니다</p></div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            {images.map((img, i) => (
-              <div key={i} onClick={() => { setPreviewImage(img); setScreen('preview'); }} style={{ aspectRatio: '1', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer' }}>
-                <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={{ textAlign: 'center', paddingTop: '100px' }}>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginBottom: '20px' }}>사진첩에서 이미지를 선택하세요</p>
+          <button onClick={() => fileInputRef.current?.click()} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '14px', cursor: 'pointer' }}>이미지 선택</button>
+        </div>
       </div>
     );
   };
@@ -368,6 +374,9 @@ function App() {
 }
 
 export default App
+
+
+
 
 
 
