@@ -71,10 +71,8 @@ function App() {
 
   const capturePhoto = useCallback(async () => {
     console.log(' capturePhoto 호출됨');
-      // 찰칵 소리
-      const audio = new Audio('data:audio/wav;base64,UklGRl9vT19teleXRhdmVmbXQgAAAAEACABBAAgAQAEBBGRhdGFv');
-      audio.volume = 0.3;
-      audio.play().catch(() => {});
+      // 찰칵 소리 (Web Audio API)
+        try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value = 800; osc.type = 'sine'; gain.gain.setValueAtTime(0.5, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15); osc.start(); osc.stop(ctx.currentTime + 0.15); } catch(e) {}
     if (webcamRef.current) {
       console.log(' webcamRef 있음');
       const imageSrc = webcamRef.current.getScreenshot();
@@ -123,17 +121,17 @@ function App() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c' }}>
       <div style={{ paddingTop: '120px', textAlign: 'center' }}>
         <h1 style={{ fontSize: '2.25rem', fontWeight: '200', letterSpacing: '0.25em', marginBottom: '12px', color: 'rgba(255,255,255,0.9)' }}>Geo Cam</h1>
-        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', letterSpacing: '0.2em' }}>정품 인증 서비스</p>
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', letterSpacing: '0.2em' }}>정품 인증 서비스</p>
       </div>
       <div style={{ marginTop: '100px', width: '260px' }}>
         <button onClick={() => { setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setScreen('camera'); }} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Camera</button>
         <div style={{ height: '50px' }} />
         <button onClick={() => { setScanMode('scan'); setQrData(null); setRecordInfo(null); setError(null); setScreen('scan'); }} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Scan</button>
         <div style={{ height: '30px' }} />
-        <button onClick={() => setScreen('gallery')} style={{ width: '100%', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', fontWeight: '300', letterSpacing: '0.1em', fontSize: '14px', cursor: 'pointer' }}>Gallery</button>
+        <button onClick={() => setScreen('gallery')} style={{ width: '100%', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', fontWeight: '300', letterSpacing: '0.1em', fontSize: '14px', cursor: 'pointer' }}>Gallery</button>
       </div>
       <div style={{ position: 'absolute', bottom: '40px', textAlign: 'center' }}>
-        <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '10px', letterSpacing: '0.2em' }}>Powered by Artion</p>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', letterSpacing: '0.2em' }}>Powered by Artion</p>
       </div>
     </div>
   )
@@ -185,7 +183,7 @@ function App() {
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginBottom: '20px' }}>
           {processing ? '처리 중...' : qrDetected ? 'QR 인식됨 - 촬영하세요' : '촬영 버튼을 누르세요 (QR 자동인식)'}
         </p>
-        <button onClick={capturePhoto} disabled={processing} style={{ width: '72px', height: '72px', borderRadius: '50%', background: !processing ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)', border: '4px solid rgba(255,255,255,0.3)', cursor: !processing ? 'pointer' : 'not-allowed' }} />
+        <button onClick={capturePhoto} disabled={processing} style={{ width: '72px', height: '72px', borderRadius: '50%', background: !processing ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)', border: '4px solid rgba(255,255,255,0.5)', cursor: !processing ? 'pointer' : 'not-allowed' }} />
       </div>
     </div>
   )
@@ -233,9 +231,9 @@ function App() {
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginBottom: '24px' }}>{isCamera ? '증거가 생성되어 로컬에 저장되었습니다.' : '참고용 기록이 생성되었습니다.'}</p>
             {recordInfo && (
               <div style={{ paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}><span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}><span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>Pack Hash</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.packHash.slice(0, 16)}...</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>생성 시각</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>Pack Hash</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.packHash.slice(0, 16)}...</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>생성 시각</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
               </div>
             )}
             {error && <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}><span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span></div>}
@@ -320,11 +318,11 @@ function App() {
           <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>설정</h2>
         </div>
         <div style={{ marginTop: '20px' }}>
-          <button onClick={() => setScreen('records')} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>검증 기록</span><span style={{ color: 'rgba(255,255,255,0.3)' }}></span></button>
+          <button onClick={() => setScreen('records')} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>검증 기록</span><span style={{ color: 'rgba(255,255,255,0.5)' }}></span></button>
         </div>
         <div style={{ marginTop: '40px', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
-          <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', margin: 0 }}>GeoCam V2.0</p>
-          <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px', margin: '4px 0 0 0' }}>Powered by Artion</p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: 0 }}>GeoCam V2.0</p>
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', margin: '4px 0 0 0' }}>Powered by Artion</p>
         </div>
       </div>
     );
@@ -343,13 +341,13 @@ function App() {
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
           {records.length === 0 ? (
-            <div style={{ textAlign: 'center', paddingTop: '100px' }}><p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>기록이 없습니다</p></div>
+            <div style={{ textAlign: 'center', paddingTop: '100px' }}><p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px' }}>기록이 없습니다</p></div>
           ) : (
             records.map((record, index) => (
               <div key={record.recordId} style={{ marginBottom: '12px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>#{index + 1}</span><span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>{new Date(record.createdAt).toLocaleString('ko-KR')}</span></div>
-                <div style={{ marginBottom: '4px' }}><span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px' }}>ID: </span><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontFamily: 'monospace' }}>{record.recordId.slice(0, 24)}...</span></div>
-                <div><span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px' }}>Hash: </span><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontFamily: 'monospace' }}>{record.packHash.slice(0, 20)}...</span></div>
+                <div style={{ marginBottom: '4px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px' }}>ID: </span><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontFamily: 'monospace' }}>{record.recordId.slice(0, 24)}...</span></div>
+                <div><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px' }}>Hash: </span><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontFamily: 'monospace' }}>{record.packHash.slice(0, 20)}...</span></div>
               </div>
             ))
           )}
@@ -374,6 +372,10 @@ function App() {
 }
 
 export default App
+
+
+
+
 
 
 
