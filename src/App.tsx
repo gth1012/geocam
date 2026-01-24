@@ -217,7 +217,7 @@ function App() {
     const isCamera = scanMode === 'camera';
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
-        <div style={{ flex: '0.25', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
+        <div style={{ flex: '0.35', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
           {capturedImage && <img src={capturedImage} alt="captured" style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '96px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
           <button onClick={() => setScreen('home')} style={{ position: 'absolute', top: '16px', left: '16px', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
@@ -396,6 +396,8 @@ function App() {
 }
 
 export default App
+
+
 
 
 
