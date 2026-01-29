@@ -40,7 +40,7 @@ async function loadModel(): Promise<boolean> {
   if (loadError) return false;
   
   try {
-    session = await ort.InferenceSession.create('/GeoCodeModel.onnx');
+    session = await ort.InferenceSession.create('./GeoCodeModel.onnx');
     modelLoaded = true;
     console.log('[AI] GeoCodeModel.onnx 로드 성공');
     return true;
@@ -198,3 +198,4 @@ export function getModelStatus(): { loaded: boolean; version: string; mode: AiMo
     mode: 'real'
   };
 }
+
