@@ -40,67 +40,74 @@ function App() {
     </svg>
   )
 
-  const safeGoHome = useCallback(() => {
-    try {
-      setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setProcessing(false); setScreen('home');
-    } catch (e) { console.error('error:', e); setScreen('home'); }
-  }, []);
-
-  const safeGoCamera = useCallback(() => {
-    try {
-      setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setProcessing(false); setScreen('camera');
-    } catch (e) { console.error('error:', e); setScreen('camera'); }
-  }, []);
-
-  const safeGoScan = useCallback(() => {
-    try {
-      setScanMode('scan'); setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setProcessing(false); setScreen('scan');
-    } catch (e) { console.error('error:', e); setScreen('scan'); }
-  }, []);
   const runPipeline = async (qrRaw: string | null, imageUri: string) => {
-    setProcessing(true); setError(null);
+    setProcessing(true);
+    setError(null);
     try {
-      const result = await runEvidencePipeline({ qrRaw, imageUri, geoBucket: null, deviceFingerprintHash: getDeviceFingerprint() });
-      console.log('pipeline result:', result);
-      if (result.ok && result.recordId && result.packHash) {
-        setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
-        const chainResult = await validateChain(); setChainValid(chainResult.ok); setScreen('result');
-      } else { setError(result.error || 'UNKNOWN_ERROR'); }
-    } catch (err) { setError(err instanceof Error ? err.message : 'PIPELINE_ERROR'); }
-    finally { setProcessing(false); }
+      const result = await runEvidencePipeline({
+        qrRaw,
+        imageUri,
+        geoBucket: null,
+        deviceFingerprintHash: getDeviceFingerprint()
+      });
+      console.log(' 파이프라인 결과:', result);
+        if (result.ok && result.recordId && result.packHash) {
+        setRecordInfo({
+          recordId: result.recordId,
+          packHash: result.packHash,
+          createdAt: new Date().toISOString()
+        });
+        const chainResult = await validateChain();
+        setChainValid(chainResult.ok);
+        setScreen('result');
+      } else {
+        setError(result.error || 'UNKNOWN_ERROR');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'PIPELINE_ERROR');
+    } finally {
+      setProcessing(false);
+    }
   }
 
   const capturePhoto = useCallback(async () => {
-    console.log('capturePhoto called');
-    try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value = 800; osc.type = 'sine'; gain.gain.setValueAtTime(0.5, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15); osc.start(); osc.stop(ctx.currentTime + 0.15); } catch(e) {}
+    console.log(' capturePhoto 호출됨');
+      // 찰칵 소리 (Web Audio API)
+        try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value = 800; osc.type = 'sine'; gain.gain.setValueAtTime(0.5, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15); osc.start(); osc.stop(ctx.currentTime + 0.15); } catch(e) {}
     if (webcamRef.current) {
+      console.log(' webcamRef 있음');
       const imageSrc = webcamRef.current.getScreenshot();
-      if (imageSrc) { setCapturedImage(imageSrc); await runPipeline(qrData || null, imageSrc); }
+      console.log(' 스크린샷:', imageSrc ? '성공' : '실패');
+      if (imageSrc) {
+        setCapturedImage(imageSrc);
+        console.log(' 파이프라인 실행 시작');
+        // QR 있든 없든 파이프라인 실행 (AI 항상 동작)
+        await runPipeline(qrData || null, imageSrc);
+        console.log(' 파이프라인 완료');
+      }
+    } else {
+      console.log(' webcamRef 없음!');
     }
   }, [qrData])
 
   const handleCameraQrScan = (result: any) => {
     if (result && result[0]?.rawValue && !qrDetected) {
       const data = result[0].rawValue;
-      if (data.includes('DINA-')) { setQrData(data); setQrDetected(true); }
+      if (data.includes('DINA-')) {
+        setQrData(data);
+        setQrDetected(true);
+      }
     }
   }
 
   const handleScanQrScan = async (result: any) => {
     if (result && result[0]?.rawValue) {
-      const data = result[0].rawValue; setQrData(data);
-      setProcessing(true);
-      try {
-        const { verifyWithServer } = await import('./evidencePipeline');
-        const verifyResult = await verifyWithServer(data, getDeviceFingerprint());
-        setChainValid(verifyResult.isAuthentic);
-        setRecordInfo({ recordId: verifyResult.status + '-' + Date.now(), packHash: data.slice(0,16), createdAt: new Date().toISOString() });
-        if (!verifyResult.success) setError(verifyResult.error || 'VERIFY_FAILED');
-      } catch (e) { setChainValid(false); setError('SERVER_ERROR'); setRecordInfo({ recordId: 'ERR-' + Date.now(), packHash: 'ERROR', createdAt: new Date().toISOString() }); }
-      setProcessing(false);
-      setScreen('result');
+      const data = result[0].rawValue;
+      setQrData(data);
+      await runPipeline(data, 'scan-mode-no-image');
     }
   }
+
   const HomeScreen = () => (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c' }}>
       <div style={{ paddingTop: '120px', textAlign: 'center' }}>
@@ -108,9 +115,9 @@ function App() {
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', letterSpacing: '0.2em' }}>정품 인증 서비스</p>
       </div>
       <div style={{ marginTop: '100px', width: '260px' }}>
-        <button onClick={safeGoCamera} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Camera</button>
+        <button onClick={() => { setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setScreen('camera'); }} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Camera</button>
         <div style={{ height: '50px' }} />
-        <button onClick={safeGoScan} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Scan</button>
+        <button onClick={() => { setScanMode('scan'); setQrData(null); setRecordInfo(null); setError(null); setScreen('scan'); }} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Scan</button>
         <div style={{ height: '30px' }} />
         <button onClick={() => setScreen('gallery')} style={{ width: '100%', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.6)', fontWeight: '300', letterSpacing: '0.1em', fontSize: '14px', cursor: 'pointer' }}>Gallery</button>
       </div>
@@ -119,37 +126,67 @@ function App() {
       </div>
     </div>
   )
+
   const CameraScreen = () => (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
+        <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
         <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>촬영</span>
         <div style={{ width: '40px' }} />
       </div>
+
       <div style={{ flex: 1, position: 'relative' }}>
-        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: 'environment', width: 1280, height: 720 }} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />
-        {!qrDetected && (<div style={{ position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }}><Scanner onScan={handleCameraQrScan} constraints={{ facingMode: 'environment' }} styles={{ container: { width: '100%', height: '100%' }, video: { width: '100%', height: '100%', objectFit: 'cover' } }} /></div>)}
+        {/* Webcam 항상 표시 */}
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          screenshotFormat="image/jpeg"
+          videoConstraints={{ facingMode: 'environment', width: 1280, height: 720 }}
+          style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+        
+        {/* QR Scanner 오버레이 (투명하게 동시 동작) */}
+        {!qrDetected && (
+          <div style={{ position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }}>
+            <Scanner
+              onScan={handleCameraQrScan}
+              constraints={{ facingMode: 'environment' }}
+              styles={{ container: { width: '100%', height: '100%' }, video: { width: '100%', height: '100%', objectFit: 'cover' } }}
+            />
+          </div>
+        )}
+
+        {/* 스캔 프레임 가이드 */}
         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', zIndex: 10 }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: '40px', height: '40px', borderTop: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderLeft: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderTopLeftRadius: '12px' }} />
           <div style={{ position: 'absolute', top: 0, right: 0, width: '40px', height: '40px', borderTop: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderRight: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderTopRightRadius: '12px' }} />
           <div style={{ position: 'absolute', bottom: 0, left: 0, width: '40px', height: '40px', borderBottom: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderLeft: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderBottomLeftRadius: '12px' }} />
           <div style={{ position: 'absolute', bottom: 0, right: 0, width: '40px', height: '40px', borderBottom: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderRight: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderBottomRightRadius: '12px' }} />
-          {qrDetected && (<div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '8px 16px', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', borderRadius: '8px' }}><span style={{ color: '#4ade80', fontSize: '12px' }}>QR 인식됨</span></div>)}
+          {qrDetected && (
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '8px 16px', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', borderRadius: '8px' }}>
+              <span style={{ color: '#4ade80', fontSize: '12px' }}>QR 인식됨</span>
+            </div>
+          )}
         </div>
       </div>
+
       <div style={{ padding: '24px', paddingBottom: '48px', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '20px' }}>{processing ? '처리 중...' : qrDetected ? 'QR 인식됨 - 촬영하세요' : '촬영 버튼을 누르세요 (QR 자동인식)'}</p>
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '20px' }}>
+          {processing ? '처리 중...' : qrDetected ? 'QR 인식됨 - 촬영하세요' : '촬영 버튼을 누르세요 (QR 자동인식)'}
+        </p>
         <button onClick={capturePhoto} disabled={processing} style={{ width: '72px', height: '72px', borderRadius: '50%', background: !processing ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)', border: '4px solid rgba(255,255,255,0.6)', cursor: !processing ? 'pointer' : 'not-allowed' }} />
       </div>
     </div>
   )
+
   const ScanScreen = () => (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
+        <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
         <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>QR 스캔</span>
         <div style={{ width: '40px' }} />
       </div>
+
       <div style={{ flex: 1, position: 'relative' }}>
         <Scanner onScan={handleScanQrScan} constraints={{ facingMode: 'environment' }} styles={{ container: { position: 'absolute', inset: 0 }, video: { width: '100%', height: '100%', objectFit: 'cover' } }} />
         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', zIndex: 10 }}>
@@ -159,64 +196,75 @@ function App() {
           <div style={{ position: 'absolute', bottom: 0, right: 0, width: '40px', height: '40px', borderBottom: '3px solid rgba(255,255,255,0.6)', borderRight: '3px solid rgba(255,255,255,0.6)', borderBottomRightRadius: '12px' }} />
         </div>
       </div>
+
       <div style={{ padding: '24px', paddingBottom: '48px', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px' }}>{processing ? '처리 중...' : 'QR 코드를 화면에 맞춰주세요'}</p>
       </div>
     </div>
   )
+
   const ResultScreen = () => {
     const isCamera = scanMode === 'camera';
-    const handleRetry = useCallback(() => {
-      try { setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setProcessing(false); setScreen(isCamera ? 'camera' : 'scan'); }
-      catch (e) { console.error('retry error:', e); setScreen(isCamera ? 'camera' : 'scan'); }
-    }, [isCamera]);
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', paddingTop: '150px' }}>
-        <div style={{ flex: '0 0 50%', marginTop: '40px', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
+        <div style={{ flex: '0.70', position: 'relative', background: 'rgba(0,0,0,0.3)' }}>
           {capturedImage && <img src={capturedImage} alt="captured" style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '96px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
-          <button onClick={safeGoHome} style={{ position: 'absolute', top: '16px', left: '16px', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
+          <button onClick={() => setScreen('home')} style={{ position: 'absolute', top: '16px', left: '16px', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
           <div style={{ position: 'absolute', top: '20px', right: '16px', padding: '6px 14px', borderRadius: '9999px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{isCamera ? '실물 촬영' : '참고 스캔'}</div>
         </div>
-        <div style={{ flex: '0 0 45%', padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div style={{ background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: '16px', padding: '12px 20px' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '9999px', background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, marginBottom: '12px' }}>
+        <div style={{ flex: '0.30', padding: '0 16px', paddingTop: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', position: 'relative', zIndex: 10 }}>
+          <div style={{ background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: '16px', padding: '12px 24px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '9999px', background: chainValid ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${chainValid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`, marginBottom: '16px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: chainValid ? '#4ade80' : '#f87171' }} />
               <span style={{ fontSize: '13px', fontWeight: '500', color: chainValid ? '#4ade80' : '#f87171' }}>{chainValid ? '검증되었습니다' : '검증 실패'}</span>
             </div>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '10px' }}>{isCamera ? '증거가 생성되어 로컬에 저장되었습니다.' : '참고용 기록이 생성되었습니다.'}</p>
+            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '12px' }}>{isCamera ? '증거가 생성되어 로컬에 저장되었습니다.' : '참고용 기록이 생성되었습니다.'}</p>
             {recordInfo && (
-              <div style={{ paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>Pack Hash</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.packHash.slice(0, 16)}...</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>생성 시각</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
+              <div style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>Pack Hash</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.packHash.slice(0, 16)}...</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>생성 시각</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
               </div>
             )}
-            {error && <div style={{ marginTop: '12px', padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}><span style={{ color: '#f87171', fontSize: '11px' }}>{error}</span></div>}
+            {error && <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px' }}><span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span></div>}
           </div>
-          <div style={{ display: 'flex', gap: '12px', paddingBottom: '20px' }}>
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
-            <button onClick={handleRetry} style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{isCamera ? '다시 촬영' : '다시 스캔'}</button>
+          <div style={{ marginTop: '0', display: 'flex', gap: '12px' }}>
+            <button onClick={() => setScreen('home')} style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+            <button onClick={() => { setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setScreen(isCamera ? 'camera' : 'scan'); }} style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{isCamera ? '다시 촬영' : '다시 스캔'}</button>
           </div>
         </div>
       </div>
     )
   }
+
+    // Gallery Screen - 이미지 목록
   const GalleryScreen = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
-    useEffect(() => { fileInputRef.current?.click(); }, []);
+    useEffect(() => {
+      fileInputRef.current?.click();
+    }, []);
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) { const reader = new FileReader(); reader.onload = (event) => { setPreviewImage(event.target?.result as string); setScreen('preview'); }; reader.readAsDataURL(file); }
-      else { setScreen('home'); }
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const imageData = event.target?.result as string;
+          setPreviewImage(imageData);
+          setScreen('preview');
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setScreen('home');
+      }
     };
     return (
       <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px' }}>
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
-          <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
+          <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
           <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>Gallery</h2>
-          <div style={{ marginLeft: 'auto' }}><button onClick={() => setScreen('settings')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '20px' }}>&#9881;</span></button></div>
+          <div style={{ marginLeft: 'auto' }}><button onClick={() => setScreen('settings')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '20px' }}></span></button></div>
         </div>
         <div style={{ textAlign: 'center', paddingTop: '100px' }}>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '20px' }}>사진첩에서 이미지를 선택하세요</p>
@@ -225,22 +273,36 @@ function App() {
       </div>
     );
   };
+
+  // Preview Screen - 미리보기 + 검증하기 버튼
   const PreviewScreen = () => {
     const [verifying, setVerifying] = useState(false);
     const [scanError, setScanError] = useState<string | null>(null);
     const handleVerify = async () => {
-      setVerifying(true); setScanError(null);
+      setVerifying(true);
+      setScanError(null);
       if (previewImage) {
         try {
-          const img = new Image(); img.src = previewImage;
+          const img = new Image();
+          img.src = previewImage;
           await new Promise((resolve) => { img.onload = resolve; });
-          const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
           const ctx = canvas.getContext('2d');
-          if (ctx) { ctx.drawImage(img, 0, 0); const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); const code = jsQR(imageData.data, imageData.width, imageData.height);
-            if (code && code.data && code.data.includes('DINA-')) { await runPipeline(code.data, previewImage); }
-            else { setScanError('QR 코드를 찾을 수 없거나 유효한 DINA 코드가 아닙니다.'); }
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            if (code && code.data && code.data.includes('DINA-')) {
+              await runPipeline(code.data, previewImage);
+            } else {
+              setScanError('QR 코드를 찾을 수 없거나 유효한 DINA 코드가 아닙니다.');
+            }
           }
-        } catch (e) { setScanError('이미지 처리 중 오류가 발생했습니다.'); }
+        } catch (e) {
+          setScanError('이미지 처리 중 오류가 발생했습니다.');
+        }
       }
       setVerifying(false);
     };
@@ -260,6 +322,8 @@ function App() {
       </div>
     );
   };
+
+  // Settings Screen - 설정 (기록 접근)
   const SettingsScreen = () => {
     return (
       <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px' }}>
@@ -268,7 +332,7 @@ function App() {
           <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>설정</h2>
         </div>
         <div style={{ marginTop: '20px' }}>
-          <button onClick={() => setScreen('records')} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>검증 기록</span><span style={{ color: 'rgba(255,255,255,0.6)' }}>&#8594;</span></button>
+          <button onClick={() => setScreen('records')} style={{ width: '100%', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>검증 기록</span><span style={{ color: 'rgba(255,255,255,0.6)' }}></span></button>
         </div>
         <div style={{ marginTop: '40px', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', margin: 0 }}>GeoCam V2.0</p>
@@ -277,6 +341,7 @@ function App() {
       </div>
     );
   };
+
   const RecordsScreen = () => {
     const [records, setRecords] = useState<any[]>([]);
     const [isValid, setIsValid] = useState(true);
@@ -284,12 +349,14 @@ function App() {
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
         <div style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
+          <button onClick={() => setScreen('home')} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
           <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300' }}>기록 목록</span>
           <div style={{ width: '40px', display: 'flex', justifyContent: 'center' }}><div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isValid ? '#4ade80' : '#f87171' }} /></div>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-          {records.length === 0 ? (<div style={{ textAlign: 'center', paddingTop: '100px' }}><p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px' }}>기록이 없습니다</p></div>) : (
+          {records.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '100px' }}><p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px' }}>기록이 없습니다</p></div>
+          ) : (
             records.map((record, index) => (
               <div key={record.recordId} style={{ marginBottom: '12px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>#{index + 1}</span><span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>{new Date(record.createdAt).toLocaleString('ko-KR')}</span></div>
@@ -319,3 +386,49 @@ function App() {
 }
 
 export default App
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
