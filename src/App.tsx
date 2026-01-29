@@ -34,6 +34,7 @@ function App() {
   const [processing, setProcessing] = useState(false)
   const [, setError] = useState<string | null>(null)
   const [networkError, setNetworkError] = useState(false)
+  const [cameraError, setCameraError] = useState<string | null>(null)
   const webcamRef = useRef<Webcam>(null)
 
   const getDeviceFingerprint = (): string => {
@@ -52,7 +53,7 @@ function App() {
     try {
       setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); 
       setError(null); setProcessing(false); setNetworkError(false); setScanResultInfo(null);
-      setVerifyStatus(null); setScreen('home');
+      setVerifyStatus(null); setCameraError(null); setScreen('home');
     } catch (e) { console.error('error:', e); setScreen('home'); }
   }, []);
 
@@ -60,7 +61,7 @@ function App() {
     try {
       setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null); 
       setRecordInfo(null); setError(null); setProcessing(false); setNetworkError(false);
-      setVerifyStatus(null); setScreen('camera');
+      setVerifyStatus(null); setCameraError(null); setScreen('camera');
     } catch (e) { console.error('error:', e); setScreen('camera'); }
   }, []);
 
@@ -174,7 +175,7 @@ function App() {
         <div style={{ width: '40px' }} />
       </div>
       <div style={{ flex: 1, position: 'relative' }}>
-        <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: 'environment', width: 1280, height: 720 }} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />
+        <Webcam ref={webcamRef} audio={false} onUserMediaError={() => setCameraError('카메라 권한이 거부되었습니다. 브라우저 설정에서 카메라 권한을 허용해 주세요.')} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: 'environment', width: 1280, height: 720 }} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />{cameraError && <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: '#0a0a0c', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}><p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>카메라 접근 불가</p><p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>{cameraError}</p><button onClick={safeGoHome} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', cursor: 'pointer' }}>홈으로</button></div>}
         {!qrDetected && (<div style={{ position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }}><Scanner onScan={handleCameraQrScan} constraints={{ facingMode: 'environment' }} styles={{ container: { width: '100%', height: '100%' }, video: { width: '100%', height: '100%', objectFit: 'cover' } }} /></div>)}
         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', zIndex: 10 }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: '40px', height: '40px', borderTop: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderLeft: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderTopLeftRadius: '12px' }} />
@@ -473,6 +474,12 @@ function App() {
 }
 
 export default App
+
+
+
+
+
+
 
 
 
