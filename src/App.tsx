@@ -119,19 +119,24 @@ function App() {
       const data = result[0].rawValue; setQrData(data);
       setProcessing(true); setNetworkError(false);
       try {
-        const { verifyWithServer } = await import('./evidencePipeline');
-        const verifyResult = await verifyWithServer(data, getDeviceFingerprint());
-        
+        const { checkAssetStatus } = await import('./evidencePipeline');
+        const verifyResult = await checkAssetStatus(data, getDeviceFingerprint());
+
         if (verifyResult.success) {
-          if (verifyResult.status === 'VALID') {
+          if (verifyResult.status === 'SHIPPED') {
+            // 정품 - 아직 등록 안됨
             setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
-          } else if (verifyResult.status === 'CLAIMED') {
+          } else if (verifyResult.status === 'ACTIVATED') {
+            // 이미 등록됨
             setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
+          } else if (verifyResult.status === 'UNKNOWN') {
+            // 알 수 없는 코드
+            setScanResultInfo({ status: 'ERROR', message: '등록되지 않은 코드입니다.' });
           } else {
             setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
           }
         } else {
-          if (verifyResult.error?.includes('ALREADY') || verifyResult.error?.includes('CLAIMED')) {
+          if (verifyResult.error?.includes('ALREADY') || verifyResult.error?.includes('ACTIVATED')) {
             setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
           } else if (verifyResult.error?.includes('EXPIRED')) {
             setScanResultInfo({ status: 'EXPIRED', message: '유효하지 않은 코드입니다.' });
@@ -139,7 +144,7 @@ function App() {
             setScanResultInfo({ status: 'ERROR', message: verifyResult.error || '서버 오류가 발생했습니다.' });
           }
         }
-      } catch (e) { 
+      } catch (e) {
         setNetworkError(true);
         setScanResultInfo({ status: 'ERROR', message: '서버 연결에 실패했습니다.' });
       }

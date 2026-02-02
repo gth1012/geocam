@@ -1,7 +1,7 @@
 ﻿/**
  * Evidence Pipeline (E2E Orchestrator)
  * Phase 2-A / Step 6
- * AI 엔진 연동 완료 버전
+ * 서버 API 연동 버전
  */
 import { parseQr, isError, isMissing } from './qrParser';
 import { canonicalizePack } from './packCanonical';
@@ -44,38 +44,216 @@ async function sha256(input: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function verifyWithServer(dinaCode: string, deviceId: string): Promise<{
+/**
+ * 이미지 URI를 Base64로 변환
+ */
+async function imageUriToBase64(imageUri: string): Promise<string> {
+  try {
+    // data:image/... Base64 URI인 경우 prefix 제거
+    if (imageUri.startsWith('data:image')) {
+      return imageUri.replace(/^data:image\/\w+;base64,/, '');
+    }
+
+    // blob:, http(s):// 또는 file:// URL인 경우 fetch로 가져오기
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).replace(/^data:image\/\w+;base64,/, '');
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.error('[imageUriToBase64] Error:', err);
+    throw new Error('IMAGE_CONVERT_FAILED: ' + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
+export interface ServerVerifyResult {
   success: boolean;
   isAuthentic: boolean;
-  status: string;
+  status: 'VALID' | 'UNCERTAIN' | 'INVALID' | 'UNKNOWN' | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
+  confidence?: number;
+  sessionToken?: string;
+  dinaId?: string;
+  assetInfo?: {
+    dina_id: string;
+    series_name: string;
+    batch_id: string;
+    created_at: string;
+  };
   error?: string;
-}> {
+}
+
+/**
+ * QR 스캔 후 자산 상태만 확인 (이미지 없이 scan/start만 호출)
+ * App.tsx의 Scan 화면에서 사용
+ */
+export async function checkAssetStatus(
+  dinaCode: string,
+  deviceId: string
+): Promise<ServerVerifyResult> {
   try {
+    console.log('[checkAssetStatus] Checking:', dinaCode);
+
     const startRes = await Http.request({
       method: 'POST',
       url: API_BASE_URL + '/api/geocam/scan/start',
       headers: { 'Content-Type': 'application/json' },
-      data: { qr_payload: dinaCode, device_id: deviceId }
+      data: {
+        qr_payload: dinaCode,
+        device_id: deviceId,
+      }
     });
+
     const startData = startRes.data;
+    console.log('[checkAssetStatus] Response:', startData.success, startData.asset_status);
+
     if (!startData.success) {
-      return { success: false, isAuthentic: false, status: 'UNKNOWN', error: startData.error };
+      return {
+        success: false,
+        isAuthentic: false,
+        status: 'UNKNOWN',
+        error: startData.error || 'SCAN_START_FAILED'
+      };
     }
+
+    // 자산 상태에 따라 결과 반환
+    const assetStatus = startData.asset_status;
+    return {
+      success: true,
+      isAuthentic: assetStatus === 'SHIPPED' || assetStatus === 'ACTIVATED',
+      status: assetStatus || 'UNKNOWN',
+      sessionToken: startData.session_token,
+      dinaId: startData.asset_info?.dina_id,
+      assetInfo: startData.asset_info,
+    };
+  } catch (err) {
+    console.error('[checkAssetStatus] Error:', err);
+    return {
+      success: false,
+      isAuthentic: false,
+      status: 'ERROR',
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
+/**
+ * 서버 API를 통한 검증 (scan/start → verify)
+ * @param dinaCode - DINA 코드 (QR에서 추출)
+ * @param deviceId - 디바이스 ID
+ * @param imageData - Base64 인코딩된 이미지 데이터
+ * @param clientConfidence - 클라이언트 측 AI confidence (optional)
+ */
+export async function verifyWithServer(
+  dinaCode: string,
+  deviceId: string,
+  imageData: string,
+  clientConfidence?: number
+): Promise<ServerVerifyResult> {
+  try {
+    console.log('[verifyWithServer] Starting scan for:', dinaCode);
+
+    // Step 1: scan/start - 세션 발급
+    const startRes = await Http.request({
+      method: 'POST',
+      url: API_BASE_URL + '/api/geocam/scan/start',
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        qr_payload: dinaCode,
+        device_id: deviceId,
+      }
+    });
+
+    const startData = startRes.data;
+    console.log('[verifyWithServer] scan/start response:', startData.success, startData.asset_status);
+
+    if (!startData.success) {
+      return {
+        success: false,
+        isAuthentic: false,
+        status: 'UNKNOWN',
+        error: startData.error || 'SCAN_START_FAILED'
+      };
+    }
+
+    // Step 2: verify - 이미지 검증
     const verifyRes = await Http.request({
       method: 'POST',
       url: API_BASE_URL + '/api/geocam/verify',
       headers: { 'Content-Type': 'application/json' },
-      data: { session_token: startData.session_token, nonce: startData.nonce, client_confidence: 85 }
+      data: {
+        session_token: startData.session_token,
+        nonce: startData.nonce,
+        image_data: imageData,
+        client_confidence: clientConfidence,
+      }
     });
+
     const verifyData = verifyRes.data;
-    return { success: verifyData.success, isAuthentic: verifyData.result === 'VALID', status: verifyData.result, error: verifyData.error };
+    console.log('[verifyWithServer] verify response:', verifyData.success, verifyData.result, verifyData.confidence);
+
+    return {
+      success: verifyData.success,
+      isAuthentic: verifyData.result === 'VALID',
+      status: verifyData.result || 'UNKNOWN',
+      confidence: verifyData.confidence,
+      sessionToken: startData.session_token,
+      dinaId: verifyData.matched_dina_id || startData.asset_info?.dina_id,
+      assetInfo: startData.asset_info,
+      error: verifyData.error,
+    };
   } catch (err) {
-    return { success: false, isAuthentic: false, status: 'ERROR', error: String(err) };
+    console.error('[verifyWithServer] Error:', err);
+    return {
+      success: false,
+      isAuthentic: false,
+      status: 'ERROR',
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
+/**
+ * 서버에 정품 등록 요청 (register)
+ */
+export async function registerWithServer(
+  sessionToken: string,
+  dinaId: string
+): Promise<{ success: boolean; status: string; error?: string }> {
+  try {
+    const res = await Http.request({
+      method: 'POST',
+      url: API_BASE_URL + '/api/geocam/register',
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        session_token: sessionToken,
+        dina_id: dinaId,
+      }
+    });
+
+    const data = res.data;
+    return {
+      success: data.success,
+      status: data.status,
+      error: data.error,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      status: 'ERROR',
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
 export async function runEvidencePipeline(input: PipelineInput): Promise<PipelineOutput> {
   try {
+    // 1. QR 파싱
     const qrResult = parseQr(input.qrRaw);
     if (isError(qrResult)) {
       return { ok: false, error: 'QR_PARSE_FAILED: ' + qrResult.error, qr_status: 'invalid', verify_status: 'INVALID' };
@@ -85,60 +263,121 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
     const otp = isMissing(qrResult) ? null : (qrResult.otp || null);
     console.log('[Pipeline] QR:', qrStatus, '| DINA:', dinaCode);
 
-    // AI 엔진 호출
+    // 2. 로컬 AI 엔진 호출 (GeoCode 감지)
     const geocodeResult = await detectGeocode(input.imageUri);
-    console.log('[Pipeline] AI:', geocodeResult.status, '| confidence:', geocodeResult.confidence, '| ai_status:', geocodeResult.ai_status);
+    console.log('[Pipeline] Local AI:', geocodeResult.status, '| confidence:', geocodeResult.confidence);
 
-    // AI 결과에 따른 verify_status 결정
-    let verifyStatus: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
-    const confidence = geocodeResult.confidence;
-    
-    if (geocodeResult.status === 'DETECTED') {
-      // AI가 GeoCode 감지 성공
-      if (confidence !== null && confidence >= 0.8) {
-        verifyStatus = 'VALID';
-      } else if (confidence !== null && confidence >= 0.5) {
-        verifyStatus = 'SUSPECT';
-      } else {
-        verifyStatus = 'SUSPECT';
-      }
-    } else if (geocodeResult.status === 'NOT_DETECTED') {
-      // AI가 GeoCode 감지 못함
-      verifyStatus = 'INVALID';
-    } else if (geocodeResult.status === 'SKIPPED') {
-      // AI 모델 로드 실패 또는 스킵
-      verifyStatus = 'UNKNOWN';
-    } else {
-      // ERROR 등
-      verifyStatus = 'UNKNOWN';
+    // 3. 이미지를 Base64로 변환
+    let imageBase64: string | null = null;
+    try {
+      imageBase64 = await imageUriToBase64(input.imageUri);
+      console.log('[Pipeline] Image converted to Base64, length:', imageBase64?.length || 0);
+    } catch (imgErr) {
+      console.error('[Pipeline] Image conversion failed:', imgErr);
     }
 
+    // 4. 서버 API 검증 (DINA 코드가 있고 이미지 변환 성공 시)
+    let serverResult: ServerVerifyResult | null = null;
+    if (dinaCode && imageBase64) {
+      const clientConfidence = geocodeResult.confidence !== null
+        ? Math.round(geocodeResult.confidence * 100)
+        : undefined;
+
+      serverResult = await verifyWithServer(
+        dinaCode,
+        input.deviceFingerprintHash,
+        imageBase64,
+        clientConfidence
+      );
+      console.log('[Pipeline] Server verify:', serverResult.status, '| confidence:', serverResult.confidence);
+    }
+
+    // 5. 최종 verify_status 결정 (서버 결과 우선, 없으면 로컬 AI 결과 사용)
+    let verifyStatus: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
+    let finalConfidence: number | null = null;
+
+    if (serverResult && serverResult.success) {
+      // 서버 검증 결과 사용
+      if (serverResult.status === 'VALID') {
+        verifyStatus = 'VALID';
+      } else if (serverResult.status === 'UNCERTAIN') {
+        verifyStatus = 'SUSPECT';
+      } else if (serverResult.status === 'INVALID') {
+        verifyStatus = 'INVALID';
+      } else {
+        verifyStatus = 'UNKNOWN';
+      }
+      finalConfidence = serverResult.confidence || null;
+    } else {
+      // 서버 실패 시 로컬 AI 결과 사용
+      const localConf = geocodeResult.confidence;
+      if (geocodeResult.status === 'DETECTED') {
+        if (localConf !== null && localConf >= 0.8) {
+          verifyStatus = 'VALID';
+        } else if (localConf !== null && localConf >= 0.5) {
+          verifyStatus = 'SUSPECT';
+        } else {
+          verifyStatus = 'SUSPECT';
+        }
+        finalConfidence = localConf !== null ? Math.round(localConf * 100) : null;
+      } else if (geocodeResult.status === 'NOT_DETECTED') {
+        verifyStatus = 'INVALID';
+      } else {
+        verifyStatus = 'UNKNOWN';
+      }
+    }
+
+    // 6. Evidence Pack 생성
     const evidencePack = {
-      version: '2.0', qr_status: qrStatus, dinaCode, otp,
-      imageUri: input.imageUri, geoBucket: input.geoBucket || null,
+      version: '2.0',
+      qr_status: qrStatus,
+      dinaCode,
+      otp,
+      imageUri: input.imageUri,
+      geoBucket: input.geoBucket || null,
       deviceFingerprintHash: input.deviceFingerprintHash,
-      geocode: { status: geocodeResult.status, geocodeId: geocodeResult.geocodeId || null, confidence: geocodeResult.confidence || null, ai_mode: geocodeResult.ai_mode, ai_status: geocodeResult.ai_status, model_name: geocodeResult.model_name, model_version: geocodeResult.model_version },
-      timestamp: new Date().toISOString()
+      geocode: {
+        status: geocodeResult.status,
+        geocodeId: geocodeResult.geocodeId || null,
+        confidence: geocodeResult.confidence || null,
+        ai_mode: geocodeResult.ai_mode,
+        ai_status: geocodeResult.ai_status,
+        model_name: geocodeResult.model_name,
+        model_version: geocodeResult.model_version,
+      },
+      server: serverResult ? {
+        success: serverResult.success,
+        status: serverResult.status,
+        confidence: serverResult.confidence,
+        dinaId: serverResult.dinaId,
+        sessionToken: serverResult.sessionToken,
+      } : null,
+      timestamp: new Date().toISOString(),
     };
+
+    // 7. Pack 정규화 및 서명
     const packCanonical = canonicalizePack(evidencePack);
     const packHash = await sha256(packCanonical);
     await ensureDeviceKeypair();
     await signPack(packCanonical);
 
     const recordId = generateUuid();
-
-    // verify_status가 VALID일 때만 ok: true
     const isOk = verifyStatus === 'VALID' || verifyStatus === 'SUSPECT';
 
-    return { 
-      ok: isOk, 
-      recordId: recordId, 
-      packHash: packHash, 
+    return {
+      ok: isOk,
+      recordId,
+      packHash,
       qr_status: qrStatus,
       verify_status: verifyStatus,
-      confidence: confidence
+      confidence: finalConfidence,
     };
   } catch (err) {
-    return { ok: false, error: 'PIPELINE_ERROR: ' + (err instanceof Error ? err.message : String(err)), verify_status: 'UNKNOWN' };
+    console.error('[Pipeline] Error:', err);
+    return {
+      ok: false,
+      error: 'PIPELINE_ERROR: ' + (err instanceof Error ? err.message : String(err)),
+      verify_status: 'UNKNOWN',
+    };
   }
 }
