@@ -3,6 +3,7 @@
 import { apiClient } from './client';
 import { signForGateA } from '../ed25519Signer';
 import { buildGateBPayload } from '../deviceGateB';
+import { buildGateCPayload } from '../deviceGateC';
 import type {
   ScanStartRequest,
   ScanStartResponse,
@@ -33,7 +34,7 @@ export async function scanStart(qrPayload: string): Promise<ScanStartResponse> {
   return apiClient.post<ScanStartResponse>('/geocam/scan/start', request);
 }
 
-// 이미지 검증 (Gate A + B 포함)
+// 이미지 검증 (Gate A + B + C 포함)
 export async function verify(
   sessionToken: string,
   nonce: string,
@@ -47,6 +48,9 @@ export async function verify(
   // Gate B: 디바이스 검증 페이로드
   const gateB = await buildGateBPayload();
 
+  // Gate C: GPS 위치 (실패 시 null → verify는 계속 진행)
+  const gateC = await buildGateCPayload();
+
   const request: VerifyRequest = {
     session_token: sessionToken,
     nonce: nonce,
@@ -57,6 +61,7 @@ export async function verify(
     signature: gateA.signature,
     public_key: gateA.public_key,
     client_timestamp: gateA.client_timestamp,
+    ...(gateC && { gps: gateC.gps }),
   };
   return apiClient.post<VerifyResponse>('/geocam/verify', request);
 }
@@ -66,18 +71,33 @@ export async function getStatus(dinaId: string): Promise<StatusResponse> {
   return apiClient.get<StatusResponse>('/geocam/status/' + encodeURIComponent(dinaId));
 }
 
-// 최초 등록
+// 최초 등록 (Gate A + B + C 포함)
 export async function register(
   sessionToken: string,
   nonce: string,
   dinaId: string,
   verificationConfidence: number
 ): Promise<RegisterResponse> {
+  // Gate A: Ed25519 서명
+  const gateA = await signForGateA(nonce, dinaId);
+
+  // Gate B: 디바이스 검증
+  const gateB = await buildGateBPayload();
+
+  // Gate C: GPS 위치
+  const gateC = await buildGateCPayload();
+
   const request: RegisterRequest = {
     session_token: sessionToken,
     nonce: nonce,
     dina_id: dinaId,
     verification_confidence: verificationConfidence,
+    device_info: gateB.device_info,
+    app_attestation: gateB.app_attestation,
+    signature: gateA.signature,
+    public_key: gateA.public_key,
+    client_timestamp: gateA.client_timestamp,
+    ...(gateC && { gps: gateC.gps }),
   };
   return apiClient.post<RegisterResponse>('/geocam/register', request);
 }

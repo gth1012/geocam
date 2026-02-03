@@ -33,6 +33,7 @@ function App() {
   const [verifyStatus, setVerifyStatus] = useState<'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | null>(null)
   const [processing, setProcessing] = useState(false)
   const [, setError] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
   const [networkError, setNetworkError] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const webcamRef = useRef<Webcam>(null)
@@ -51,16 +52,16 @@ function App() {
 
   const safeGoHome = useCallback(() => {
     try {
-      setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); 
-      setError(null); setProcessing(false); setNetworkError(false); setScanResultInfo(null);
+      setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null);
+      setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false); setScanResultInfo(null);
       setVerifyStatus(null); setCameraError(null); setScreen('home');
     } catch (e) { console.error('error:', e); setScreen('home'); }
   }, []);
 
   const safeGoCamera = useCallback(() => {
     try {
-      setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null); 
-      setRecordInfo(null); setError(null); setProcessing(false); setNetworkError(false);
+      setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null);
+      setRecordInfo(null); setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false);
       setVerifyStatus(null); setCameraError(null); setScreen('camera');
     } catch (e) { console.error('error:', e); setScreen('camera'); }
   }, []);
@@ -74,24 +75,25 @@ function App() {
   }, []);
 
   const runPipeline = async (qrRaw: string | null, imageUri: string) => {
-    setProcessing(true); setError(null); setNetworkError(false);
+    setProcessing(true); setError(null); setErrorCode(null); setNetworkError(false);
     try {
       const result = await runEvidencePipeline({ qrRaw, imageUri, geoBucket: null, deviceFingerprintHash: getDeviceFingerprint() });
       console.log('pipeline result:', result);
+      if (result.error_code) setErrorCode(result.error_code);
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
-        setVerifyStatus('VALID');
+        setVerifyStatus(result.verify_status || 'VALID');
         setScreen('result');
-      } else { 
-        setError(result.error || 'UNKNOWN_ERROR'); 
-        setVerifyStatus('UNKNOWN');
+      } else {
+        setError(result.error || 'UNKNOWN_ERROR');
+        setVerifyStatus(result.verify_status || 'UNKNOWN');
         setScreen('result');
       }
-    } catch (err) { 
+    } catch (err) {
       if (err instanceof Error && (err.message.includes('fetch') || err.message.includes('network'))) {
         setNetworkError(true);
       }
-      setError(err instanceof Error ? err.message : 'PIPELINE_ERROR'); 
+      setError(err instanceof Error ? err.message : 'PIPELINE_ERROR');
       setVerifyStatus('UNKNOWN');
       setScreen('result');
     }
@@ -117,28 +119,35 @@ function App() {
   const handleScanQrScan = async (result: any) => {
     if (result && result[0]?.rawValue && !processing) {
       const data = result[0].rawValue; setQrData(data);
-      setProcessing(true); setNetworkError(false);
+      setProcessing(true); setNetworkError(false); setErrorCode(null);
       try {
         const { checkAssetStatus } = await import('./evidencePipeline');
         const verifyResult = await checkAssetStatus(data, getDeviceFingerprint());
 
         if (verifyResult.success) {
           if (verifyResult.status === 'SHIPPED') {
-            // 정품 - 아직 등록 안됨
             setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
           } else if (verifyResult.status === 'ACTIVATED') {
-            // 이미 등록됨
             setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
           } else if (verifyResult.status === 'UNKNOWN') {
-            // 알 수 없는 코드
             setScanResultInfo({ status: 'ERROR', message: '등록되지 않은 코드입니다.' });
           } else {
             setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
           }
         } else {
-          if (verifyResult.error?.includes('ALREADY') || verifyResult.error?.includes('ACTIVATED')) {
+          const code = verifyResult.error_code || verifyResult.error || '';
+          if (code === 'RATE_LIMIT_EXCEEDED') {
+            setErrorCode('RATE_LIMIT_EXCEEDED');
+            setScanResultInfo({ status: 'ERROR', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' });
+          } else if (code === 'BATCH_NOT_SHIPPED') {
+            setErrorCode('BATCH_NOT_SHIPPED');
+            setScanResultInfo({ status: 'ERROR', message: '아직 출하되지 않은 제품입니다. 판매처에 문의해 주세요.' });
+          } else if (code === 'BATCH_TEMPORARILY_LOCKED') {
+            setErrorCode('BATCH_TEMPORARILY_LOCKED');
+            setScanResultInfo({ status: 'ERROR', message: '현재 이 제품군의 검증이 일시 중단되었습니다. 잠시 후 다시 시도해 주세요.' });
+          } else if (code.includes('ALREADY') || code.includes('ACTIVATED')) {
             setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
-          } else if (verifyResult.error?.includes('EXPIRED')) {
+          } else if (code.includes('EXPIRED')) {
             setScanResultInfo({ status: 'EXPIRED', message: '유효하지 않은 코드입니다.' });
           } else {
             setScanResultInfo({ status: 'ERROR', message: verifyResult.error || '서버 오류가 발생했습니다.' });
@@ -279,9 +288,27 @@ function App() {
     )
   }
 
+  // 에러코드별 사용자 메시지 (톤: 조언자O, 판사X)
+  const getErrorCodeMessage = (code: string | null): { title: string; message: string; color: string } | null => {
+    switch (code) {
+      case 'BATCH_NOT_SHIPPED':
+        return { title: '미출하 제품', message: '아직 출하되지 않은 제품입니다. 제품을 구매한 판매처에 문의해 주세요.', color: '#f97316' };
+      case 'BATCH_TEMPORARILY_LOCKED':
+        return { title: '검증 일시 중단', message: '현재 이 제품군의 검증이 일시 중단되었습니다. 잠시 후 다시 시도해 주세요.', color: '#f97316' };
+      case 'RATE_LIMIT_EXCEEDED':
+        return { title: '요청 제한', message: '짧은 시간에 요청이 너무 많았습니다. 1분 후 다시 시도해 주세요.', color: '#fbbf24' };
+      case 'WRITE_GATE_FAILED':
+        return { title: '보안 검증 실패', message: '디바이스 보안 검증에 실패했습니다. 앱을 재시작한 후 다시 시도해 주세요.', color: '#f87171' };
+      default:
+        return null;
+    }
+  };
+
   const ResultScreen = () => {
     const isCamera = scanMode === 'camera';
+    const errInfo = getErrorCodeMessage(errorCode);
     const getStatusColor = () => {
+      if (errInfo) return errInfo.color;
       switch (verifyStatus) {
         case 'VALID': return '#4ade80';
         case 'SUSPECT': return '#fbbf24';
@@ -291,6 +318,7 @@ function App() {
       }
     };
     const getStatusText = () => {
+      if (errInfo) return errInfo.title;
       switch (verifyStatus) {
         case 'VALID': return '검증 완료';
         case 'SUSPECT': return '신뢰도 낮음';
@@ -300,6 +328,7 @@ function App() {
       }
     };
     const getStatusMessage = () => {
+      if (errInfo) return errInfo.message;
       switch (verifyStatus) {
         case 'VALID': return '인증 정보가 확인되었습니다.';
         case 'SUSPECT': return '인식되었으나 신뢰도가 낮습니다. 재촬영해 주세요.';

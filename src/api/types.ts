@@ -77,6 +77,20 @@ export interface RegisterRequest {
   nonce: string;
   dina_id: string;
   verification_confidence: number;
+  device_info?: {
+    platform: string;
+    model: string;
+    os_version: string;
+  };
+  gps?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  };
+  signature?: string;
+  public_key?: string;
+  client_timestamp?: number;
+  app_attestation?: string;
 }
 
 export interface RegisterResponse {

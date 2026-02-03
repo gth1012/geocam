@@ -7,6 +7,7 @@ import { parseQr, isError, isMissing } from './qrParser';
 import { canonicalizePack } from './packCanonical';
 import { ensureDeviceKeypair, signPack, signForGateA } from './ed25519Signer';
 import { buildGateBPayload } from './deviceGateB';
+import { buildGateCPayload } from './deviceGateC';
 import { detectGeocode } from './geocodeEngine';
 import { Http } from '@capacitor-community/http';
 
@@ -24,6 +25,7 @@ export interface PipelineOutput {
   recordId?: string;
   packHash?: string;
   error?: string;
+  error_code?: string;
   qr_status?: 'found' | 'missing' | 'invalid';
   verify_status?: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
   confidence?: number | null;
@@ -87,6 +89,8 @@ export interface ServerVerifyResult {
     created_at: string;
   };
   error?: string;
+  error_code?: string;
+  httpStatus?: number;
 }
 
 /**
@@ -118,7 +122,8 @@ export async function checkAssetStatus(
         success: false,
         isAuthentic: false,
         status: 'UNKNOWN',
-        error: startData.error || 'SCAN_START_FAILED'
+        error: startData.error || 'SCAN_START_FAILED',
+        error_code: startData.error,
       };
     }
 
@@ -134,11 +139,16 @@ export async function checkAssetStatus(
     };
   } catch (err) {
     console.error('[checkAssetStatus] Error:', err);
+    const httpStatus = (err as any)?.status || 0;
+    let errorCode = err instanceof Error ? err.message : String(err);
+    if (httpStatus === 429) errorCode = 'RATE_LIMIT_EXCEEDED';
     return {
       success: false,
       isAuthentic: false,
       status: 'ERROR',
-      error: err instanceof Error ? err.message : String(err)
+      error: errorCode,
+      error_code: errorCode,
+      httpStatus,
     };
   }
 }
@@ -201,7 +211,18 @@ export async function verifyWithServer(
       console.warn('[verifyWithServer] Gate B payload failed:', e);
     }
 
-    // Step 4: verify - 이미지 검증 (Gate A + B 포함)
+    // Step 3.5: Gate C GPS 위치 수집 (실패 시 null → verify 계속 진행)
+    let gateC: { gps: { latitude: number; longitude: number; accuracy?: number }; client_timestamp: number } | null = null;
+    try {
+      gateC = await buildGateCPayload();
+      if (gateC) {
+        console.log('[verifyWithServer] Gate C GPS:', gateC.gps.latitude, gateC.gps.longitude);
+      }
+    } catch (e) {
+      console.warn('[verifyWithServer] Gate C GPS failed:', e);
+    }
+
+    // Step 4: verify - 이미지 검증 (Gate A + B + C 포함)
     const verifyRes = await Http.request({
       method: 'POST',
       url: API_BASE_URL + '/api/geocam/verify',
@@ -223,11 +244,23 @@ export async function verifyWithServer(
           public_key: gateA.public_key,
           client_timestamp: gateA.client_timestamp,
         }),
+        // Gate C: GPS 위치
+        ...(gateC && { gps: gateC.gps }),
       }
     });
 
     const verifyData = verifyRes.data;
-    console.log('[verifyWithServer] verify response:', verifyData.success, verifyData.result, verifyData.confidence);
+    console.log('[verifyWithServer] verify response:', verifyData.success, verifyData.result, verifyData.confidence, 'trust:', verifyData.trust_level);
+
+    // WRITE_GATE_FAILED 감지: trust_level이 L1이고 gate_results에 실패 항목 존재
+    let resolvedErrorCode = verifyData.error || undefined;
+    if (verifyData.trust_level === 'L1_OBSERVATION' && verifyData.gate_results) {
+      const failedGates = verifyData.gate_results.filter((g: any) => !g.passed);
+      if (failedGates.length > 0) {
+        resolvedErrorCode = resolvedErrorCode || 'WRITE_GATE_FAILED';
+        console.warn('[verifyWithServer] Gate failures:', failedGates.map((g: any) => g.gate + ':' + g.reason).join(', '));
+      }
+    }
 
     return {
       success: verifyData.success,
@@ -238,33 +271,72 @@ export async function verifyWithServer(
       dinaId: verifyData.matched_dina_id || startData.asset_info?.dina_id,
       assetInfo: startData.asset_info,
       error: verifyData.error,
+      error_code: resolvedErrorCode,
     };
   } catch (err) {
     console.error('[verifyWithServer] Error:', err);
+    // HTTP 상태 코드 감지 (Capacitor Http 응답)
+    const httpStatus = (err as any)?.status || 0;
+    let errorCode = err instanceof Error ? err.message : String(err);
+    if (httpStatus === 429) errorCode = 'RATE_LIMIT_EXCEEDED';
     return {
       success: false,
       isAuthentic: false,
       status: 'ERROR',
-      error: err instanceof Error ? err.message : String(err)
+      error: errorCode,
+      error_code: errorCode,
+      httpStatus,
     };
   }
 }
 
 /**
- * 서버에 정품 등록 요청 (register)
+ * 서버에 정품 등록 요청 (register) — Gate A+B+C 포함
  */
 export async function registerWithServer(
   sessionToken: string,
-  dinaId: string
-): Promise<{ success: boolean; status: string; error?: string }> {
+  dinaId: string,
+  nonce: string
+): Promise<{ success: boolean; status: string; error?: string; error_code?: string }> {
   try {
+    // Gate A: Ed25519 서명
+    let gateAData: Record<string, unknown> = {};
+    try {
+      const gateA = await signForGateA(nonce, dinaId);
+      gateAData = { signature: gateA.signature, public_key: gateA.public_key, client_timestamp: gateA.client_timestamp };
+    } catch (e) {
+      console.warn('[registerWithServer] Gate A failed:', e);
+    }
+
+    // Gate B: 디바이스 검증
+    let gateBData: Record<string, unknown> = {};
+    try {
+      const gateB = await buildGateBPayload();
+      gateBData = { device_info: gateB.device_info, app_attestation: gateB.app_attestation };
+    } catch (e) {
+      console.warn('[registerWithServer] Gate B failed:', e);
+    }
+
+    // Gate C: GPS
+    let gateCData: Record<string, unknown> = {};
+    try {
+      const gateC = await buildGateCPayload();
+      if (gateC) gateCData = { gps: gateC.gps };
+    } catch (e) {
+      console.warn('[registerWithServer] Gate C failed:', e);
+    }
+
     const res = await Http.request({
       method: 'POST',
       url: API_BASE_URL + '/api/geocam/register',
       headers: { 'Content-Type': 'application/json' },
       data: {
         session_token: sessionToken,
+        nonce: nonce,
         dina_id: dinaId,
+        ...gateAData,
+        ...gateBData,
+        ...gateCData,
       }
     });
 
@@ -273,12 +345,17 @@ export async function registerWithServer(
       success: data.success,
       status: data.status,
       error: data.error,
+      error_code: data.error,
     };
   } catch (err) {
+    const httpStatus = (err as any)?.status || 0;
+    let errorCode = err instanceof Error ? err.message : String(err);
+    if (httpStatus === 429) errorCode = 'RATE_LIMIT_EXCEEDED';
     return {
       success: false,
       status: 'ERROR',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorCode,
+      error_code: errorCode,
     };
   }
 }
@@ -322,6 +399,19 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
         clientConfidence
       );
       console.log('[Pipeline] Server verify:', serverResult.status, '| confidence:', serverResult.confidence);
+    }
+
+    // 서버 에러코드 전파 (BATCH_NOT_SHIPPED, BATCH_TEMPORARILY_LOCKED, RATE_LIMIT_EXCEEDED 등)
+    if (serverResult && !serverResult.success && serverResult.error_code) {
+      const code = serverResult.error_code;
+      if (code === 'BATCH_NOT_SHIPPED' || code === 'BATCH_TEMPORARILY_LOCKED' || code === 'RATE_LIMIT_EXCEEDED') {
+        return {
+          ok: false,
+          error: code,
+          error_code: code,
+          verify_status: 'INVALID',
+        };
+      }
     }
 
     // 5. 최종 verify_status 결정 (서버 결과 우선, 없으면 로컬 AI 결과 사용)
@@ -403,6 +493,7 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       qr_status: qrStatus,
       verify_status: verifyStatus,
       confidence: finalConfidence,
+      error_code: serverResult?.error_code,
     };
   } catch (err) {
     console.error('[Pipeline] Error:', err);
