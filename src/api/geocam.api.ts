@@ -2,6 +2,7 @@
 
 import { apiClient } from './client';
 import { signForGateA } from '../ed25519Signer';
+import { buildGateBPayload } from '../deviceGateB';
 import type {
   ScanStartRequest,
   ScanStartResponse,
@@ -22,20 +23,6 @@ function getDeviceId(): string {
   return deviceId;
 }
 
-// 디바이스 정보
-function getDeviceInfo() {
-  const ua = navigator.userAgent;
-  let platform = 'Web';
-  if (/iPhone|iPad/.test(ua)) platform = 'iOS';
-  else if (/Android/.test(ua)) platform = 'Android';
-
-  return {
-    platform,
-    model: navigator.platform || 'Unknown',
-    os_version: navigator.userAgent.substring(0, 50),
-  };
-}
-
 // QR 스캔 시작 - 세션 발급
 export async function scanStart(qrPayload: string): Promise<ScanStartResponse> {
   const request: ScanStartRequest = {
@@ -46,7 +33,7 @@ export async function scanStart(qrPayload: string): Promise<ScanStartResponse> {
   return apiClient.post<ScanStartResponse>('/geocam/scan/start', request);
 }
 
-// 이미지 검증 (Gate A 서명 포함)
+// 이미지 검증 (Gate A + B 포함)
 export async function verify(
   sessionToken: string,
   nonce: string,
@@ -57,12 +44,16 @@ export async function verify(
   // Gate A: Ed25519 서명 생성
   const gateA = await signForGateA(nonce, dinaId);
 
+  // Gate B: 디바이스 검증 페이로드
+  const gateB = await buildGateBPayload();
+
   const request: VerifyRequest = {
     session_token: sessionToken,
     nonce: nonce,
     image_data: imageData,
     client_confidence: clientConfidence,
-    device_info: getDeviceInfo(),
+    device_info: gateB.device_info,
+    app_attestation: gateB.app_attestation,
     signature: gateA.signature,
     public_key: gateA.public_key,
     client_timestamp: gateA.client_timestamp,

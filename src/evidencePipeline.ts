@@ -6,6 +6,7 @@
 import { parseQr, isError, isMissing } from './qrParser';
 import { canonicalizePack } from './packCanonical';
 import { ensureDeviceKeypair, signPack, signForGateA } from './ed25519Signer';
+import { buildGateBPayload } from './deviceGateB';
 import { detectGeocode } from './geocodeEngine';
 import { Http } from '@capacitor-community/http';
 
@@ -191,12 +192,16 @@ export async function verifyWithServer(
       console.warn('[verifyWithServer] Gate A signature failed:', e);
     }
 
-    // Step 3: verify - 이미지 검증 (Gate A 서명 포함)
-    const ua = navigator.userAgent;
-    let platform = 'Web';
-    if (/iPhone|iPad/.test(ua)) platform = 'iOS';
-    else if (/Android/.test(ua)) platform = 'Android';
+    // Step 3: Gate B 디바이스 검증 페이로드 생성
+    let gateB: { device_info: { platform: string; model: string; os_version: string }; app_attestation: string } | null = null;
+    try {
+      gateB = await buildGateBPayload();
+      console.log('[verifyWithServer] Gate B payload ready, platform:', gateB.device_info.platform);
+    } catch (e) {
+      console.warn('[verifyWithServer] Gate B payload failed:', e);
+    }
 
+    // Step 4: verify - 이미지 검증 (Gate A + B 포함)
     const verifyRes = await Http.request({
       method: 'POST',
       url: API_BASE_URL + '/api/geocam/verify',
@@ -206,11 +211,12 @@ export async function verifyWithServer(
         nonce: startData.nonce,
         image_data: imageData,
         client_confidence: clientConfidence,
-        device_info: {
-          platform,
+        device_info: gateB?.device_info || {
+          platform: 'web',
           model: navigator.platform || 'Unknown',
-          os_version: ua.substring(0, 50),
+          os_version: navigator.userAgent.substring(0, 50),
         },
+        app_attestation: gateB?.app_attestation,
         // Gate A: Ed25519 서명
         ...(gateA && {
           signature: gateA.signature,
