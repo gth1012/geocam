@@ -31,6 +31,18 @@ export interface VerifyRequest {
     model: string;
     os_version: string;
   };
+  // Write-Gate A: Ed25519 서명
+  signature?: string;
+  public_key?: string;
+  client_timestamp?: number;
+  // Write-Gate B: 디바이스 attestation
+  app_attestation?: string;
+  // Write-Gate C: GPS
+  gps?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  };
 }
 
 export interface VerifyResponse {
@@ -38,6 +50,14 @@ export interface VerifyResponse {
   result: 'VALID' | 'UNCERTAIN' | 'INVALID';
   confidence: number;
   matched_dina_id?: string;
+  trust_level?: 'L2_VERIFIED' | 'L1_OBSERVATION';
+  gate_results?: Array<{
+    gate: 'A' | 'B' | 'C';
+    name: string;
+    passed: boolean;
+    reason?: string;
+  }>;
+  duplicate_suspect?: boolean;
   issues?: string[];
   retry_allowed: boolean;
   remaining_attempts: number;

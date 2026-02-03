@@ -5,7 +5,7 @@
  */
 import { parseQr, isError, isMissing } from './qrParser';
 import { canonicalizePack } from './packCanonical';
-import { ensureDeviceKeypair, signPack } from './ed25519Signer';
+import { ensureDeviceKeypair, signPack, signForGateA } from './ed25519Signer';
 import { detectGeocode } from './geocodeEngine';
 import { Http } from '@capacitor-community/http';
 
@@ -181,7 +181,22 @@ export async function verifyWithServer(
       };
     }
 
-    // Step 2: verify - 이미지 검증
+    // Step 2: Gate A 서명 생성 (nonce + dina_id + timestamp)
+    const dinaId = startData.asset_info?.dina_id || dinaCode;
+    let gateA: { signature: string; public_key: string; client_timestamp: number } | null = null;
+    try {
+      gateA = await signForGateA(startData.nonce, dinaId);
+      console.log('[verifyWithServer] Gate A signature created, ts:', gateA.client_timestamp);
+    } catch (e) {
+      console.warn('[verifyWithServer] Gate A signature failed:', e);
+    }
+
+    // Step 3: verify - 이미지 검증 (Gate A 서명 포함)
+    const ua = navigator.userAgent;
+    let platform = 'Web';
+    if (/iPhone|iPad/.test(ua)) platform = 'iOS';
+    else if (/Android/.test(ua)) platform = 'Android';
+
     const verifyRes = await Http.request({
       method: 'POST',
       url: API_BASE_URL + '/api/geocam/verify',
@@ -191,6 +206,17 @@ export async function verifyWithServer(
         nonce: startData.nonce,
         image_data: imageData,
         client_confidence: clientConfidence,
+        device_info: {
+          platform,
+          model: navigator.platform || 'Unknown',
+          os_version: ua.substring(0, 50),
+        },
+        // Gate A: Ed25519 서명
+        ...(gateA && {
+          signature: gateA.signature,
+          public_key: gateA.public_key,
+          client_timestamp: gateA.client_timestamp,
+        }),
       }
     });
 

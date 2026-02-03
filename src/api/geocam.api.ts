@@ -1,6 +1,7 @@
-﻿// GeoCam API 호출 함수
+// GeoCam API 호출 함수
 
 import { apiClient } from './client';
+import { signForGateA } from '../ed25519Signer';
 import type {
   ScanStartRequest,
   ScanStartResponse,
@@ -27,7 +28,7 @@ function getDeviceInfo() {
   let platform = 'Web';
   if (/iPhone|iPad/.test(ua)) platform = 'iOS';
   else if (/Android/.test(ua)) platform = 'Android';
-  
+
   return {
     platform,
     model: navigator.platform || 'Unknown',
@@ -45,19 +46,26 @@ export async function scanStart(qrPayload: string): Promise<ScanStartResponse> {
   return apiClient.post<ScanStartResponse>('/geocam/scan/start', request);
 }
 
-// 이미지 검증
+// 이미지 검증 (Gate A 서명 포함)
 export async function verify(
   sessionToken: string,
   nonce: string,
   imageData: string,
+  dinaId: string,
   clientConfidence?: number
 ): Promise<VerifyResponse> {
+  // Gate A: Ed25519 서명 생성
+  const gateA = await signForGateA(nonce, dinaId);
+
   const request: VerifyRequest = {
     session_token: sessionToken,
     nonce: nonce,
     image_data: imageData,
     client_confidence: clientConfidence,
     device_info: getDeviceInfo(),
+    signature: gateA.signature,
+    public_key: gateA.public_key,
+    client_timestamp: gateA.client_timestamp,
   };
   return apiClient.post<VerifyResponse>('/geocam/verify', request);
 }
