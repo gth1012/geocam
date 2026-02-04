@@ -5,7 +5,7 @@
  */
 import { parseQr, isError, isMissing } from './qrParser';
 import { canonicalizePack } from './packCanonical';
-import { ensureDeviceKeypair, signPack, signForGateA } from './ed25519Signer';
+import { ensureDeviceKeypair, signPack, verifyPack, signForGateA } from './ed25519Signer';
 import { buildGateBPayload } from './deviceGateB';
 import { buildGateCPayload } from './deviceGateC';
 import { detectGeocode } from './geocodeEngine';
@@ -29,6 +29,10 @@ export interface PipelineOutput {
   qr_status?: 'found' | 'missing' | 'invalid';
   verify_status?: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
   confidence?: number | null;
+  sessionToken?: string;
+  nonce?: string;
+  dinaId?: string;
+  signatureVerified?: boolean;
 }
 
 function generateUuid(): string {
@@ -81,6 +85,7 @@ export interface ServerVerifyResult {
   status: 'VALID' | 'UNCERTAIN' | 'INVALID' | 'UNKNOWN' | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
   confidence?: number;
   sessionToken?: string;
+  nonce?: string;
   dinaId?: string;
   assetInfo?: {
     dina_id: string;
@@ -268,6 +273,7 @@ export async function verifyWithServer(
       status: verifyData.result || 'UNKNOWN',
       confidence: verifyData.confidence,
       sessionToken: startData.session_token,
+      nonce: startData.nonce,
       dinaId: verifyData.matched_dina_id || startData.asset_info?.dina_id,
       assetInfo: startData.asset_info,
       error: verifyData.error,
@@ -480,8 +486,16 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
     // 7. Pack 정규화 및 서명
     const packCanonical = canonicalizePack(evidencePack);
     const packHash = await sha256(packCanonical);
-    await ensureDeviceKeypair();
-    await signPack(packCanonical);
+    const keypairInfo = await ensureDeviceKeypair();
+    const signResult = await signPack(packCanonical);
+
+    // 로컬 서명 검증
+    let signatureVerified = false;
+    try {
+      signatureVerified = verifyPack(packCanonical, signResult.signatureBase64, keypairInfo.publicKeyHex);
+    } catch (e) {
+      console.warn('[Pipeline] Local signature verification failed:', e);
+    }
 
     const recordId = generateUuid();
     const isOk = verifyStatus === 'VALID' || verifyStatus === 'SUSPECT';
@@ -494,6 +508,10 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       verify_status: verifyStatus,
       confidence: finalConfidence,
       error_code: serverResult?.error_code,
+      sessionToken: serverResult?.sessionToken,
+      nonce: serverResult?.nonce,
+      dinaId: serverResult?.dinaId,
+      signatureVerified,
     };
   } catch (err) {
     console.error('[Pipeline] Error:', err);

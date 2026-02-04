@@ -2,10 +2,10 @@
 // jsQR import removed
 import Webcam from 'react-webcam'
 import { Scanner } from '@yudiel/react-qr-scanner'
-import { runEvidencePipeline } from './evidencePipeline'
+import { runEvidencePipeline, registerWithServer } from './evidencePipeline'
 import './App.css'
 
-type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings'
+type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult'
 type ScanMode = 'camera' | 'scan'
 type ScanStatus = 'PENDING' | 'CLAIMED' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
 
@@ -36,6 +36,15 @@ function App() {
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [networkError, setNetworkError] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [nonce, setNonce] = useState<string | null>(null)
+  const [dinaId, setDinaId] = useState<string | null>(null)
+  const [signatureVerified, setSignatureVerified] = useState<boolean | null>(null)
+  const [confidence, setConfidence] = useState<number | null>(null)
+  const [registering, setRegistering] = useState(false)
+  const [registerStatus, setRegisterStatus] = useState<string | null>(null)
+  const [registerError, setRegisterError] = useState<string | null>(null)
+  const [otpInput, setOtpInput] = useState('')
   const webcamRef = useRef<Webcam>(null)
 
   const getDeviceFingerprint = (): string => {
@@ -54,7 +63,10 @@ function App() {
     try {
       setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null);
       setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false); setScanResultInfo(null);
-      setVerifyStatus(null); setCameraError(null); setScreen('home');
+      setVerifyStatus(null); setCameraError(null);
+      setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null); setConfidence(null);
+      setRegistering(false); setRegisterStatus(null); setRegisterError(null); setOtpInput('');
+      setScreen('home');
     } catch (e) { console.error('error:', e); setScreen('home'); }
   }, []);
 
@@ -80,6 +92,11 @@ function App() {
       const result = await runEvidencePipeline({ qrRaw, imageUri, geoBucket: null, deviceFingerprintHash: getDeviceFingerprint() });
       console.log('pipeline result:', result);
       if (result.error_code) setErrorCode(result.error_code);
+      if (result.sessionToken) setSessionToken(result.sessionToken);
+      if (result.nonce) setNonce(result.nonce);
+      if (result.dinaId) setDinaId(result.dinaId);
+      if (result.signatureVerified !== undefined) setSignatureVerified(result.signatureVerified);
+      if (result.confidence !== undefined && result.confidence !== null) setConfidence(result.confidence);
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
         setVerifyStatus(result.verify_status || 'VALID');
@@ -125,7 +142,19 @@ function App() {
         const verifyResult = await checkAssetStatus(data, getDeviceFingerprint());
 
         if (verifyResult.success) {
+          // 세션 데이터 저장
+          if (verifyResult.sessionToken) setSessionToken(verifyResult.sessionToken);
+          if (verifyResult.dinaId) setDinaId(verifyResult.dinaId);
+
           if (verifyResult.status === 'SHIPPED') {
+            // QR에 OTP가 포함되어 있는지 확인
+            const hasOtp = /OTP-[A-Z0-9]{8}/.test(data);
+            if (!hasOtp) {
+              // OTP 없음 → OTP 수동 입력 화면으로 이동
+              setProcessing(false);
+              setScreen('otpInput');
+              return;
+            }
             setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
           } else if (verifyResult.status === 'ACTIVATED') {
             setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
@@ -320,27 +349,74 @@ function App() {
     const getStatusText = () => {
       if (errInfo) return errInfo.title;
       switch (verifyStatus) {
-        case 'VALID': return '검증 완료';
-        case 'SUSPECT': return '신뢰도 낮음';
-        case 'INVALID': return '불일치';
-        case 'UNKNOWN': return '인식 실패';
+        case 'VALID': return '정품 확인 (AUTHENTIC)';
+        case 'SUSPECT': return '주의 필요 (SUSPICIOUS)';
+        case 'INVALID': return '인증 불일치 (MISMATCH)';
+        case 'UNKNOWN': return '미등록 제품 (UNREGISTERED)';
         default: return '확인중';
       }
     };
     const getStatusMessage = () => {
       if (errInfo) return errInfo.message;
       switch (verifyStatus) {
-        case 'VALID': return '인증 정보가 확인되었습니다.';
-        case 'SUSPECT': return '인식되었으나 신뢰도가 낮습니다. 재촬영해 주세요.';
-        case 'INVALID': return '인증 정보와 일치하지 않습니다.';
-        case 'UNKNOWN': return '코드를 인식할 수 없습니다. 촬영 조건(조명, 각도, 해상도)을 확인해 주세요.';
+        case 'VALID': return '이 제품은 정품으로 확인되었습니다. 인증 정보와 실물이 일치합니다.';
+        case 'SUSPECT': return '인식되었으나 신뢰도가 낮습니다. 조명과 각도를 조정하여 다시 촬영해 주세요.';
+        case 'INVALID': return '촬영된 이미지와 등록된 인증 정보가 일치하지 않습니다. 정품 여부를 확인해 주세요.';
+        case 'UNKNOWN': return '이 제품의 인증 정보가 등록되어 있지 않습니다. 제품 구매처에 문의해 주세요.';
         default: return '';
+      }
+    };
+    const getStatusIcon = () => {
+      const color = getStatusColor();
+      switch (verifyStatus) {
+        case 'VALID': return (
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="15" stroke={color} strokeWidth="2" />
+            <path d="M10 16l4 4 8-8" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        );
+        case 'SUSPECT': return (
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <path d="M16 3L2 28h28L16 3z" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+            <path d="M16 13v7" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+            <circle cx="16" cy="24" r="1.5" fill={color} />
+          </svg>
+        );
+        case 'INVALID': return (
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="15" stroke={color} strokeWidth="2" />
+            <path d="M11 11l10 10M21 11l-10 10" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+          </svg>
+        );
+        case 'UNKNOWN': return (
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="15" stroke={color} strokeWidth="2" />
+            <path d="M12 12a4 4 0 014-4 4 4 0 014 4c0 2-2 3-3 4s-1 2-1 3" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+            <circle cx="16" cy="24" r="1.5" fill={color} />
+          </svg>
+        );
+        default: return null;
       }
     };
     const handleRetry = useCallback(() => {
       try { setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null); setError(null); setProcessing(false); setVerifyStatus(null); setScreen(isCamera ? 'camera' : 'preview'); }
       catch (e) { console.error('retry error:', e); setScreen(isCamera ? 'camera' : 'preview'); }
     }, [isCamera]);
+    const handleRegister = async () => {
+      if (!sessionToken || !dinaId || !nonce) return;
+      setRegistering(true);
+      try {
+        const res = await registerWithServer(sessionToken, dinaId, nonce);
+        setRegisterStatus(res.status);
+        if (!res.success) setRegisterError(res.error_code || res.error || 'UNKNOWN');
+        setScreen('registerResult');
+      } catch (e) {
+        setRegisterStatus('FAILED');
+        setRegisterError('NETWORK_ERROR');
+        setScreen('registerResult');
+      }
+      setRegistering(false);
+    };
     return (
       <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', overflow: 'hidden' }}>
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -353,10 +429,22 @@ function App() {
         <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px', background: '#0a0a0c' }}>
           <div style={{ background: `${getStatusColor()}10`, border: `1px solid ${getStatusColor()}30`, borderRadius: '12px', padding: '12px' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px', borderRadius: '9999px', background: `${getStatusColor()}15`, border: `1px solid ${getStatusColor()}40`, marginBottom: '8px' }}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: getStatusColor() }} />
+              {getStatusIcon()}
               <span style={{ fontSize: '13px', fontWeight: '500', color: getStatusColor() }}>{getStatusText()}</span>
             </div>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '8px', lineHeight: '1.4' }}>{getStatusMessage()}</p>
+            {confidence !== null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>신뢰도</span>
+                <span style={{ color: getStatusColor(), fontSize: '12px', fontWeight: '500' }}>{confidence}%</span>
+              </div>
+            )}
+            {signatureVerified !== null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>서명 검증</span>
+                <span style={{ color: signatureVerified ? '#4ade80' : '#f87171', fontSize: '12px', fontWeight: '500' }}>{signatureVerified ? 'PASS' : 'FAIL'}</span>
+              </div>
+            )}
             {recordInfo && verifyStatus === 'VALID' && (
               <div style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
@@ -373,6 +461,9 @@ function App() {
           </div>
           <div style={{ display: 'flex', gap: '12px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
             <button onClick={safeGoHome} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>확인</button>
+            {verifyStatus === 'VALID' && sessionToken && (
+              <button onClick={handleRegister} disabled={registering} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: registering ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontWeight: '500', cursor: registering ? 'default' : 'pointer' }}>{registering ? '등록 중...' : '정품 등록'}</button>
+            )}
             {(verifyStatus === 'SUSPECT' || verifyStatus === 'UNKNOWN' || verifyStatus === 'INVALID') && (
               <button onClick={handleRetry} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: verifyStatus === 'SUSPECT' ? 'rgba(251,191,36,0.1)' : 'rgba(255,255,255,0.06)', border: `1px solid ${verifyStatus === 'SUSPECT' ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.1)'}`, color: verifyStatus === 'SUSPECT' ? '#fbbf24' : 'white', cursor: 'pointer' }}>다시 촬영</button>
             )}
@@ -463,6 +554,138 @@ function App() {
     );
   };
 
+  const OtpInputScreen = () => {
+    const handleOtpSubmit = () => {
+      if (otpInput.length === 8) {
+        // OTP를 QR 데이터에 추가하여 저장
+        const updatedQr = (qrData || '') + ' OTP-' + otpInput.toUpperCase();
+        setQrData(updatedQr);
+        // 카메라 화면으로 이동하여 실물 촬영 진행
+        setScanMode('camera');
+        setQrDetected(true);
+        setCapturedImage(null);
+        setRecordInfo(null);
+        setError(null);
+        setErrorCode(null);
+        setProcessing(false);
+        setNetworkError(false);
+        setVerifyStatus(null);
+        setCameraError(null);
+        setScreen('camera');
+      }
+    };
+    // DINA 코드만 추출하여 표시
+    const dinaMatch = qrData?.match(/DINA-[A-Z0-9]{13}/);
+    const dinaDisplay = dinaMatch ? dinaMatch[0] : qrData || '';
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
+          <button onClick={safeGoScan} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.1em' }}>OTP 입력</span>
+        </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '40px' }}>
+          <div style={{ marginBottom: '32px', padding: '12px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
+            <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontFamily: 'monospace', letterSpacing: '0.1em', margin: 0 }}>{dinaDisplay}</p>
+          </div>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px', maxWidth: '280px', lineHeight: '1.5' }}>제품에 포함된 OTP 코드 8자리를 입력해 주세요</p>
+          <input
+            type="text"
+            value={otpInput}
+            onChange={(e) => setOtpInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+            maxLength={8}
+            placeholder="OTP 코드 8자리"
+            style={{
+              width: '240px', padding: '16px', fontSize: '20px', fontFamily: 'monospace', letterSpacing: '0.3em', textAlign: 'center',
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '12px',
+              color: 'rgba(255,255,255,0.9)', outline: 'none', textTransform: 'uppercase',
+            }}
+          />
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', marginTop: '8px' }}>{otpInput.length}/8</p>
+          <button
+            onClick={handleOtpSubmit}
+            disabled={otpInput.length !== 8}
+            style={{
+              marginTop: '24px', width: '240px', padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500',
+              background: otpInput.length === 8 ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${otpInput.length === 8 ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.06)'}`,
+              color: otpInput.length === 8 ? '#4ade80' : 'rgba(255,255,255,0.3)',
+              cursor: otpInput.length === 8 ? 'pointer' : 'not-allowed',
+            }}
+          >확인</button>
+        </div>
+        <div style={{ paddingBottom: 'max(40px, env(safe-area-inset-bottom))' }} />
+      </div>
+    );
+  };
+
+  const RegisterResultScreen = () => {
+    const getRegisterInfo = () => {
+      if (registerStatus === 'ACTIVATED') {
+        return {
+          color: '#4ade80',
+          title: '정품 등록 완료',
+          message: '이 제품은 정품으로 등록되었습니다.',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
+              <path d="M15 24l6 6 12-12" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ),
+        };
+      }
+      if (registerStatus === 'ALREADY_ACTIVATED') {
+        return {
+          color: '#fbbf24',
+          title: '이미 등록된 제품',
+          message: '이 제품은 이미 정품 등록이 완료되었습니다.',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
+              <path d="M24 14v12" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="24" cy="33" r="2" fill="#fbbf24" />
+            </svg>
+          ),
+        };
+      }
+      // FAILED or other
+      const errorMessages: Record<string, string> = {
+        SESSION_NOT_VERIFIED: '세션이 만료되었습니다. 다시 시도해 주세요.',
+        DINA_MISMATCH: '코드 정보가 일치하지 않습니다.',
+        ASSET_NOT_FOUND: '등록되지 않은 제품입니다.',
+        BATCH_NOT_SHIPPED: '아직 출하되지 않은 제품입니다.',
+        NETWORK_ERROR: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.',
+      };
+      const msg = (registerError && errorMessages[registerError]) || '등록에 실패했습니다. 다시 시도해 주세요.';
+      return {
+        color: '#f87171',
+        title: '등록 실패',
+        message: msg,
+        icon: (
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
+            <path d="M17 17l14 14M31 17l-14 14" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        ),
+      };
+    };
+    const info = getRegisterInfo();
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `${info.color}10`, border: `2px solid ${info.color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
+            {info.icon}
+          </div>
+          <h2 style={{ color: info.color, fontSize: '22px', fontWeight: '500', marginBottom: '12px' }}>{info.title}</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', maxWidth: '280px', lineHeight: '1.5' }}>{info.message}</p>
+        </div>
+        <div style={{ paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
+          <button onClick={safeGoHome} style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+        </div>
+      </div>
+    );
+  };
+
   const SettingsScreen = () => {
     return (
       <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
@@ -503,6 +726,8 @@ function App() {
       {screen === 'records' && <RecordsScreen />}
       {screen === 'gallery' && <GalleryScreen />}
       {screen === 'preview' && <PreviewScreen />}
+      {screen === 'otpInput' && <OtpInputScreen />}
+      {screen === 'registerResult' && <RegisterResultScreen />}
       {screen === 'settings' && <SettingsScreen />}
     </>
   )
