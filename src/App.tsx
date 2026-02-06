@@ -1,7 +1,8 @@
 ﻿import { useState, useRef, useCallback, useEffect } from 'react'
 // jsQR import removed
-import Webcam from 'react-webcam'
+// Webcam removed - using Scanner only
 import { Scanner } from '@yudiel/react-qr-scanner'
+import { Html5Qrcode } from 'html5-qrcode'
 import { runEvidencePipeline, registerWithServer } from './evidencePipeline'
 import './App.css'
 
@@ -24,7 +25,7 @@ interface ScanResultInfo {
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [scanMode, setScanMode] = useState<ScanMode>('camera')
-  const [qrDetected, setQrDetected] = useState(false)
+  const [, setQrDetected] = useState(false)
   const [qrData, setQrData] = useState<string | null>(null)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<string>('')
@@ -45,7 +46,6 @@ function App() {
   const [registerStatus, setRegisterStatus] = useState<string | null>(null)
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [otpInput, setOtpInput] = useState('')
-  const webcamRef = useRef<Webcam>(null)
 
   const getDeviceFingerprint = (): string => {
     const nav = navigator;
@@ -117,80 +117,6 @@ function App() {
     finally { setProcessing(false); }
   }
 
-  const capturePhoto = useCallback(async () => {
-    console.log('capturePhoto called');
-    try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value = 800; osc.type = 'sine'; gain.gain.setValueAtTime(0.5, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15); osc.start(); osc.stop(ctx.currentTime + 0.15); } catch(e) {}
-    if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (imageSrc) { setCapturedImage(imageSrc); await runPipeline(qrData || null, imageSrc); }
-    }
-  }, [qrData])
-
-  const handleCameraQrScan = (result: any) => {
-    if (result && result[0]?.rawValue && !qrDetected) {
-      const data = result[0].rawValue;
-      if (data.includes('DINA-')) { setQrData(data); setQrDetected(true); }
-    }
-  }
-
-  const handleScanQrScan = async (result: any) => {
-    if (result && result[0]?.rawValue && !processing) {
-      const data = result[0].rawValue; setQrData(data);
-      setProcessing(true); setNetworkError(false); setErrorCode(null);
-      try {
-        const { checkAssetStatus } = await import('./evidencePipeline');
-        const verifyResult = await checkAssetStatus(data, getDeviceFingerprint());
-
-        if (verifyResult.success) {
-          // 세션 데이터 저장
-          if (verifyResult.sessionToken) setSessionToken(verifyResult.sessionToken);
-          if (verifyResult.dinaId) setDinaId(verifyResult.dinaId);
-
-          if (verifyResult.status === 'SHIPPED') {
-            // QR에 OTP가 포함되어 있는지 확인
-            const hasOtp = /OTP-[A-Z0-9]{8}/.test(data);
-            if (!hasOtp) {
-              // OTP 없음 → OTP 수동 입력 화면으로 이동
-              setProcessing(false);
-              setScreen('otpInput');
-              return;
-            }
-            setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
-          } else if (verifyResult.status === 'ACTIVATED') {
-            setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
-          } else if (verifyResult.status === 'UNKNOWN') {
-            setScanResultInfo({ status: 'ERROR', message: '등록되지 않은 코드입니다.' });
-          } else {
-            setScanResultInfo({ status: 'PENDING', pendingId: 'PND-' + Date.now(), message: '실물 촬영을 완료하면 등록이 완료됩니다.' });
-          }
-        } else {
-          const code = verifyResult.error_code || verifyResult.error || '';
-          if (code === 'RATE_LIMIT_EXCEEDED') {
-            setErrorCode('RATE_LIMIT_EXCEEDED');
-            setScanResultInfo({ status: 'ERROR', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' });
-          } else if (code === 'BATCH_NOT_SHIPPED') {
-            setErrorCode('BATCH_NOT_SHIPPED');
-            setScanResultInfo({ status: 'ERROR', message: '아직 출하되지 않은 제품입니다. 판매처에 문의해 주세요.' });
-          } else if (code === 'BATCH_TEMPORARILY_LOCKED') {
-            setErrorCode('BATCH_TEMPORARILY_LOCKED');
-            setScanResultInfo({ status: 'ERROR', message: '현재 이 제품군의 검증이 일시 중단되었습니다. 잠시 후 다시 시도해 주세요.' });
-          } else if (code.includes('ALREADY') || code.includes('ACTIVATED')) {
-            setScanResultInfo({ status: 'ALREADY_CLAIMED', message: '이미 등록된 코드입니다.' });
-          } else if (code.includes('EXPIRED')) {
-            setScanResultInfo({ status: 'EXPIRED', message: '유효하지 않은 코드입니다.' });
-          } else {
-            setScanResultInfo({ status: 'ERROR', message: verifyResult.error || '서버 오류가 발생했습니다.' });
-          }
-        }
-      } catch (e) {
-        setNetworkError(true);
-        setScanResultInfo({ status: 'ERROR', message: '서버 연결에 실패했습니다.' });
-      }
-      setProcessing(false);
-      setScreen('scanResult');
-    }
-  }
-
   const HomeScreen = () => (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c' }}>
       <div style={{ paddingTop: '120px', textAlign: 'center' }}>
@@ -210,107 +136,633 @@ function App() {
     </div>
   )
 
-  const CameraScreen = () => (
-    <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>촬영</span>
-        <div style={{ width: '40px' }} />
-      </div>
-      <div style={{ flex: 1, position: 'relative' }}>
-        <Webcam ref={webcamRef} audio={false} onUserMediaError={() => setCameraError('카메라 권한이 거부되었습니다. 브라우저 설정에서 카메라 권한을 허용해 주세요.')} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: 'environment', width: 1280, height: 720 }} style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }} />{cameraError && <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: '#0a0a0c', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}><p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>카메라 접근 불가</p><p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>{cameraError}</p><button onClick={safeGoHome} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', cursor: 'pointer' }}>홈으로</button></div>}
-        {!qrDetected && (<div style={{ position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }}><Scanner onScan={handleCameraQrScan} constraints={{ facingMode: 'environment' }} styles={{ container: { width: '100%', height: '100%' }, video: { width: '100%', height: '100%', objectFit: 'cover' } }} /></div>)}
-        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', zIndex: 10 }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '40px', height: '40px', borderTop: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderLeft: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderTopLeftRadius: '12px' }} />
-          <div style={{ position: 'absolute', top: 0, right: 0, width: '40px', height: '40px', borderTop: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderRight: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderTopRightRadius: '12px' }} />
-          <div style={{ position: 'absolute', bottom: 0, left: 0, width: '40px', height: '40px', borderBottom: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderLeft: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderBottomLeftRadius: '12px' }} />
-          <div style={{ position: 'absolute', bottom: 0, right: 0, width: '40px', height: '40px', borderBottom: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderRight: `3px solid ${qrDetected ? '#4ade80' : 'rgba(255,255,255,0.6)'}`, borderBottomRightRadius: '12px' }} />
-          {qrDetected && (<div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '8px 16px', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', borderRadius: '8px' }}><span style={{ color: '#4ade80', fontSize: '12px' }}>QR 인식됨</span></div>)}
-        </div>
-      </div>
-      <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', marginBottom: '20px' }}>{processing ? '처리 중...' : qrDetected ? 'QR 인식됨 - 촬영하세요' : '촬영 버튼을 누르세요'}</p>
-        <button onClick={capturePhoto} disabled={processing} style={{ width: '72px', height: '72px', borderRadius: '50%', background: !processing ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)', border: '4px solid rgba(255,255,255,0.6)', cursor: !processing ? 'pointer' : 'not-allowed' }} />
-      </div>
-    </div>
-  )
+  const CameraScreen = () => {
+    const [localProcessing, setLocalProcessing] = useState(false)
 
-  const ScanScreen = () => (
-    <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>QR 스캔</span>
-        <div style={{ width: '40px' }} />
-      </div>
-      <div style={{ flex: 1, position: 'relative' }}>
-        <Scanner onScan={handleScanQrScan} constraints={{ facingMode: 'environment' }} styles={{ container: { position: 'absolute', inset: 0 }, video: { width: '100%', height: '100%', objectFit: 'cover' } }} />
-        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', zIndex: 10 }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '40px', height: '40px', borderTop: '3px solid rgba(255,255,255,0.6)', borderLeft: '3px solid rgba(255,255,255,0.6)', borderTopLeftRadius: '12px' }} />
-          <div style={{ position: 'absolute', top: 0, right: 0, width: '40px', height: '40px', borderTop: '3px solid rgba(255,255,255,0.6)', borderRight: '3px solid rgba(255,255,255,0.6)', borderTopRightRadius: '12px' }} />
-          <div style={{ position: 'absolute', bottom: 0, left: 0, width: '40px', height: '40px', borderBottom: '3px solid rgba(255,255,255,0.6)', borderLeft: '3px solid rgba(255,255,255,0.6)', borderBottomLeftRadius: '12px' }} />
-          <div style={{ position: 'absolute', bottom: 0, right: 0, width: '40px', height: '40px', borderBottom: '3px solid rgba(255,255,255,0.6)', borderRight: '3px solid rgba(255,255,255,0.6)', borderBottomRightRadius: '12px' }} />
-        </div>
-      </div>
-      <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px' }}>{processing ? '처리 중...' : 'QR 코드를 화면에 맞춰주세요'}</p>
-      </div>
-    </div>
-  )
+    // GeoStudio API 검증 함수
+    const verifyWithAPI = async (dinaCode: string) => {
+      setProcessing(true)
+      setNetworkError(false)
+      setErrorCode(null)
+      setDinaId(dinaCode) // 항상 dinaId 설정
 
-  const ScanResultScreen = () => {
-    const getStatusColor = () => {
-      if (!scanResultInfo) return 'rgba(255,255,255,0.6)';
-      switch (scanResultInfo.status) {
-        case 'PENDING': return '#fbbf24';
-        case 'CLAIMED': return '#4ade80';
-        case 'ALREADY_CLAIMED': return '#f87171';
-        case 'EXPIRED': return '#6b7280';
-        case 'ERROR': return '#f87171';
-        default: return 'rgba(255,255,255,0.6)';
+      try {
+        const response = await fetch('https://geostudio-api-production.up.railway.app/api/geocam/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dinaId: dinaCode, deviceFingerprint: getDeviceFingerprint() })
+        })
+
+        console.log('API response status:', response.status)
+
+        // HTTP 상태 코드 체크
+        if (!response.ok) {
+          console.error('API HTTP error:', response.status, response.statusText)
+          if (response.status >= 500) {
+            setNetworkError(true)
+            setScanResultInfo({
+              status: 'ERROR',
+              message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+            })
+          } else {
+            setScanResultInfo({
+              status: 'ERROR',
+              message: `요청 처리에 실패했습니다. (${response.status})`
+            })
+          }
+          setProcessing(false)
+          setScreen('scanResult')
+          return
+        }
+
+        let result
+        try {
+          result = await response.json()
+        } catch (jsonErr) {
+          console.error('JSON parse error:', jsonErr)
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '서버 응답을 처리할 수 없습니다.'
+          })
+          setProcessing(false)
+          setScreen('scanResult')
+          return
+        }
+
+        console.log('API verify result:', result)
+
+        // API 응답: result.result (상태), result.error (에러코드), result.success (성공여부)
+        const apiResult = result.result || result.status // result.result 우선, fallback으로 result.status
+        const apiError = result.error || result.error_code // error 우선, fallback으로 error_code
+
+        if (result.success || apiResult === 'VALID') {
+          if (result.sessionToken) setSessionToken(result.sessionToken)
+          setScanResultInfo({
+            status: 'CLAIMED',
+            message: '정품으로 확인되었습니다.'
+          })
+        } else if (apiResult === 'ALREADY_ACTIVATED' || apiError === 'ALREADY_ACTIVATED') {
+          setScanResultInfo({
+            status: 'ALREADY_CLAIMED',
+            message: '이미 등록된 제품입니다.'
+          })
+        } else if (apiError === 'SESSION_EXPIRED') {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '세션이 만료되었습니다. 다시 스캔해 주세요.'
+          })
+        } else if (apiResult === 'NOT_FOUND' || apiError === 'ASSET_NOT_FOUND') {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '등록되지 않은 코드입니다.'
+          })
+        } else if (apiResult === 'INVALID') {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '유효하지 않은 코드입니다.'
+          })
+        } else if (apiError === 'RATE_LIMIT_EXCEEDED') {
+          setErrorCode('RATE_LIMIT_EXCEEDED')
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'
+          })
+        } else {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: apiError || result.message || '검증에 실패했습니다.'
+          })
+        }
+      } catch (err) {
+        console.error('API verify error:', err)
+        setNetworkError(true)
+        setScanResultInfo({
+          status: 'ERROR',
+          message: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.'
+        })
       }
-    };
-    const getStatusText = () => {
-      if (!scanResultInfo) return '';
-      switch (scanResultInfo.status) {
-        case 'PENDING': return '등록 대기중';
-        case 'CLAIMED': return '최초 고객 인증 완료';
-        case 'ALREADY_CLAIMED': return '이미 등록됨';
-        case 'EXPIRED': return '만료됨';
-        case 'ERROR': return '오류';
-        default: return '';
+
+      setProcessing(false)
+      setScreen('scanResult')
+    }
+
+    // QR 스캔 성공 시 API 호출 후 결과 화면으로 이동
+    const handleQrDetected = useCallback(async (result: any) => {
+      if (localProcessing) return
+      if (result && result[0]?.rawValue) {
+        const data = result[0].rawValue
+        if (data.includes('DINA-')) {
+          setLocalProcessing(true)
+          setQrData(data)
+          setQrDetected(true)
+
+          // DINA 코드 추출
+          const dinaMatch = data.match(/DINA-[A-Z0-9]{12,13}/)
+          const dinaCode = dinaMatch ? dinaMatch[0] : null
+
+          if (dinaCode) {
+            // API 호출하여 검증
+            await verifyWithAPI(dinaCode)
+          }
+          setLocalProcessing(false)
+        }
       }
-    };
+    }, [localProcessing])
+
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
-          <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px' }}>QR 등록 결과</span>
+      <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
+        {/* 헤더 */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <BackArrow />
+          </button>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>QR 스캔</span>
+          <div style={{ width: '40px' }} />
         </div>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: `${getStatusColor()}20`, border: `2px solid ${getStatusColor()}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
-            <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: getStatusColor() }} />
+
+        {/* 카메라 영역 - Scanner만 사용 */}
+        <div style={{ flex: 1, position: 'relative' }}>
+          <div id="camera-scanner" style={{ position: 'absolute', inset: 0 }}>
+            <Scanner
+              onScan={handleQrDetected}
+              constraints={{ facingMode: 'environment' }}
+              styles={{
+                container: { width: '100%', height: '100%' },
+                video: { width: '100%', height: '100%', objectFit: 'cover' }
+              }}
+              onError={(err) => {
+                console.error('Scanner error:', err)
+                setCameraError('카메라를 시작할 수 없습니다. 권한을 확인해 주세요.')
+              }}
+            />
           </div>
-          <h2 style={{ color: getStatusColor(), fontSize: '20px', fontWeight: '500', marginBottom: '8px' }}>{getStatusText()}</h2>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', maxWidth: '280px' }}>{scanResultInfo?.message}</p>
-          {networkError && (
-            <button onClick={safeGoScan} style={{ marginTop: '20px', padding: '12px 24px', borderRadius: '12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '14px', cursor: 'pointer' }}>재시도</button>
+
+          {/* 에러 표시 */}
+          {cameraError && (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: '#0a0a0c', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+              <p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>카메라 접근 불가</p>
+              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>{cameraError}</p>
+              <button onClick={safeGoHome} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+            </div>
+          )}
+
+          {/* 스캔 프레임 가이드 */}
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '240px', height: '240px', zIndex: 10, pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '50px', height: '50px', borderTop: '4px solid #4ade80', borderLeft: '4px solid #4ade80', borderTopLeftRadius: '16px' }} />
+            <div style={{ position: 'absolute', top: 0, right: 0, width: '50px', height: '50px', borderTop: '4px solid #4ade80', borderRight: '4px solid #4ade80', borderTopRightRadius: '16px' }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, width: '50px', height: '50px', borderBottom: '4px solid #4ade80', borderLeft: '4px solid #4ade80', borderBottomLeftRadius: '16px' }} />
+            <div style={{ position: 'absolute', bottom: 0, right: 0, width: '50px', height: '50px', borderBottom: '4px solid #4ade80', borderRight: '4px solid #4ade80', borderBottomRightRadius: '16px' }} />
+          </div>
+
+          {/* 처리 중 표시 */}
+          {localProcessing && (
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '16px 32px', background: 'rgba(0,0,0,0.8)', borderRadius: '12px', zIndex: 20 }}>
+              <p style={{ color: '#4ade80', fontSize: '16px', margin: 0 }}>처리 중...</p>
+            </div>
           )}
         </div>
+
+        {/* 하단 안내 */}
+        <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
+          <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
+            DINA QR 코드를 스캔하세요
+          </p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', margin: 0 }}>
+            QR 코드가 인식되면 자동으로 처리됩니다
+          </p>
+        </div>
+
+        {/* Scanner video 스타일 오버라이드 */}
+        <style>{`
+          #camera-scanner video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+          }
+        `}</style>
+      </div>
+    )
+  }
+
+  const ScanScreen = () => {
+    const scannerRef = useRef<Html5Qrcode | null>(null)
+    const [scannerReady, setScannerReady] = useState(false)
+    const [scanError, setScanError] = useState<string | null>(null)
+    const isScanning = useRef(false)
+
+    // DINA 코드 추출 함수
+    const extractDinaCode = (raw: string): string | null => {
+      const match = raw.match(/DINA-[A-Z0-9]{12,13}/)
+      return match ? match[0] : null
+    }
+
+    // GeoStudio API 검증 함수
+    const verifyWithGeoStudio = async (dinaCode: string) => {
+      setProcessing(true)
+      setNetworkError(false)
+      setErrorCode(null)
+      setDinaId(dinaCode) // 항상 dinaId 먼저 설정
+
+      try {
+        const response = await fetch('https://geostudio-api-production.up.railway.app/api/geocam/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dinaId: dinaCode, deviceFingerprint: getDeviceFingerprint() })
+        })
+
+        console.log('ScanScreen API response status:', response.status)
+
+        // HTTP 상태 코드 체크
+        if (!response.ok) {
+          console.error('ScanScreen API HTTP error:', response.status, response.statusText)
+          if (response.status >= 500) {
+            setNetworkError(true)
+            setScanResultInfo({
+              status: 'ERROR',
+              message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+            })
+          } else {
+            setScanResultInfo({
+              status: 'ERROR',
+              message: `요청 처리에 실패했습니다. (${response.status})`
+            })
+          }
+          setProcessing(false)
+          setScreen('scanResult')
+          return
+        }
+
+        let result
+        try {
+          result = await response.json()
+        } catch (jsonErr) {
+          console.error('ScanScreen JSON parse error:', jsonErr)
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '서버 응답을 처리할 수 없습니다.'
+          })
+          setProcessing(false)
+          setScreen('scanResult')
+          return
+        }
+
+        console.log('ScanScreen API result:', result)
+
+        // API 응답: result.result (상태), result.error (에러코드), result.success (성공여부)
+        const apiResult = result.result || result.status // result.result 우선, fallback으로 result.status
+        const apiError = result.error || result.error_code // error 우선, fallback으로 error_code
+
+        if (result.success || apiResult === 'VALID') {
+          if (result.sessionToken) setSessionToken(result.sessionToken)
+          setScanResultInfo({
+            status: 'CLAIMED',
+            message: '정품으로 확인되었습니다.'
+          })
+        } else if (apiResult === 'ALREADY_ACTIVATED' || apiError === 'ALREADY_ACTIVATED') {
+          setScanResultInfo({
+            status: 'ALREADY_CLAIMED',
+            message: '이미 등록된 제품입니다.'
+          })
+        } else if (apiError === 'SESSION_EXPIRED') {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '세션이 만료되었습니다. 다시 스캔해 주세요.'
+          })
+        } else if (apiResult === 'NOT_FOUND' || apiError === 'ASSET_NOT_FOUND') {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '등록되지 않은 코드입니다.'
+          })
+        } else if (apiResult === 'INVALID') {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '유효하지 않은 코드입니다.'
+          })
+        } else if (apiError === 'RATE_LIMIT_EXCEEDED') {
+          setErrorCode('RATE_LIMIT_EXCEEDED')
+          setScanResultInfo({
+            status: 'ERROR',
+            message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'
+          })
+        } else {
+          setScanResultInfo({
+            status: 'ERROR',
+            message: apiError || result.message || '검증에 실패했습니다.'
+          })
+        }
+      } catch (err) {
+        console.error('ScanScreen API error:', err)
+        setNetworkError(true)
+        setScanResultInfo({
+          status: 'ERROR',
+          message: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.'
+        })
+      }
+
+      setProcessing(false)
+      setScreen('scanResult')
+    }
+
+    // QR 스캔 성공 핸들러
+    const onScanSuccess = async (decodedText: string) => {
+      if (isScanning.current || processing) return
+      isScanning.current = true
+
+      const dinaCode = extractDinaCode(decodedText)
+
+      if (dinaCode) {
+        setQrData(decodedText)
+        // 스캐너 중지
+        if (scannerRef.current) {
+          try {
+            await scannerRef.current.stop()
+          } catch (e) { /* ignore */ }
+        }
+        // API 검증
+        await verifyWithGeoStudio(dinaCode)
+      } else {
+        isScanning.current = false
+        setScanError('DINA 코드가 포함되지 않은 QR입니다')
+        setTimeout(() => setScanError(null), 2000)
+      }
+    }
+
+    // 스캐너 초기화
+    useEffect(() => {
+      let mounted = true
+
+      const startScanner = async () => {
+        try {
+          const scanner = new Html5Qrcode('qr-reader')
+          scannerRef.current = scanner
+
+          await scanner.start(
+            { facingMode: 'environment' },
+            {
+              fps: 10,
+              qrbox: { width: 250, height: 250 },
+              aspectRatio: 1.0
+            },
+            onScanSuccess,
+            () => {} // 에러 무시 (스캔 실패 시마다 호출됨)
+          )
+
+          if (mounted) setScannerReady(true)
+        } catch (err) {
+          console.error('Scanner init error:', err)
+          if (mounted) setScanError('카메라를 시작할 수 없습니다. 권한을 확인해 주세요.')
+        }
+      }
+
+      startScanner()
+
+      return () => {
+        mounted = false
+        if (scannerRef.current) {
+          scannerRef.current.stop().catch(() => {})
+        }
+      }
+    }, [])
+
+    const handleBack = async () => {
+      if (scannerRef.current) {
+        try {
+          await scannerRef.current.stop()
+        } catch (e) { /* ignore */ }
+      }
+      safeGoHome()
+    }
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
+        {/* 헤더 */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <button onClick={handleBack} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <BackArrow />
+          </button>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>QR 스캔</span>
+          <div style={{ width: '40px' }} />
+        </div>
+
+        {/* 카메라 영역 */}
+        <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div id="qr-reader" style={{ width: '100%', height: '100%' }} />
+
+          {/* 스캔 프레임 가이드 오버레이 */}
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            {/* 어두운 오버레이 (스캔 영역 제외) - 투명도 낮춤 */}
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.2)' }}>
+              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '260px', height: '260px', background: 'transparent', boxShadow: '0 0 0 9999px rgba(0,0,0,0.2)' }} />
+            </div>
+
+            {/* 스캔 프레임 */}
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '260px', height: '260px', zIndex: 10 }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '50px', height: '50px', borderTop: '4px solid #4ade80', borderLeft: '4px solid #4ade80', borderTopLeftRadius: '16px' }} />
+              <div style={{ position: 'absolute', top: 0, right: 0, width: '50px', height: '50px', borderTop: '4px solid #4ade80', borderRight: '4px solid #4ade80', borderTopRightRadius: '16px' }} />
+              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '50px', height: '50px', borderBottom: '4px solid #4ade80', borderLeft: '4px solid #4ade80', borderBottomLeftRadius: '16px' }} />
+              <div style={{ position: 'absolute', bottom: 0, right: 0, width: '50px', height: '50px', borderBottom: '4px solid #4ade80', borderRight: '4px solid #4ade80', borderBottomRightRadius: '16px' }} />
+
+              {/* 스캔 라인 애니메이션 */}
+              {scannerReady && !processing && (
+                <div style={{
+                  position: 'absolute',
+                  top: '10%',
+                  left: '10%',
+                  right: '10%',
+                  height: '2px',
+                  background: 'linear-gradient(90deg, transparent, #4ade80, transparent)',
+                  animation: 'scanLine 2s ease-in-out infinite'
+                }} />
+              )}
+            </div>
+          </div>
+
+          {/* 에러 메시지 */}
+          {scanError && (
+            <div style={{ position: 'absolute', top: '25%', left: '50%', transform: 'translateX(-50%)', padding: '12px 24px', background: 'rgba(248,113,113,0.9)', borderRadius: '12px', zIndex: 30 }}>
+              <p style={{ color: 'white', fontSize: '14px', margin: 0 }}>{scanError}</p>
+            </div>
+          )}
+        </div>
+
+        {/* 하단 안내 */}
+        <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', position: 'relative', zIndex: 10 }}>
+          <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
+            {processing ? '검증 중...' : 'DINA QR 코드를 스캔하세요'}
+          </p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', margin: 0 }}>
+            제품에 부착된 정품 인증 QR 코드를 프레임 안에 맞춰주세요
+          </p>
+        </div>
+
+        {/* 스캔 라인 애니메이션 스타일 */}
+        <style>{`
+          @keyframes scanLine {
+            0%, 100% { top: 10%; opacity: 0; }
+            50% { top: 85%; opacity: 1; }
+          }
+          #qr-reader video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+          }
+          #qr-reader {
+            border: none !important;
+          }
+          #qr-reader__scan_region {
+            display: none !important;
+          }
+          #qr-reader__dashboard {
+            display: none !important;
+          }
+        `}</style>
+      </div>
+    )
+  }
+
+  const ScanResultScreen = () => {
+    // processing 또는 scanResultInfo가 없을 때 로딩 표시
+    if (processing || !scanResultInfo) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0c', padding: '20px' }}>
+          <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(251,191,36,0.1)', border: '2px solid rgba(251,191,36,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '28px' }}>
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
+              <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="10 5" />
+            </svg>
+          </div>
+          <h2 style={{ color: '#fbbf24', fontSize: '22px', fontWeight: '600', marginBottom: '12px' }}>검증 중...</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '15px' }}>잠시만 기다려 주세요</p>
+          {dinaId && (
+            <div style={{ marginTop: '24px', padding: '14px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
+              <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontFamily: 'monospace', letterSpacing: '0.05em', margin: 0 }}>{dinaId}</p>
+            </div>
+          )}
+          <button onClick={safeGoHome} style={{ marginTop: '40px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '15px', cursor: 'pointer' }}>취소</button>
+          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )
+    }
+
+    const getStatusConfig = () => {
+      switch (scanResultInfo.status) {
+        case 'PENDING': return {
+          color: '#fbbf24',
+          text: '등록 대기중',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
+              <path d="M24 14v12" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="24" cy="33" r="2" fill="#fbbf24" />
+            </svg>
+          )
+        };
+        case 'CLAIMED': return {
+          color: '#4ade80',
+          text: '정품 확인 완료',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
+              <path d="M15 24l6 6 12-12" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )
+        };
+        case 'ALREADY_CLAIMED': return {
+          color: '#f97316',
+          text: '이미 등록된 제품',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#f97316" strokeWidth="2.5" />
+              <path d="M24 14v12" stroke="#f97316" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="24" cy="33" r="2" fill="#f97316" />
+            </svg>
+          )
+        };
+        case 'EXPIRED': return {
+          color: '#6b7280',
+          text: '만료됨',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#6b7280" strokeWidth="2.5" />
+              <path d="M17 17l14 14M31 17l-14 14" stroke="#6b7280" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          )
+        };
+        case 'ERROR': return {
+          color: '#f87171',
+          text: '검증 실패',
+          icon: (
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
+              <path d="M17 17l14 14M31 17l-14 14" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          )
+        };
+        default: return { color: 'rgba(255,255,255,0.6)', text: '', icon: null };
+      }
+    };
+
+    const config = getStatusConfig();
+
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
+        {/* 헤더 */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
+          <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <BackArrow />
+          </button>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.05em' }}>검증 결과</span>
+        </div>
+
+        {/* 결과 내용 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          {/* 아이콘 */}
+          <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `${config.color}15`, border: `2px solid ${config.color}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '28px' }}>
+            {config.icon}
+          </div>
+
+          {/* 상태 텍스트 */}
+          <h2 style={{ color: config.color, fontSize: '22px', fontWeight: '600', marginBottom: '12px', letterSpacing: '0.02em' }}>{config.text}</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '15px', textAlign: 'center', maxWidth: '300px', lineHeight: '1.6' }}>{scanResultInfo?.message}</p>
+
+          {/* DINA 코드 표시 */}
+          {dinaId && (
+            <div style={{ marginTop: '24px', padding: '14px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
+              <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontFamily: 'monospace', letterSpacing: '0.05em', margin: 0 }}>{dinaId}</p>
+            </div>
+          )}
+
+          {/* 네트워크 에러 시 재시도 */}
+          {networkError && (
+            <button onClick={safeGoScan} style={{ marginTop: '24px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '15px', cursor: 'pointer' }}>
+              다시 스캔하기
+            </button>
+          )}
+        </div>
+
+        {/* 하단 버튼 */}
         <div style={{ display: 'flex', gap: '12px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
           {scanResultInfo?.status === 'PENDING' && (
             <>
-              <button onClick={safeGoCamera} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>촬영하기</button>
-              <button onClick={safeGoHome} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>나중에</button>
+              <button onClick={safeGoCamera} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>실물 촬영하기</button>
+              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>나중에</button>
             </>
+          )}
+          {scanResultInfo?.status === 'CLAIMED' && (
+            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>확인</button>
           )}
           {scanResultInfo?.status === 'ALREADY_CLAIMED' && (
             <>
-              <button onClick={safeGoHome} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
-              <button onClick={() => window.open('mailto:support@artion.com')} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>문의하기</button>
+              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+              <button onClick={() => window.open('mailto:support@artion.com')} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>문의하기</button>
             </>
           )}
-          {(scanResultInfo?.status === 'EXPIRED' || scanResultInfo?.status === 'ERROR' || scanResultInfo?.status === 'CLAIMED') && (
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+          {(scanResultInfo?.status === 'EXPIRED' || scanResultInfo?.status === 'ERROR') && (
+            <>
+              <button onClick={safeGoScan} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>다시 스캔</button>
+              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+            </>
           )}
         </div>
       </div>
