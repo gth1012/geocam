@@ -5,8 +5,11 @@ const config: CapacitorConfig = {
   appName: 'GeoCam',
   webDir: 'dist',
   server: {
-    cleartext: true,
-    androidScheme: 'http'
+    androidScheme: 'https'
+  },
+  android: {
+    loggingBehavior: 'debug',
+    webContentsDebuggingEnabled: true
   }
 };
 

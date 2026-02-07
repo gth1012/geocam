@@ -10,22 +10,27 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@capacitor-community/http": "^1.4.1",
     "@capacitor/android": "^8.0.2",
+    "@capacitor/camera": "^8.0.0",
     "@capacitor/cli": "^7.4.5",
     "@capacitor/core": "^8.0.2",
     "@capacitor/device": "^8.0.0",
     "@capacitor/geolocation": "^8.0.0",
     "@tailwindcss/vite": "^4.1.18",
     "@yudiel/react-qr-scanner": "^2.5.1",
+    "expo": "^54.0.33",
     "html5-qrcode": "^2.3.8",
     "jsqr": "^1.4.0",
     "onnxruntime-web": "^1.23.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-native": "0.81.5",
     "react-webcam": "^7.2.0",
     "tailwindcss": "^4.1.18",
     "tweetnacl": "^1.0.3"
