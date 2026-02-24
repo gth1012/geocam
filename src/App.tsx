@@ -3,6 +3,7 @@ import type { ErrorInfo, ReactNode } from 'react'
 import { Scanner } from '@yudiel/react-qr-scanner'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { runEvidencePipeline, registerWithServer } from './evidencePipeline'
+import { API_BASE_URL } from './api/client'
 import './App.css'
 
 // Error Boundary for debugging blank screen issues
@@ -158,6 +159,7 @@ function App() {
   const [dinaId, setDinaId] = useState<string | null>(null)
   const [signatureVerified, setSignatureVerified] = useState<boolean | null>(null)
   const [confidence, setConfidence] = useState<number | null>(null)
+  const [matchScore, setMatchScore] = useState<number | null>(null)
   const [registering, setRegistering] = useState(false)
   const [registerStatus, setRegisterStatus] = useState<string | null>(null)
   const [registerError, setRegisterError] = useState<string | null>(null)
@@ -180,7 +182,7 @@ function App() {
       setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null);
       setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false); setScanResultInfo(null);
       setVerifyStatus(null); setCameraError(null);
-      setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null); setConfidence(null);
+      setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null); setConfidence(null); setMatchScore(null);
       setRegistering(false); setRegisterStatus(null); setRegisterError(null); setOtpInput('');
       setScreen('home');
     } catch (e) { console.error('error:', e); setScreen('home'); }
@@ -228,7 +230,7 @@ function App() {
   }, []);
 
   const runPipeline = async (qrRaw: string | null, imageUri: string) => {
-    setProcessing(true); setError(null); setErrorCode(null); setNetworkError(false);
+    setProcessing(true); setError(null); setErrorCode(null); setNetworkError(false); setMatchScore(null);
     try {
       const result = await runEvidencePipeline({ qrRaw, imageUri, geoBucket: null, deviceFingerprintHash: getDeviceFingerprint() });
       if (result.error_code) setErrorCode(result.error_code);
@@ -237,6 +239,7 @@ function App() {
       if (result.dinaId) setDinaId(result.dinaId);
       if (result.signatureVerified !== undefined) setSignatureVerified(result.signatureVerified);
       if (result.confidence !== undefined && result.confidence !== null) setConfidence(result.confidence);
+      if (result.match_score !== undefined && result.match_score !== null) setMatchScore(result.match_score);
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
         setVerifyStatus(result.verify_status || 'VALID');
@@ -353,7 +356,7 @@ function App() {
     }, [startCamera, stopCamera])
 
     // 사진 촬영
-    const capturePhoto = useCallback(() => {
+    const capturePhoto = useCallback(async () => {
       if (!videoRef.current || !canvasRef.current || !cameraReady) return
 
       setCapturing(true)
@@ -380,15 +383,61 @@ function App() {
       // 카메라 정지
       stopCamera()
 
-      // 상태 업데이트 및 결과 화면으로 이동
+      // 상태 업데이트
       setCapturedImage(imageDataUrl)
-      setScanMode('camera')
 
-      // 파이프라인 실행 (QR 없이 이미지만)
-      runPipeline(null, imageDataUrl)
+      // QR 스캔에서 왔고 세션 정보가 있으면 직접 verify API 호출
+      if (sessionToken && nonce && dinaId) {
+        setProcessing(true)
+        try {
+          // Base64 데이터만 추출 (data:image/jpeg;base64, 제거)
+          const imageBase64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
+
+          // verify API 호출
+          const response = await fetch(`${API_BASE_URL}/geocam/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session_token: sessionToken,
+              nonce: nonce,
+              image_data: imageBase64,
+              device_info: {
+                platform: navigator.platform || 'web',
+                model: 'WebCamera',
+                os_version: navigator.userAgent.substring(0, 50)
+              },
+              client_timestamp: Date.now()
+            })
+          })
+
+          const result = await response.json()
+          console.log('[verify] response:', result)
+
+          if (result.success) {
+            setConfidence(result.confidence)
+            setMatchScore(result.match_score || null)
+            setVerifyStatus(result.result)
+            setRecordInfo({ recordId: crypto.randomUUID(), packHash: 'verify-' + Date.now(), createdAt: new Date().toISOString() })
+          } else {
+            setErrorCode(result.error)
+            setVerifyStatus(result.result || 'UNKNOWN')
+          }
+          setScreen('result')
+        } catch (err) {
+          console.error('verify error:', err)
+          setNetworkError(true)
+          setVerifyStatus('UNKNOWN')
+          setScreen('result')
+        }
+        setProcessing(false)
+      } else {
+        // 세션 정보 없으면 기존 파이프라인 실행 (QR 없이 이미지만)
+        setScanMode('camera')
+        runPipeline(qrData, imageDataUrl)
+      }
 
       setCapturing(false)
-    }, [cameraReady, stopCamera])
+    }, [cameraReady, stopCamera, sessionToken, nonce, dinaId, qrData])
 
     // 뒤로 가기
     const handleBack = useCallback(() => {
@@ -526,109 +575,79 @@ function App() {
     )
   }
 
-  // ScanScreen - @yudiel/react-qr-scanner 사용 (통합됨) - 수정 금지
+  // ScanScreen - QR 스캔 후 scan/start API 호출 → 카메라 화면으로 전환
   const ScanScreen = () => {
     const [localProcessing, setLocalProcessing] = useState(false)
     const [scanError, setScanError] = useState<string | null>(null)
     const scanLockRef = useRef(false)
 
-    // GeoStudio API 검증 함수
-    const verifyWithAPI = async (dinaCode: string) => {
+    // scan/start API 호출 후 카메라 화면으로 전환
+    const startScanSession = async (dinaCode: string) => {
       setProcessing(true)
       setNetworkError(false)
       setErrorCode(null)
       setDinaId(dinaCode)
 
       try {
-        const response = await fetch('https://geostudio-api-production.up.railway.app/api/geocam/verify', {
+        const response = await fetch(`${API_BASE_URL}/geocam/scan/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dinaId: dinaCode, deviceFingerprint: getDeviceFingerprint() })
+          body: JSON.stringify({
+            qr_payload: dinaCode,
+            device_id: getDeviceFingerprint(),
+            app_version: '2.0.0'
+          })
         })
 
         if (!response.ok) {
           if (response.status >= 500) {
             setNetworkError(true)
-            setScanResultInfo({
-              status: 'ERROR',
-              message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
-            })
+            setScanResultInfo({ status: 'ERROR', message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' })
+          } else if (response.status === 429) {
+            setErrorCode('RATE_LIMIT_EXCEEDED')
+            setScanResultInfo({ status: 'ERROR', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' })
           } else {
-            setScanResultInfo({
-              status: 'ERROR',
-              message: `요청 처리에 실패했습니다. (${response.status})`
-            })
+            setScanResultInfo({ status: 'ERROR', message: `요청 처리에 실패했습니다. (${response.status})` })
           }
           setProcessing(false)
           setScreen('scanResult')
           return
         }
 
-        let result
-        try {
-          result = await response.json()
-        } catch (jsonErr) {
-          setScanResultInfo({
-            status: 'ERROR',
-            message: '서버 응답을 처리할 수 없습니다.'
-          })
+        const result = await response.json()
+
+        if (!result.success) {
+          const errorCode = result.error
+          if (errorCode === 'BATCH_NOT_SHIPPED') {
+            setErrorCode('BATCH_NOT_SHIPPED')
+            setScanResultInfo({ status: 'ERROR', message: '아직 출고되지 않은 제품입니다.' })
+          } else if (errorCode === 'INVALID_QR') {
+            setScanResultInfo({ status: 'ERROR', message: '유효하지 않은 QR 코드입니다.' })
+          } else {
+            setScanResultInfo({ status: 'ERROR', message: result.error || '세션 생성에 실패했습니다.' })
+          }
           setProcessing(false)
           setScreen('scanResult')
           return
         }
 
-        const apiResult = result.result || result.status
-        const apiError = result.error || result.error_code
+        // 세션 정보 저장
+        setSessionToken(result.session_token)
+        setNonce(result.nonce)
+        if (result.asset_info?.dina_id) setDinaId(result.asset_info.dina_id)
+        setProcessing(false)
 
-        if (result.success || apiResult === 'VALID') {
-          if (result.sessionToken) setSessionToken(result.sessionToken)
-          setScanResultInfo({
-            status: 'CLAIMED',
-            message: '정품임이 확인되었습니다.'
-          })
-        } else if (apiResult === 'ALREADY_ACTIVATED' || apiError === 'ALREADY_ACTIVATED') {
-          setScanResultInfo({
-            status: 'ALREADY_CLAIMED',
-            message: '이미 등록된 제품입니다.'
-          })
-        } else if (apiError === 'SESSION_EXPIRED') {
-          setScanResultInfo({
-            status: 'ERROR',
-            message: '세션이 만료되었습니다. 다시 스캔해 주세요.'
-          })
-        } else if (apiResult === 'NOT_FOUND' || apiError === 'ASSET_NOT_FOUND') {
-          setScanResultInfo({
-            status: 'ERROR',
-            message: '등록되지 않은 코드입니다.'
-          })
-        } else if (apiResult === 'INVALID') {
-          setScanResultInfo({
-            status: 'ERROR',
-            message: '유효하지 않은 코드입니다.'
-          })
-        } else if (apiError === 'RATE_LIMIT_EXCEEDED') {
-          setErrorCode('RATE_LIMIT_EXCEEDED')
-          setScanResultInfo({
-            status: 'ERROR',
-            message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'
-          })
-        } else {
-          setScanResultInfo({
-            status: 'ERROR',
-            message: apiError || result.message || '오류가 발생했습니다.'
-          })
-        }
+        // 카메라 화면으로 전환 (실물 촬영)
+        setScanMode('scan')  // scan 모드에서 왔음을 표시
+        setScreen('camera')
+
       } catch (err) {
-        console.error('API verify error:', err)
+        console.error('scan/start error:', err)
         setNetworkError(true)
-        setScanResultInfo({
-          status: 'ERROR',
-          message: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.'
-        })
+        setScanResultInfo({ status: 'ERROR', message: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.' })
+        setProcessing(false)
+        setScreen('scanResult')
       }
-
-      setProcessing(false)
-      setScreen('scanResult')
     }
 
     // QR 스캔 성공 시 처리
@@ -650,7 +669,7 @@ function App() {
           const dinaCode = dinaMatch ? dinaMatch[0] : null
 
           if (dinaCode) {
-            await verifyWithAPI(dinaCode)
+            await startScanSession(dinaCode)
           } else {
             setScanError('DINA 코드 형식이 올바르지 않습니다')
             setTimeout(() => setScanError(null), 2000)
@@ -1015,6 +1034,12 @@ function App() {
               <span style={{ fontSize: '13px', fontWeight: '500', color: getStatusColor() }}>{getStatusText()}</span>
             </div>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '8px', lineHeight: '1.4' }}>{getStatusMessage()}</p>
+            {matchScore !== null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>일치도</span>
+                <span style={{ color: getStatusColor(), fontSize: '12px', fontWeight: '500' }}>{(matchScore * 100).toFixed(1)}%</span>
+              </div>
+            )}
             {confidence !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>신뢰도</span>

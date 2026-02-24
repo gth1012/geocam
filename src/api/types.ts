@@ -47,8 +47,9 @@ export interface VerifyRequest {
 
 export interface VerifyResponse {
   success: boolean;
-  result: 'VALID' | 'UNCERTAIN' | 'INVALID';
+  result: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
   confidence: number;
+  match_score?: number;  // 0~1 범위의 이미지 유사도 점수
   matched_dina_id?: string;
   trust_level?: 'L2_VERIFIED' | 'L1_OBSERVATION';
   gate_results?: Array<{

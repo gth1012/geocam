@@ -31,3 +31,4 @@ dist-ssr
 
 # Backup folders
 android_backup_rn/
+*.apk

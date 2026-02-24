@@ -29,6 +29,7 @@ export interface PipelineOutput {
   qr_status?: 'found' | 'missing' | 'invalid';
   verify_status?: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
   confidence?: number | null;
+  match_score?: number | null;
   sessionToken?: string;
   nonce?: string;
   dinaId?: string;
@@ -82,8 +83,9 @@ async function imageUriToBase64(imageUri: string): Promise<string> {
 export interface ServerVerifyResult {
   success: boolean;
   isAuthentic: boolean;
-  status: 'VALID' | 'UNCERTAIN' | 'INVALID' | 'UNKNOWN' | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
+  status: 'VALID' | 'SUSPECT' | 'UNCERTAIN' | 'INVALID' | 'UNKNOWN' | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
   confidence?: number;
+  match_score?: number;  // 0~1 범위의 이미지 유사도 점수
   sessionToken?: string;
   nonce?: string;
   dinaId?: string;
@@ -272,6 +274,7 @@ export async function verifyWithServer(
       isAuthentic: verifyData.result === 'VALID',
       status: verifyData.result || 'UNKNOWN',
       confidence: verifyData.confidence,
+      match_score: verifyData.match_score,
       sessionToken: startData.session_token,
       nonce: startData.nonce,
       dinaId: verifyData.matched_dina_id || startData.asset_info?.dina_id,
@@ -428,10 +431,12 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       // 서버 검증 결과 사용
       if (serverResult.status === 'VALID') {
         verifyStatus = 'VALID';
-      } else if (serverResult.status === 'UNCERTAIN') {
+      } else if (serverResult.status === 'SUSPECT' || serverResult.status === 'UNCERTAIN') {
         verifyStatus = 'SUSPECT';
       } else if (serverResult.status === 'INVALID') {
         verifyStatus = 'INVALID';
+      } else if (serverResult.status === 'UNKNOWN') {
+        verifyStatus = 'UNKNOWN';
       } else {
         verifyStatus = 'UNKNOWN';
       }
@@ -507,6 +512,7 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       qr_status: qrStatus,
       verify_status: verifyStatus,
       confidence: finalConfidence,
+      match_score: serverResult?.match_score || null,
       error_code: serverResult?.error_code,
       sessionToken: serverResult?.sessionToken,
       nonce: serverResult?.nonce,
