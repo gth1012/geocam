@@ -11,7 +11,7 @@ import { buildGateCPayload } from './deviceGateC';
 import { detectGeocode } from './geocodeEngine';
 import { Http } from '@capacitor-community/http';
 
-const API_BASE_URL = 'https://geostudio-api-production.up.railway.app';
+const API_BASE_URL = 'https://neo-studio-api-production.up.railway.app';
 
 export interface PipelineInput {
   qrRaw: string | null;
