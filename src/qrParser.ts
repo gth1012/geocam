@@ -1,7 +1,8 @@
 ﻿// QR 파싱 엔진 (TypeScript)
 // DINA 형식: DINA-[A-Z0-9]{13}
 // OTP 형식: OTP-[A-Z0-9]{8}
-const DINA_REGEX = /DINA-[A-Z0-9]{13}/;
+const DINA_REGEX = /DINA-[A-Z0-9]{8,16}/;
+const RAW_CODE_REGEX = /^[A-Z0-9]{8,16}$/;
 const OTP_REGEX = /OTP-[A-Z0-9]{8}/;
 
 export type QrStatus = 'found' | 'missing' | 'invalid';
@@ -46,11 +47,15 @@ export function parseQr(rawString: string | null | undefined): QrParseResult {
   const trimmed = rawString.trim();
   const dinaMatch = trimmed.match(DINA_REGEX);
 
-  if (!dinaMatch) {
+  let dina_code: string;
+
+  if (dinaMatch) {
+    dina_code = dinaMatch[0];
+  } else if (RAW_CODE_REGEX.test(trimmed)) {
+    dina_code = trimmed;
+  } else {
     return { status: 'invalid', error: 'DINA_NOT_FOUND' };
   }
-
-  const dina_code = dinaMatch[0];
   const otpMatch = trimmed.match(OTP_REGEX);
   const otp = otpMatch ? otpMatch[0] : undefined;
 

@@ -1,0 +1,91 @@
+{
+  "home": {
+    "title": "정품 확인",
+    "subtitle": "제품이 정품인지 확인하세요",
+    "scanButton": "스캔 시작"
+  },
+  "camera": {
+    "title": "QR 코드를 스캔하세요",
+    "loading": "카메라 준비 중",
+    "error": "카메라에 접근할 수 없습니다",
+    "permission": "카메라 권한이 필요합니다",
+    "retry": "다시 시도",
+    "home": "홈으로"
+  },
+  "scan": {
+    "processing": "QR 코드를 확인 중입니다",
+    "notFound": "제품 정보를 찾을 수 없습니다",
+    "invalid": "올바른 QR 코드가 아닙니다"
+  },
+  "verify": {
+    "title": "제품을 확인하고 있습니다",
+    "subtitle": "잠시만 기다려 주세요",
+    "cancel": "취소"
+  },
+  "capture": {
+    "title": "제품을 촬영하세요",
+    "retry": "다시 촬영",
+    "gallery": "갤러리 선택"
+  },
+  "result": {
+    "valid": "정품 확인됨",
+    "suspect": "촬영을 다시 해 주세요",
+    "invalid": "정품 정보가 일치하지 않습니다",
+    "unknown": "등록되지 않은 제품입니다",
+    "pending": "확인 중",
+    "validDesc": "등록된 정품 정보와 일치합니다",
+    "suspectDesc": "촬영 상태가 좋지 않습니다. 다시 촬영해 주세요",
+    "invalidDesc": "등록된 정품 정보와 일치하지 않습니다",
+    "unknownDesc": "이 제품은 정품 정보가 등록되어 있지 않습니다"
+  },
+  "register": {
+    "button": "정품 등록",
+    "processing": "등록 중",
+    "successTitle": "정품 등록 완료",
+    "successMessage": "이 제품이 정품으로 등록되었습니다",
+    "alreadyTitle": "이미 등록된 제품",
+    "alreadyMessage": "이 제품은 이미 등록되었습니다"
+  },
+  "otp": {
+    "title": "코드를 입력하세요",
+    "subtitle": "제품에 포함된 8자리 코드를 입력하세요",
+    "confirm": "확인"
+  },
+  "settings": {
+    "title": "설정",
+    "language": "언어",
+    "english": "English",
+    "korean": "한국어",
+    "chinese": "简体中文",
+    "japanese": "日本語",
+    "version": "버전",
+    "about": "앱 정보",
+    "privacy": "개인정보 처리방침",
+    "terms": "이용약관"
+  },
+  "records": {
+    "title": "스캔 기록",
+    "empty": "기록이 없습니다",
+    "date": "날짜",
+    "status": "상태",
+    "detail": "상세 보기"
+  },
+  "error": {
+    "network": "네트워크 연결에 실패했습니다",
+    "server": "잠시 후 다시 시도해 주세요",
+    "rateLimit": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요",
+    "session": "세션이 만료되었습니다. 다시 스캔해 주세요",
+    "device": "디바이스 확인에 실패했습니다",
+    "batch": "아직 사용이 시작되지 않은 제품입니다"
+  },
+  "common": {
+    "retry": "다시 시도",
+    "confirm": "확인",
+    "close": "닫기",
+    "home": "홈",
+    "back": "뒤로",
+    "scanAgain": "다시 스캔",
+    "contact": "문의하기",
+    "loading": "로딩 중..."
+  }
+}

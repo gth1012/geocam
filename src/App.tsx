@@ -1,3 +1,5 @@
+import './i18n';
+import { useTranslation } from 'react-i18next';
 import { useState, useRef, useCallback, useEffect, Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { Scanner } from '@yudiel/react-qr-scanner'
@@ -140,6 +142,7 @@ interface ScanResultInfo {
 }
 
 function App() {
+  const { t, i18n } = useTranslation();
   const [screen, setScreen] = useState<Screen>('home')
   const [scanMode, setScanMode] = useState<ScanMode>('camera')
   const [, setQrDetected] = useState(false)
@@ -264,7 +267,7 @@ function App() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c' }}>
       <div style={{ paddingTop: '120px', textAlign: 'center' }}>
         <h1 style={{ fontSize: '2.25rem', fontWeight: '200', letterSpacing: '0.25em', marginBottom: '8px', color: 'rgba(255,255,255,0.9)' }}>Geo Cam</h1>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', letterSpacing: '0.2em' }}>정품 인증 시스템</p>
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', letterSpacing: '0.2em' }}>{t('home.subtitle')}</p>
       </div>
       <div style={{ marginTop: '100px', width: '260px', position: 'relative', zIndex: 10 }}>
         <button onClick={safeGoCamera} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Camera</button>
@@ -321,13 +324,13 @@ function App() {
         if (err instanceof Error) {
           if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
             setPermissionDenied(true)
-            setCameraError('카메라 권한이 거부되었습니다. 설정에서 권한을 허용해 주세요.')
+            setCameraError(t('camera.permission'))
           } else if (err.name === 'NotFoundError') {
-            setCameraError('카메라를 찾을 수 없습니다.')
+            setCameraError(t('camera.error'))
           } else if (err.name === 'NotReadableError') {
-            setCameraError('카메라가 다른 앱에서 사용 중입니다.')
+            setCameraError(t('camera.error'))
           } else {
-            setCameraError('카메라를 시작할 수 없습니다: ' + err.message)
+            setCameraError(t('camera.error'))
           }
         }
       }
@@ -464,11 +467,11 @@ function App() {
                 <line x1="1" y1="1" x2="23" y2="23" />
               </svg>
             </div>
-            <p style={{ color: '#f87171', fontSize: '18px', fontWeight: '500', marginBottom: '12px' }}>카메라 접근 불가</p>
+            <p style={{ color: '#f87171', fontSize: '18px', fontWeight: '500', marginBottom: '12px' }}>{t('camera.error')}</p>
             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', maxWidth: '280px', lineHeight: '1.5', marginBottom: '32px' }}>{cameraError}</p>
             <div style={{ display: 'flex', gap: '12px' }}>
-              <button onClick={handleBack} style={{ padding: '14px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '15px', cursor: 'pointer' }}>홈으로</button>
-              <button onClick={startCamera} style={{ padding: '14px 24px', borderRadius: '12px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '15px', cursor: 'pointer' }}>다시 시도</button>
+              <button onClick={handleBack} style={{ padding: '14px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '15px', cursor: 'pointer' }}>{t('camera.home')}</button>
+              <button onClick={startCamera} style={{ padding: '14px 24px', borderRadius: '12px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '15px', cursor: 'pointer' }}>{t('common.retry')}</button>
             </div>
           </div>
         </div>
@@ -482,7 +485,7 @@ function App() {
           <button onClick={handleBack} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <BackArrow />
           </button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>실물 촬영</span>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>{t('capture.title')}</span>
           <div style={{ width: '40px' }} />
         </div>
 
@@ -510,7 +513,7 @@ function App() {
                   <circle cx="24" cy="24" r="22" stroke="rgba(255,255,255,0.3)" strokeWidth="2.5" />
                   <path d="M24 2 A22 22 0 0 1 46 24" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" />
                 </svg>
-                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px' }}>카메라 준비 중...</p>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px' }}>{t('camera.loading')}...</p>
               </div>
             </div>
           )}
@@ -531,7 +534,7 @@ function App() {
         {/* 하단 컨트롤 */}
         <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '20px', textAlign: 'center' }}>
-            제품 실물을 프레임 안에 맞추고 촬영하세요
+            {t('capture.title')}
           </p>
 
           {/* 셔터 버튼 */}
@@ -602,12 +605,12 @@ function App() {
         if (!response.ok) {
           if (response.status >= 500) {
             setNetworkError(true)
-            setScanResultInfo({ status: 'ERROR', message: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' })
+            setScanResultInfo({ status: 'ERROR', message: t('error.server') })
           } else if (response.status === 429) {
             setErrorCode('RATE_LIMIT_EXCEEDED')
-            setScanResultInfo({ status: 'ERROR', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' })
+            setScanResultInfo({ status: 'ERROR', message: t('error.rateLimit') })
           } else {
-            setScanResultInfo({ status: 'ERROR', message: `요청 처리에 실패했습니다. (${response.status})` })
+            setScanResultInfo({ status: 'ERROR', message: t('error.network') })
           }
           setProcessing(false)
           setScreen('scanResult')
@@ -620,11 +623,11 @@ function App() {
           const errorCode = result.error
           if (errorCode === 'BATCH_NOT_SHIPPED') {
             setErrorCode('BATCH_NOT_SHIPPED')
-            setScanResultInfo({ status: 'ERROR', message: '아직 출고되지 않은 제품입니다.' })
+            setScanResultInfo({ status: 'ERROR', message: t('error.batch') })
           } else if (errorCode === 'INVALID_QR') {
-            setScanResultInfo({ status: 'ERROR', message: '유효하지 않은 QR 코드입니다.' })
+            setScanResultInfo({ status: 'ERROR', message: t('scan.invalid') })
           } else {
-            setScanResultInfo({ status: 'ERROR', message: result.error || '세션 생성에 실패했습니다.' })
+            setScanResultInfo({ status: 'ERROR', message: result.error || t('error.server') })
           }
           setProcessing(false)
           setScreen('scanResult')
@@ -644,7 +647,7 @@ function App() {
       } catch (err) {
         console.error('scan/start error:', err)
         setNetworkError(true)
-        setScanResultInfo({ status: 'ERROR', message: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.' })
+        setScanResultInfo({ status: 'ERROR', message: t('error.network') })
         setProcessing(false)
         setScreen('scanResult')
       }
@@ -657,7 +660,7 @@ function App() {
 
       if (result && result[0]?.rawValue) {
         const data = result[0].rawValue
-        if (data.includes('DINA-')) {
+        if (data.includes('DINA-') || /^[A-Z0-9]{8,16}$/.test(data.trim())) {
           // 스캔 락 설정
           scanLockRef.current = true
           setLocalProcessing(true)
@@ -665,19 +668,19 @@ function App() {
           setQrDetected(true)
 
           // DINA 코드 추출
-          const dinaMatch = data.match(/DINA-[A-Z0-9]{12,13}/)
-          const dinaCode = dinaMatch ? dinaMatch[0] : null
+          const dinaMatch = data.match(/DINA-[A-Z0-9]{8,16}/)
+          const dinaCode = dinaMatch ? dinaMatch[0] : (/^[A-Z0-9]{8,16}$/.test(data.trim()) ? data.trim() : null)
 
           if (dinaCode) {
             await startScanSession(dinaCode)
           } else {
-            setScanError('DINA 코드 형식이 올바르지 않습니다')
+            setScanError(t('scan.invalid'))
             setTimeout(() => setScanError(null), 2000)
             scanLockRef.current = false
             setLocalProcessing(false)
           }
         } else {
-          setScanError('DINA 코드가 포함되지 않은 QR입니다')
+          setScanError(t('scan.invalid'))
           setTimeout(() => setScanError(null), 2000)
         }
       }
@@ -690,7 +693,7 @@ function App() {
           <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <BackArrow />
           </button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>QR 스캔</span>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>{t('camera.title')}</span>
           <div style={{ width: '40px' }} />
         </div>
 
@@ -706,7 +709,7 @@ function App() {
               }}
               onError={(err) => {
                 console.error('Scanner error:', err)
-                setCameraError('카메라에 접근할 수 없습니다. 권한을 확인해 주세요.')
+                setCameraError(t('camera.error'))
               }}
             />
           </div>
@@ -714,9 +717,9 @@ function App() {
           {/* 카메라 에러 표시 */}
           {cameraError && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: '#0a0a0c', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-              <p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>카메라 접근 불가</p>
+              <p style={{ color: '#f87171', fontSize: '16px', marginBottom: '12px' }}>{t('camera.error')}</p>
               <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px' }}>{cameraError}</p>
-              <button onClick={safeGoHome} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+              <button onClick={safeGoHome} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', cursor: 'pointer' }}>{t('common.home')}</button>
             </div>
           )}
 
@@ -738,7 +741,7 @@ function App() {
           {/* 처리 중 표시 */}
           {localProcessing && (
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '16px 32px', background: 'rgba(0,0,0,0.8)', borderRadius: '12px', zIndex: 20 }}>
-              <p style={{ color: '#4ade80', fontSize: '16px', margin: 0 }}>처리 중...</p>
+              <p style={{ color: '#4ade80', fontSize: '16px', margin: 0 }}>{t('scan.processing')}...</p>
             </div>
           )}
         </div>
@@ -746,10 +749,10 @@ function App() {
         {/* 하단 안내 */}
         <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
           <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
-            DINA QR 코드를 스캔하세요
+            {t('camera.title')}
           </p>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', margin: 0 }}>
-            QR 코드가 인식되면 자동으로 처리됩니다
+            {t('scan.processing')}
           </p>
         </div>
 
@@ -774,15 +777,15 @@ function App() {
               <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="10 5" />
             </svg>
           </div>
-          <h2 style={{ color: '#fbbf24', fontSize: '22px', fontWeight: '600', marginBottom: '12px' }}>검증 중...</h2>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '15px' }}>잠시만 기다려 주세요</p>
+          <h2 style={{ color: '#fbbf24', fontSize: '22px', fontWeight: '600', marginBottom: '12px' }}>{t('verify.title')}...</h2>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '15px' }}>{t('verify.subtitle')}</p>
           {dinaId && (
             <div style={{ marginTop: '24px', padding: '14px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
               <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontFamily: 'monospace', letterSpacing: '0.05em', margin: 0 }}>{dinaId}</p>
             </div>
           )}
-          <button onClick={safeGoHome} style={{ marginTop: '40px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '15px', cursor: 'pointer' }}>취소</button>
+          <button onClick={safeGoHome} style={{ marginTop: '40px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '15px', cursor: 'pointer' }}>{t('verify.cancel')}</button>
           <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
         </div>
       )
@@ -792,7 +795,7 @@ function App() {
       switch (scanResultInfo.status) {
         case 'PENDING': return {
           color: '#fbbf24',
-          text: '등록 대기중',
+          text: t('result.pending'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
@@ -803,7 +806,7 @@ function App() {
         };
         case 'CLAIMED': return {
           color: '#4ade80',
-          text: '정품 확인 완료',
+          text: t('result.valid'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
@@ -813,7 +816,7 @@ function App() {
         };
         case 'ALREADY_CLAIMED': return {
           color: '#f97316',
-          text: '이미 등록된 제품',
+          text: t('register.alreadyTitle'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#f97316" strokeWidth="2.5" />
@@ -824,7 +827,7 @@ function App() {
         };
         case 'EXPIRED': return {
           color: '#6b7280',
-          text: '만료됨',
+          text: t('error.session'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#6b7280" strokeWidth="2.5" />
@@ -834,7 +837,7 @@ function App() {
         };
         case 'ERROR': return {
           color: '#f87171',
-          text: '검증 실패',
+          text: t('result.invalid'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -855,7 +858,7 @@ function App() {
           <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <BackArrow />
           </button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.05em' }}>스캔 결과</span>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.05em' }}>{t('records.title')}</span>
         </div>
 
         {/* 결과 영역 */}
@@ -880,7 +883,7 @@ function App() {
           {/* 네트워크 에러 시 재시도 */}
           {networkError && (
             <button onClick={safeGoScan} style={{ marginTop: '24px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '15px', cursor: 'pointer' }}>
-              다시 스캔하기
+              {t('common.scanAgain')}
             </button>
           )}
         </div>
@@ -889,23 +892,23 @@ function App() {
         <div style={{ display: 'flex', gap: '12px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
           {scanResultInfo?.status === 'PENDING' && (
             <>
-              <button onClick={safeGoCamera} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>실물 촬영하기</button>
-              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>나중에</button>
+              <button onClick={safeGoCamera} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>{t('capture.title')}</button>
+              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.close')}</button>
             </>
           )}
           {scanResultInfo?.status === 'CLAIMED' && (
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>확인</button>
+            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>{t('common.confirm')}</button>
           )}
           {scanResultInfo?.status === 'ALREADY_CLAIMED' && (
             <>
-              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
-              <button onClick={() => window.open('mailto:support@artion.com')} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>문의하기</button>
+              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.home')}</button>
+              <button onClick={() => window.open('mailto:support@artion.com')} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{t('common.contact')}</button>
             </>
           )}
           {(scanResultInfo?.status === 'EXPIRED' || scanResultInfo?.status === 'ERROR') && (
             <>
-              <button onClick={safeGoScan} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>다시 스캔</button>
-              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+              <button onClick={safeGoScan} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{t('common.scanAgain')}</button>
+              <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.home')}</button>
             </>
           )}
         </div>
@@ -917,13 +920,13 @@ function App() {
   const getErrorCodeMessage = (code: string | null): { title: string; message: string; color: string } | null => {
     switch (code) {
       case 'BATCH_NOT_SHIPPED':
-        return { title: '미출고 제품', message: '아직 출고되지 않은 제품입니다. 제품을 구매한 판매처에 문의해 주세요.', color: '#f97316' };
+        return { title: t('error.batch'), message: t('error.batch'), color: '#f97316' };
       case 'BATCH_TEMPORARILY_LOCKED':
-        return { title: '검증 일시 중단', message: '해당 배치 제품군의 검증이 일시 중단되었습니다. 잠시 후 다시 시도해 주세요.', color: '#f97316' };
+        return { title: t('error.batch'), message: t('error.batch'), color: '#f97316' };
       case 'RATE_LIMIT_EXCEEDED':
-        return { title: '요청 제한', message: '짧은 시간에 요청이 너무 많았습니다. 1분 후 다시 시도해 주세요.', color: '#fbbf24' };
+        return { title: t('error.rateLimit'), message: t('error.rateLimit'), color: '#fbbf24' };
       case 'WRITE_GATE_FAILED':
-        return { title: '보안 검증 실패', message: '디바이스 보안 검증에 실패했습니다. 앱을 재시작한 후 다시 시도해 주세요.', color: '#f87171' };
+        return { title: t('error.device'), message: t('error.device'), color: '#f87171' };
       default:
         return null;
     }
@@ -945,20 +948,20 @@ function App() {
     const getStatusText = () => {
       if (errInfo) return errInfo.title;
       switch (verifyStatus) {
-        case 'VALID': return '정품 확인 (AUTHENTIC)';
-        case 'SUSPECT': return '검토 필요 (SUSPICIOUS)';
-        case 'INVALID': return '정보 불일치 (MISMATCH)';
-        case 'UNKNOWN': return '미등록 제품 (UNREGISTERED)';
-        default: return '확인중';
+        case 'VALID': return t('result.valid');
+        case 'SUSPECT': return t('result.suspect');
+        case 'INVALID': return t('result.invalid');
+        case 'UNKNOWN': return t('result.unknown');
+        default: return t('result.pending');
       }
     };
     const getStatusMessage = () => {
       if (errInfo) return errInfo.message;
       switch (verifyStatus) {
-        case 'VALID': return '이 제품은 정품임이 확인되었습니다. 촬영 정보와 실물이 일치합니다.';
-        case 'SUSPECT': return '인식되었으나 신뢰도가 낮습니다. 조명과 각도를 조정하여 다시 촬영해 주세요.';
-        case 'INVALID': return '촬영된 이미지와 등록된 정품 정보가 일치하지 않습니다. 정품 여부를 확인해 주세요.';
-        case 'UNKNOWN': return '이 제품은 정품 정보가 등록되어 있지 않습니다. 제품 판매처에 문의해 주세요.';
+        case 'VALID': return t('result.validDesc');
+        case 'SUSPECT': return t('result.suspectDesc');
+        case 'INVALID': return t('result.invalidDesc');
+        case 'UNKNOWN': return t('result.unknownDesc');
         default: return '';
       }
     };
@@ -1025,7 +1028,7 @@ function App() {
           {previewImage && !capturedImage && <img src={previewImage} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
           <button onClick={safeGoHome} style={{ position: 'absolute', top: 'max(48px, env(safe-area-inset-top))', left: '16px', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-          <div style={{ position: 'absolute', top: 'max(52px, calc(env(safe-area-inset-top) + 4px))', right: '16px', padding: '6px 14px', borderRadius: '9999px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{isCamera ? '실물 촬영' : '갤러리'}</div>
+          <div style={{ position: 'absolute', top: 'max(52px, calc(env(safe-area-inset-top) + 4px))', right: '16px', padding: '6px 14px', borderRadius: '9999px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{isCamera ? t('capture.title') : t('capture.gallery')}</div>
         </div>
         <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '6px', background: '#0a0a0c' }}>
           <div style={{ background: `${getStatusColor()}10`, border: `1px solid ${getStatusColor()}30`, borderRadius: '12px', padding: '12px' }}>
@@ -1036,19 +1039,19 @@ function App() {
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '8px', lineHeight: '1.4' }}>{getStatusMessage()}</p>
             {matchScore !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>일치도</span>
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>{t('records.status')}</span>
                 <span style={{ color: getStatusColor(), fontSize: '12px', fontWeight: '500' }}>{(matchScore * 100).toFixed(1)}%</span>
               </div>
             )}
             {confidence !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>신뢰도</span>
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>{t('result.pending')}</span>
                 <span style={{ color: getStatusColor(), fontSize: '12px', fontWeight: '500' }}>{confidence}%</span>
               </div>
             )}
             {signatureVerified !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>서명 검증</span>
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>Signature</span>
                 <span style={{ color: signatureVerified ? '#4ade80' : '#f87171', fontSize: '12px', fontWeight: '500' }}>{signatureVerified ? 'PASS' : 'FAIL'}</span>
               </div>
             )}
@@ -1056,23 +1059,23 @@ function App() {
               <div style={{ paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>Record ID</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.recordId.slice(0, 18)}...</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>Pack Hash</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', fontFamily: 'monospace' }}>{recordInfo.packHash.slice(0, 16)}...</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>등록 시각</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>{t('records.date')}</span><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>{new Date(recordInfo.createdAt).toLocaleString('ko-KR')}</span></div>
               </div>
             )}
             {networkError && (
               <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(251,191,36,0.1)', borderRadius: '8px', border: '1px solid rgba(251,191,36,0.2)' }}>
-                <p style={{ color: '#fbbf24', fontSize: '12px', margin: 0 }}>서버 연결에 실패했습니다.</p>
-                <button onClick={handleRetry} style={{ marginTop: '8px', padding: '8px 16px', borderRadius: '8px', background: 'rgba(251,191,36,0.2)', border: 'none', color: '#fbbf24', fontSize: '12px', cursor: 'pointer' }}>재시도</button>
+                <p style={{ color: '#fbbf24', fontSize: '12px', margin: 0 }}>{t('error.network')}</p>
+                <button onClick={handleRetry} style={{ marginTop: '8px', padding: '8px 16px', borderRadius: '8px', background: 'rgba(251,191,36,0.2)', border: 'none', color: '#fbbf24', fontSize: '12px', cursor: 'pointer' }}>{t('common.retry')}</button>
               </div>
             )}
           </div>
           <div style={{ display: 'flex', gap: '12px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>확인</button>
+            <button onClick={safeGoHome} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.confirm')}</button>
             {verifyStatus === 'VALID' && sessionToken && (
-              <button onClick={handleRegister} disabled={registering} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: registering ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontWeight: '500', cursor: registering ? 'default' : 'pointer' }}>{registering ? '등록 중...' : '정품 등록'}</button>
+              <button onClick={handleRegister} disabled={registering} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: registering ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontWeight: '500', cursor: registering ? 'default' : 'pointer' }}>{registering ? t('register.processing') + '...' : t('register.button')}</button>
             )}
             {(verifyStatus === 'SUSPECT' || verifyStatus === 'UNKNOWN' || verifyStatus === 'INVALID') && (
-              <button onClick={handleRetry} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: verifyStatus === 'SUSPECT' ? 'rgba(251,191,36,0.1)' : 'rgba(255,255,255,0.06)', border: `1px solid ${verifyStatus === 'SUSPECT' ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.1)'}`, color: verifyStatus === 'SUSPECT' ? '#fbbf24' : 'white', cursor: 'pointer' }}>다시 촬영</button>
+              <button onClick={handleRetry} style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '14px', background: verifyStatus === 'SUSPECT' ? 'rgba(251,191,36,0.1)' : 'rgba(255,255,255,0.06)', border: `1px solid ${verifyStatus === 'SUSPECT' ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.1)'}`, color: verifyStatus === 'SUSPECT' ? '#fbbf24' : 'white', cursor: 'pointer' }}>{t('capture.retry')}</button>
             )}
           </div>
         </div>
@@ -1100,7 +1103,7 @@ function App() {
           setCapturedImage(previewImage);
           await runPipeline(null, previewImage);
         } catch (e) {
-          setAnalysisError('이미지 처리 중 오류가 발생했습니다.');
+          setAnalysisError(t('common.loading'));
           setVerifying(false);
         }
       }
@@ -1118,7 +1121,7 @@ function App() {
       <div style={{ minHeight: '100vh', background: '#0a0a0c', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button onClick={handleBack} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>미리보기</span>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>{t('capture.gallery')}</span>
           <div style={{ width: '40px' }} />
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
@@ -1127,17 +1130,17 @@ function App() {
         <div style={{ padding: '20px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
           {analysisError && <p style={{ color: '#f87171', fontSize: '14px', marginBottom: '8px', textAlign: 'center' }}>{analysisError}</p>}
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button onClick={() => setScreen('gallery')} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '14px', cursor: 'pointer' }}>다시 선택</button>
-            <button onClick={handleVerify} disabled={verifying} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: verifying ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '16px', fontWeight: '500', cursor: verifying ? 'default' : 'pointer' }}>{verifying ? '검증 중...' : '검증하기'}</button>
+            <button onClick={() => setScreen('gallery')} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '14px', cursor: 'pointer' }}>{t('capture.retry')}</button>
+            <button onClick={handleVerify} disabled={verifying} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: verifying ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '16px', fontWeight: '500', cursor: verifying ? 'default' : 'pointer' }}>{verifying ? t('verify.title') + '...' : t('common.confirm')}</button>
           </div>
         </div>
         {showCancelConfirm && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
             <div style={{ background: '#1a1a1c', borderRadius: '16px', padding: '24px', maxWidth: '300px', textAlign: 'center' }}>
-              <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', marginBottom: '20px' }}>분석이 진행 중입니다. 취소하시겠습니까?</p>
+              <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', marginBottom: '20px' }}>{t('verify.cancel')}?</p>
               <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => setShowCancelConfirm(false)} style={{ flex: 1, padding: '12px', borderRadius: '12px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>계속</button>
-                <button onClick={confirmCancel} style={{ flex: 1, padding: '12px', borderRadius: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', cursor: 'pointer' }}>취소</button>
+                <button onClick={() => setShowCancelConfirm(false)} style={{ flex: 1, padding: '12px', borderRadius: '12px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>{t('common.confirm')}</button>
+                <button onClick={confirmCancel} style={{ flex: 1, padding: '12px', borderRadius: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', cursor: 'pointer' }}>{t('verify.cancel')}</button>
               </div>
             </div>
           </div>
@@ -1170,20 +1173,20 @@ function App() {
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
           <button onClick={safeGoScan} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.1em' }}>OTP 입력</span>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.1em' }}>{t('otp.title')}</span>
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '40px' }}>
           <div style={{ marginBottom: '32px', padding: '12px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
             <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontFamily: 'monospace', letterSpacing: '0.1em', margin: 0 }}>{dinaDisplay}</p>
           </div>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px', maxWidth: '280px', lineHeight: '1.5' }}>제품에 포함된 OTP 코드 8자리를 입력해 주세요</p>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px', maxWidth: '280px', lineHeight: '1.5' }}>{t('otp.subtitle')}</p>
           <input
             type="text"
             value={otpInput}
             onChange={(e) => setOtpInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
             maxLength={8}
-            placeholder="OTP 코드 8자리"
+            placeholder="OTP"
             style={{
               width: '240px', padding: '16px', fontSize: '20px', fontFamily: 'monospace', letterSpacing: '0.3em', textAlign: 'center',
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '12px',
@@ -1201,7 +1204,7 @@ function App() {
               color: otpInput.length === 8 ? '#4ade80' : 'rgba(255,255,255,0.3)',
               cursor: otpInput.length === 8 ? 'pointer' : 'not-allowed',
             }}
-          >확인</button>
+          >{t('otp.confirm')}</button>
         </div>
         <div style={{ paddingBottom: 'max(40px, env(safe-area-inset-bottom))' }} />
       </div>
@@ -1213,8 +1216,8 @@ function App() {
       if (registerStatus === 'ACTIVATED') {
         return {
           color: '#4ade80',
-          title: '정품 등록 완료',
-          message: '이 제품이 정품으로 등록되었습니다.',
+          title: t('register.successTitle'),
+          message: t('register.successMessage'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
@@ -1226,8 +1229,8 @@ function App() {
       if (registerStatus === 'ALREADY_ACTIVATED') {
         return {
           color: '#fbbf24',
-          title: '이미 등록된 제품',
-          message: '이 제품은 이미 정품 등록이 완료되었습니다.',
+          title: t('register.alreadyTitle'),
+          message: t('register.alreadyMessage'),
           icon: (
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
@@ -1238,16 +1241,16 @@ function App() {
         };
       }
       const errorMessages: Record<string, string> = {
-        SESSION_NOT_VERIFIED: '세션이 만료되었습니다. 다시 시도해 주세요.',
-        DINA_MISMATCH: '코드 정보가 일치하지 않습니다.',
-        ASSET_NOT_FOUND: '등록되지 않은 제품입니다.',
-        BATCH_NOT_SHIPPED: '아직 출고되지 않은 제품입니다.',
-        NETWORK_ERROR: '서버 연결에 실패했습니다. 네트워크를 확인해 주세요.',
+        SESSION_NOT_VERIFIED: t('error.session'),
+        DINA_MISMATCH: t('result.invalid'),
+        ASSET_NOT_FOUND: t('result.unknown'),
+        BATCH_NOT_SHIPPED: t('error.batch'),
+        NETWORK_ERROR: t('error.network'),
       };
-      const msg = (registerError && errorMessages[registerError]) || '등록에 실패했습니다. 다시 시도해 주세요.';
+      const msg = (registerError && errorMessages[registerError]) || t('error.server');
       return {
         color: '#f87171',
-        title: '등록 실패',
+        title: t('result.invalid'),
         message: msg,
         icon: (
           <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -1268,7 +1271,7 @@ function App() {
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', maxWidth: '280px', lineHeight: '1.5' }}>{info.message}</p>
         </div>
         <div style={{ paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
-          <button onClick={safeGoHome} style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>홈으로</button>
+          <button onClick={safeGoHome} style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.home')}</button>
         </div>
       </div>
     );
@@ -1279,7 +1282,7 @@ function App() {
       <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
           <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
-          <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>설정</h2>
+          <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>{t('settings.title')}</h2>
         </div>
         <div style={{ marginTop: '40px', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', margin: 0 }}>GeoCam V2.1</p>
@@ -1294,11 +1297,11 @@ function App() {
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
         <div style={{ padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300' }}>인증 기록</span>
+          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300' }}>{t('records.title')}</span>
           <div style={{ width: '40px' }} />
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px' }}>기록은 서버에서만 저장됩니다</p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px' }}>{t('records.empty')}</p>
         </div>
       </div>
     )

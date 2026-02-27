@@ -1,0 +1,91 @@
+{
+  "home": {
+    "title": "Scan to Verify",
+    "subtitle": "Check if your item is authentic",
+    "scanButton": "Start Scan"
+  },
+  "camera": {
+    "title": "Scan the QR code",
+    "loading": "Preparing camera",
+    "error": "Cannot access camera",
+    "permission": "Camera permission required",
+    "retry": "Try Again",
+    "home": "Back to Home"
+  },
+  "scan": {
+    "processing": "Processing QR code",
+    "notFound": "Item not found",
+    "invalid": "Invalid QR code"
+  },
+  "verify": {
+    "title": "Checking the item",
+    "subtitle": "Please wait a moment",
+    "cancel": "Cancel"
+  },
+  "capture": {
+    "title": "Take a photo of the item",
+    "retry": "Take Again",
+    "gallery": "Choose from gallery"
+  },
+  "result": {
+    "valid": "Authentic item",
+    "suspect": "Please try again",
+    "invalid": "Information does not match",
+    "unknown": "Product not registered",
+    "pending": "Checking",
+    "validDesc": "The item matches the registered authentic record",
+    "suspectDesc": "The photo quality was not sufficient",
+    "invalidDesc": "The item does not match the authentic record",
+    "unknownDesc": "This item has not been registered"
+  },
+  "register": {
+    "button": "Register Item",
+    "processing": "Registering",
+    "successTitle": "Registration Complete",
+    "successMessage": "This item has been registered as authentic",
+    "alreadyTitle": "Already Registered",
+    "alreadyMessage": "This item has already been registered"
+  },
+  "otp": {
+    "title": "Enter the code",
+    "subtitle": "Enter the 8-digit code included with the product",
+    "confirm": "Confirm"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "english": "English",
+    "korean": "한국어",
+    "chinese": "简体中文",
+    "japanese": "日本語",
+    "version": "Version",
+    "about": "About",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service"
+  },
+  "records": {
+    "title": "Scan History",
+    "empty": "No records yet",
+    "date": "Date",
+    "status": "Status",
+    "detail": "View Detail"
+  },
+  "error": {
+    "network": "Network connection failed",
+    "server": "Temporary server issue",
+    "rateLimit": "Too many requests",
+    "session": "Session expired",
+    "device": "Device verification failed",
+    "batch": "Item not available yet"
+  },
+  "common": {
+    "retry": "Retry",
+    "confirm": "Confirm",
+    "close": "Close",
+    "home": "Home",
+    "back": "Back",
+    "scanAgain": "Scan Again",
+    "contact": "Contact Support",
+    "loading": "Loading..."
+  }
+}
