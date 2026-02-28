@@ -2,157 +2,194 @@ import type { ScanResultScreenProps } from '../types/app.types'
 
 const ScanResultScreen = ({
   safeGoHome,
-  safeGoCamera,
   safeGoScan,
-  BackArrow,
-  t,
   processing,
   scanResultInfo,
   dinaId,
   networkError,
 }: ScanResultScreenProps) => {
+  // 로딩 상태
   if (processing || !scanResultInfo) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0c', padding: '20px' }}>
-        <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(251,191,36,0.1)', border: '2px solid rgba(251,191,36,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '28px' }}>
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
-            <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="10 5" />
+        <div style={{ width: '120px', height: '120px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '32px' }}>
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none" style={{ animation: 'spin 1.2s linear infinite' }}>
+            <circle cx="28" cy="28" r="24" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+            <path d="M28 4 A24 24 0 0 1 52 28" stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round" />
           </svg>
         </div>
-        <h2 style={{ color: '#fbbf24', fontSize: '22px', fontWeight: '600', marginBottom: '12px' }}>{t('verify.title')}...</h2>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '15px' }}>{t('verify.subtitle')}</p>
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '16px', fontWeight: '400' }}>검증 중...</p>
         {dinaId && (
-          <div style={{ marginTop: '24px', padding: '14px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
-            <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontFamily: 'monospace', letterSpacing: '0.05em', margin: 0 }}>{dinaId}</p>
+          <div style={{ marginTop: '32px', padding: '16px 24px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '6px', letterSpacing: '0.05em' }}>DINA</p>
+            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '15px', fontFamily: 'monospace', letterSpacing: '0.08em', margin: 0 }}>{dinaId}</p>
           </div>
         )}
-        <button onClick={safeGoHome} style={{ marginTop: '40px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '15px', cursor: 'pointer' }}>{t('verify.cancel')}</button>
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
 
+  // 상태별 설정 (Color → Icon → Text 우선순위)
   const getStatusConfig = () => {
-    switch (scanResultInfo.status) {
-      case 'PENDING': return {
-        color: '#fbbf24',
-        text: t('result.pending'),
-        icon: (
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
-            <path d="M24 14v12" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="24" cy="33" r="2" fill="#fbbf24" />
-          </svg>
-        )
-      };
-      case 'CLAIMED': return {
-        color: '#4ade80',
-        text: t('result.valid'),
-        icon: (
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
-            <path d="M15 24l6 6 12-12" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )
-      };
-      case 'ALREADY_CLAIMED': return {
-        color: '#f97316',
-        text: t('register.alreadyTitle'),
-        icon: (
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#f97316" strokeWidth="2.5" />
-            <path d="M24 14v12" stroke="#f97316" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="24" cy="33" r="2" fill="#f97316" />
-          </svg>
-        )
-      };
-      case 'EXPIRED': return {
-        color: '#6b7280',
-        text: t('error.session'),
-        icon: (
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#6b7280" strokeWidth="2.5" />
-            <path d="M17 17l14 14M31 17l-14 14" stroke="#6b7280" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-        )
-      };
-      case 'ERROR': return {
-        color: '#f87171',
-        text: t('result.invalid'),
-        icon: (
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
-            <path d="M17 17l14 14M31 17l-14 14" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-        )
-      };
-      default: return { color: 'rgba(255,255,255,0.6)', text: '', icon: null };
-    }
-  };
+    const status = scanResultInfo.status
 
-  const config = getStatusConfig();
+    // VALID (Green) - 정품 확인
+    if (status === 'CLAIMED') {
+      return {
+        color: '#4ade80',
+        bgColor: 'rgba(74, 222, 128, 0.08)',
+        title: '정품 확인',
+        subtitle: '발급 데이터와 일치합니다.',
+        icon: (
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="30" stroke="#4ade80" strokeWidth="2.5" />
+            <path d="M20 32l8 8 16-16" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )
+      }
+    }
+
+    // SUSPECT (Yellow) - 주의 필요
+    if (status === 'PENDING' || status === 'ALREADY_CLAIMED') {
+      return {
+        color: '#fbbf24',
+        bgColor: 'rgba(251, 191, 36, 0.08)',
+        title: status === 'ALREADY_CLAIMED' ? '이미 등록됨' : '주의 필요',
+        subtitle: status === 'ALREADY_CLAIMED'
+          ? '이 제품은 이미 다른 사용자에게 등록되었습니다.'
+          : '추가 확인이 필요합니다.',
+        icon: (
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="30" stroke="#fbbf24" strokeWidth="2.5" />
+            <path d="M32 20v16" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+            <circle cx="32" cy="44" r="2.5" fill="#fbbf24" />
+          </svg>
+        )
+      }
+    }
+
+    // INVALID (Red) - 검증 실패
+    return {
+      color: '#f87171',
+      bgColor: 'rgba(248, 113, 113, 0.08)',
+      title: networkError ? '연결 오류' : '검증 실패',
+      subtitle: networkError
+        ? '네트워크 연결을 확인해주세요.'
+        : scanResultInfo.message || '발급 데이터를 확인할 수 없습니다.',
+      icon: (
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <circle cx="32" cy="32" r="30" stroke="#f87171" strokeWidth="2.5" />
+          <path d="M22 22l20 20M42 22l-20 20" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      )
+    }
+  }
+
+  const config = getStatusConfig()
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
-      {/* 헤더 */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
-        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-          <BackArrow />
-        </button>
-        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.05em' }}>{t('records.title')}</span>
-      </div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '24px', paddingTop: 'max(60px, env(safe-area-inset-top))' }}>
 
-      {/* 결과 영역 */}
+      {/* 메인 결과 영역 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        {/* 아이콘 */}
-        <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `${config.color}15`, border: `2px solid ${config.color}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '28px' }}>
+
+        {/* 아이콘 (Color 우선) */}
+        <div style={{
+          width: '140px',
+          height: '140px',
+          borderRadius: '50%',
+          background: config.bgColor,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: '32px'
+        }}>
           {config.icon}
         </div>
 
         {/* 상태 텍스트 */}
-        <h2 style={{ color: config.color, fontSize: '22px', fontWeight: '600', marginBottom: '12px', letterSpacing: '0.02em' }}>{config.text}</h2>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '15px', textAlign: 'center', maxWidth: '300px', lineHeight: '1.6' }}>{scanResultInfo?.message}</p>
+        <h1 style={{
+          color: config.color,
+          fontSize: '28px',
+          fontWeight: '600',
+          marginBottom: '12px',
+          letterSpacing: '-0.02em'
+        }}>
+          {config.title}
+        </h1>
 
-        {/* DINA 코드 표시 */}
+        <p style={{
+          color: 'rgba(255,255,255,0.5)',
+          fontSize: '15px',
+          textAlign: 'center',
+          maxWidth: '280px',
+          lineHeight: '1.6',
+          marginBottom: '32px'
+        }}>
+          {config.subtitle}
+        </p>
+
+        {/* DINA 코드 */}
         {dinaId && (
-          <div style={{ marginTop: '24px', padding: '14px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
-            <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontFamily: 'monospace', letterSpacing: '0.05em', margin: 0 }}>{dinaId}</p>
+          <div style={{
+            padding: '16px 24px',
+            background: 'rgba(255,255,255,0.03)',
+            borderRadius: '12px',
+            marginBottom: '24px'
+          }}>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '6px', letterSpacing: '0.05em' }}>DINA</p>
+            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '15px', fontFamily: 'monospace', letterSpacing: '0.08em', margin: 0 }}>{dinaId}</p>
           </div>
-        )}
-
-        {/* 네트워크 에러 시 재시도 */}
-        {networkError && (
-          <button onClick={safeGoScan} style={{ marginTop: '24px', padding: '14px 28px', borderRadius: '12px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '15px', cursor: 'pointer' }}>
-            {t('common.scanAgain')}
-          </button>
         )}
       </div>
 
-      {/* 하단 버튼 */}
-      <div style={{ display: 'flex', gap: '12px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
-        {scanResultInfo?.status === 'PENDING' && (
-          <>
-            <button onClick={safeGoCamera} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>{t('capture.title')}</button>
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.close')}</button>
-          </>
-        )}
-        {scanResultInfo?.status === 'CLAIMED' && (
-          <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', fontWeight: '500', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', cursor: 'pointer' }}>{t('common.confirm')}</button>
-        )}
-        {scanResultInfo?.status === 'ALREADY_CLAIMED' && (
-          <>
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.home')}</button>
-            <button onClick={() => window.open('mailto:support@artion.com')} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{t('common.contact')}</button>
-          </>
-        )}
-        {(scanResultInfo?.status === 'EXPIRED' || scanResultInfo?.status === 'ERROR') && (
-          <>
-            <button onClick={safeGoScan} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' }}>{t('common.scanAgain')}</button>
-            <button onClick={safeGoHome} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', cursor: 'pointer' }}>{t('common.home')}</button>
-          </>
-        )}
+      {/* 면책 문구 */}
+      <p style={{
+        color: 'rgba(255,255,255,0.3)',
+        fontSize: '11px',
+        textAlign: 'center',
+        lineHeight: '1.5',
+        marginBottom: '24px',
+        padding: '0 16px'
+      }}>
+        GeoCam은 기록된 발급 데이터의 검증 결과를 제공합니다. 법적 정품 판정을 구성하지 않습니다.
+      </p>
+
+      {/* 하단 버튼: 다시 스캔 + 홈 */}
+      <div style={{ display: 'flex', gap: '12px', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+        <button
+          onClick={safeGoScan}
+          style={{
+            flex: 1,
+            padding: '16px',
+            borderRadius: '14px',
+            fontSize: '16px',
+            fontWeight: '500',
+            background: 'rgba(255,255,255,0.08)',
+            border: 'none',
+            color: 'rgba(255,255,255,0.9)',
+            cursor: 'pointer'
+          }}
+        >
+          다시 스캔
+        </button>
+        <button
+          onClick={safeGoHome}
+          style={{
+            flex: 1,
+            padding: '16px',
+            borderRadius: '14px',
+            fontSize: '16px',
+            fontWeight: '400',
+            background: 'rgba(255,255,255,0.03)',
+            border: 'none',
+            color: 'rgba(255,255,255,0.5)',
+            cursor: 'pointer'
+          }}
+        >
+          홈
+        </button>
       </div>
     </div>
   )
