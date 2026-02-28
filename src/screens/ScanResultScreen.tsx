@@ -153,7 +153,7 @@ const ScanResultScreen = ({
         marginBottom: '24px',
         padding: '0 16px'
       }}>
-        GeoCam은 기록된 발급 데이터의 검증 결과를 제공합니다. 법적 정품 판정을 구성하지 않습니다.
+        GeoCam은 공식 발급 기록을 기반으로 검증 정보를 제공합니다.
       </p>
 
       {/* 하단 버튼: 다시 스캔 + 홈 */}
