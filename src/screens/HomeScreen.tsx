@@ -11,7 +11,7 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker }: HomeScreenP
     <div style={{ marginTop: '120px', width: '260px', position: 'relative', zIndex: 10 }}>
       {/* Camera */}
       <button
-        onClick={safeGoScan}
+        onClick={safeGoCamera}
         style={{
           width: '100%',
           padding: '16px',
@@ -31,7 +31,7 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker }: HomeScreenP
 
       {/* QR Scan */}
       <button
-        onClick={safeGoCamera}
+        onClick={safeGoScan}
         style={{
           width: '100%',
           padding: '16px',

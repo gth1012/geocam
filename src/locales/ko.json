@@ -1,7 +1,7 @@
 {
   "home": {
-    "title": "정품 확인",
-    "subtitle": "제품이 정품인지 확인하세요",
+    "title": "기록 확인",
+    "subtitle": "제품의 발급 기록을 확인하세요",
     "scanButton": "스캔 시작"
   },
   "camera": {
@@ -28,21 +28,21 @@
     "gallery": "갤러리 선택"
   },
   "result": {
-    "valid": "정품 확인됨",
+    "valid": "기록 일치",
     "suspect": "촬영을 다시 해 주세요",
-    "invalid": "정품 정보가 일치하지 않습니다",
+    "invalid": "발급 기록이 일치하지 않습니다",
     "unknown": "등록되지 않은 제품입니다",
     "pending": "확인 중",
-    "validDesc": "등록된 정품 정보와 일치합니다",
+    "validDesc": "등록된 발급 기록과 일치합니다",
     "suspectDesc": "촬영 상태가 좋지 않습니다. 다시 촬영해 주세요",
-    "invalidDesc": "등록된 정품 정보와 일치하지 않습니다",
-    "unknownDesc": "이 제품은 정품 정보가 등록되어 있지 않습니다"
+    "invalidDesc": "등록된 발급 기록과 일치하지 않습니다",
+    "unknownDesc": "이 제품은 발급 기록이 등록되어 있지 않습니다"
   },
   "register": {
-    "button": "정품 등록",
+    "button": "등록",
     "processing": "등록 중",
-    "successTitle": "정품 등록 완료",
-    "successMessage": "이 제품이 정품으로 등록되었습니다",
+    "successTitle": "등록 완료",
+    "successMessage": "이 제품이 등록되었습니다",
     "alreadyTitle": "이미 등록된 제품",
     "alreadyMessage": "이 제품은 이미 등록되었습니다"
   },

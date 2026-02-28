@@ -1,7 +1,7 @@
 {
   "home": {
-    "title": "Scan to Verify",
-    "subtitle": "Check if your item is authentic",
+    "title": "Scan to Check",
+    "subtitle": "Check your item's record",
     "scanButton": "Start Scan"
   },
   "camera": {
@@ -28,21 +28,21 @@
     "gallery": "Choose from gallery"
   },
   "result": {
-    "valid": "Authentic item",
+    "valid": "Record Matched",
     "suspect": "Please try again",
     "invalid": "Information does not match",
     "unknown": "Product not registered",
     "pending": "Checking",
-    "validDesc": "The item matches the registered authentic record",
+    "validDesc": "The item matches the registered record",
     "suspectDesc": "The photo quality was not sufficient",
-    "invalidDesc": "The item does not match the authentic record",
+    "invalidDesc": "The item does not match the registered record",
     "unknownDesc": "This item has not been registered"
   },
   "register": {
     "button": "Register Item",
     "processing": "Registering",
     "successTitle": "Registration Complete",
-    "successMessage": "This item has been registered as authentic",
+    "successMessage": "This item has been registered",
     "alreadyTitle": "Already Registered",
     "alreadyMessage": "This item has already been registered"
   },
@@ -75,7 +75,7 @@
     "server": "Temporary server issue",
     "rateLimit": "Too many requests",
     "session": "Session expired",
-    "device": "Device verification failed",
+    "device": "Device check failed",
     "batch": "Item not available yet"
   },
   "common": {
