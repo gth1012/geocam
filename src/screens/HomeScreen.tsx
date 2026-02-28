@@ -1,20 +1,89 @@
 import type { HomeScreenProps } from '../types/app.types'
 
-const HomeScreen = ({ safeGoCamera, safeGoScan, openGalleryPicker, t }: HomeScreenProps) => (
-  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c' }}>
-    <div style={{ paddingTop: '120px', textAlign: 'center' }}>
-      <h1 style={{ fontSize: '2.25rem', fontWeight: '200', letterSpacing: '0.25em', marginBottom: '8px', color: 'rgba(255,255,255,0.9)' }}>Geo Cam</h1>
-      <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px', letterSpacing: '0.2em' }}>{t('home.subtitle')}</p>
+const HomeScreen = ({ safeGoScan, openGalleryPicker }: HomeScreenProps) => (
+  <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c', position: 'relative' }}>
+    {/* 헤더 영역 */}
+    <div style={{ paddingTop: '140px', textAlign: 'center' }}>
+      <h1 style={{ fontSize: '2.5rem', fontWeight: '600', letterSpacing: '-0.02em', marginBottom: '12px', color: 'rgba(255,255,255,0.95)' }}>LegitTag</h1>
+      <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', letterSpacing: '0.15em', fontWeight: '300' }}>스캔. 확인. 검증.</p>
     </div>
-    <div style={{ marginTop: '100px', width: '260px', position: 'relative', zIndex: 10 }}>
-      <button onClick={safeGoCamera} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Camera</button>
-      <div style={{ height: '50px' }} />
-      <button onClick={safeGoScan} style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', fontWeight: '300', letterSpacing: '0.1em', cursor: 'pointer' }}>Scan</button>
-      <div style={{ height: '30px' }} />
-      <button onClick={openGalleryPicker} style={{ position: 'relative', zIndex: 9999, width: '100%', padding: '16px', borderRadius: '16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.8)', fontWeight: '300', letterSpacing: '0.1em', fontSize: '15px', cursor: 'pointer' }}>Gallery</button>
+
+    {/* 메인 버튼 영역 */}
+    <div style={{ marginTop: '80px', width: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      {/* 스캔하기 버튼 */}
+      <button
+        onClick={safeGoScan}
+        style={{
+          width: '100%',
+          padding: '18px 32px',
+          borderRadius: '14px',
+          background: 'rgba(255,255,255,0.95)',
+          border: 'none',
+          color: '#0a0a0c',
+          fontSize: '17px',
+          fontWeight: '600',
+          letterSpacing: '-0.01em',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+        }}
+      >
+        스캔하기
+      </button>
+
+      {/* 갤러리 텍스트 링크 */}
+      <button
+        onClick={openGalleryPicker}
+        style={{
+          marginTop: '24px',
+          background: 'transparent',
+          border: 'none',
+          color: 'rgba(255,255,255,0.5)',
+          fontSize: '14px',
+          fontWeight: '400',
+          cursor: 'pointer',
+          padding: '8px 16px',
+          letterSpacing: '0.02em',
+        }}
+      >
+        갤러리
+      </button>
     </div>
-    <div style={{ position: 'absolute', bottom: 'max(40px, env(safe-area-inset-bottom))', textAlign: 'center', left: 0, right: 0, zIndex: 1, pointerEvents: 'none' }}>
-      <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', letterSpacing: '0.2em', pointerEvents: 'none' }}>Powered by Artion</p>
+
+    {/* 하단 영역 */}
+    <div style={{ position: 'absolute', bottom: 'max(60px, env(safe-area-inset-bottom))', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+      {/* 로그인 | 회원가입 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <button
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: '13px',
+            fontWeight: '400',
+            cursor: 'pointer',
+            padding: '8px',
+          }}
+        >
+          로그인
+        </button>
+        <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '13px' }}>|</span>
+        <button
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: '13px',
+            fontWeight: '400',
+            cursor: 'pointer',
+            padding: '8px',
+          }}
+        >
+          회원가입
+        </button>
+      </div>
+
+      {/* Powered by */}
+      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px', letterSpacing: '0.15em', fontWeight: '300' }}>Powered by Artion</p>
     </div>
   </div>
 )
