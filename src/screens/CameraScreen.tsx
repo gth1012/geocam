@@ -29,6 +29,17 @@ const CameraScreen = ({
   const [cameraReady, setCameraReady] = useState(false)
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [capturing, setCapturing] = useState(false)
+  const [showGuideOverlay, setShowGuideOverlay] = useState(true)
+
+  // 가이드 오버레이 3초 후 자동 fade out
+  useEffect(() => {
+    if (cameraReady && showGuideOverlay) {
+      const timer = setTimeout(() => {
+        setShowGuideOverlay(false)
+      }, 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [cameraReady, showGuideOverlay])
 
   // 카메라 시작
   const startCamera = useCallback(async () => {
@@ -267,6 +278,44 @@ const CameraScreen = ({
             </div>
           </div>
         )}
+
+        {/* 초기 가이드 오버레이 (3초 후 fade out) */}
+        {cameraReady && showGuideOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              animation: 'fadeOut 0.5s ease-out 2.5s forwards',
+              pointerEvents: 'none',
+            }}
+          >
+            <p style={{
+              color: 'rgba(255,255,255,0.95)',
+              fontSize: '16px',
+              fontWeight: '500',
+              textAlign: 'center',
+              marginBottom: '12px',
+              padding: '0 24px',
+              lineHeight: '1.5',
+            }}>
+              검증할 이미지를 화면 중앙에 맞춰주세요
+            </p>
+            <p style={{
+              color: 'rgba(255,255,255,0.6)',
+              fontSize: '13px',
+              fontWeight: '400',
+              textAlign: 'center',
+            }}>
+              15~25cm 거리 · 빛 반사 주의
+            </p>
+          </div>
+        )}
       </div>
 
       {/* 하단 컨트롤 */}
@@ -305,11 +354,15 @@ const CameraScreen = ({
       {/* 캡처용 숨겨진 캔버스 */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* 스핀 애니메이션 */}
+      {/* 애니메이션 */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        @keyframes fadeOut {
+          from { opacity: 1; }
+          to { opacity: 0; visibility: hidden; }
         }
       `}</style>
     </div>
