@@ -14,7 +14,9 @@
     "error": "카메라에 접근할 수 없습니다",
     "permission": "카메라 권한이 필요합니다",
     "retry": "다시 시도",
-    "home": "홈으로"
+    "home": "홈으로",
+    "guideTitle": "검증할 이미지를 화면 중앙에 맞춰주세요",
+    "guideTip": "15~25cm 거리 · 빛 반사 주의"
   },
   "scan": {
     "processing": "QR 코드를 확인 중입니다",

@@ -10,8 +10,7 @@ import { buildGateBPayload } from './deviceGateB';
 import { buildGateCPayload } from './deviceGateC';
 import { detectGeocode } from './geocodeEngine';
 import { Http } from '@capacitor-community/http';
-
-const API_BASE_URL = 'https://neo-studio-api-production.up.railway.app';
+import { API_BASE_URL } from './api/client';
 
 export interface PipelineInput {
   qrRaw: string | null;
@@ -113,7 +112,7 @@ export async function checkAssetStatus(
 
     const startRes = await Http.request({
       method: 'POST',
-      url: API_BASE_URL + '/api/geocam/scan/start',
+      url: API_BASE_URL + '/geocam/scan/start',
       headers: { 'Content-Type': 'application/json' },
       data: {
         qr_payload: dinaCode,
@@ -179,7 +178,7 @@ export async function verifyWithServer(
     // Step 1: scan/start - 세션 발급
     const startRes = await Http.request({
       method: 'POST',
-      url: API_BASE_URL + '/api/geocam/scan/start',
+      url: API_BASE_URL + '/geocam/scan/start',
       headers: { 'Content-Type': 'application/json' },
       data: {
         qr_payload: dinaCode,
@@ -232,7 +231,7 @@ export async function verifyWithServer(
     // Step 4: verify - 이미지 검증 (Gate A + B + C 포함)
     const verifyRes = await Http.request({
       method: 'POST',
-      url: API_BASE_URL + '/api/geocam/verify',
+      url: API_BASE_URL + '/geocam/verify',
       headers: { 'Content-Type': 'application/json' },
       data: {
         session_token: startData.session_token,
@@ -337,7 +336,7 @@ export async function registerWithServer(
 
     const res = await Http.request({
       method: 'POST',
-      url: API_BASE_URL + '/api/geocam/register',
+      url: API_BASE_URL + '/geocam/register',
       headers: { 'Content-Type': 'application/json' },
       data: {
         session_token: sessionToken,

@@ -14,7 +14,9 @@
     "error": "Cannot access camera",
     "permission": "Camera permission required",
     "retry": "Try Again",
-    "home": "Back to Home"
+    "home": "Back to Home",
+    "guideTitle": "Center the image on the screen",
+    "guideTip": "15-25cm distance · Avoid reflections"
   },
   "scan": {
     "processing": "Processing QR code",

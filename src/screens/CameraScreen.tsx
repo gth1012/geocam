@@ -304,7 +304,7 @@ const CameraScreen = ({
               padding: '0 24px',
               lineHeight: '1.5',
             }}>
-              검증할 이미지를 화면 중앙에 맞춰주세요
+              {t('camera.guideTitle')}
             </p>
             <p style={{
               color: 'rgba(255,255,255,0.6)',
@@ -312,7 +312,7 @@ const CameraScreen = ({
               fontWeight: '400',
               textAlign: 'center',
             }}>
-              15~25cm 거리 · 빛 반사 주의
+              {t('camera.guideTip')}
             </p>
           </div>
         )}
