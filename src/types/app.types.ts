@@ -53,7 +53,9 @@ export interface ScreenProps {
   t: (key: string) => string;
 }
 
-export interface HomeScreenProps extends ScreenProps {}
+export interface HomeScreenProps extends ScreenProps {
+  setScreen: (screen: Screen) => void;
+}
 
 export interface CameraScreenProps extends ScreenProps {
   sessionToken: string | null;

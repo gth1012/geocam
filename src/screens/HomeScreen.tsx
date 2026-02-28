@@ -1,7 +1,25 @@
 import type { HomeScreenProps } from '../types/app.types'
 
-const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker }: HomeScreenProps) => (
+const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen }: HomeScreenProps) => (
   <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 32px', backgroundColor: '#0a0a0c', position: 'relative' }}>
+    {/* 설정 아이콘 */}
+    <button
+      onClick={() => setScreen('settings')}
+      style={{
+        position: 'absolute',
+        top: '20px',
+        right: '20px',
+        background: 'none',
+        border: 'none',
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: '22px',
+        cursor: 'pointer',
+        padding: '8px',
+      }}
+    >
+      ⚙
+    </button>
+
     {/* 헤더 영역 */}
     <div style={{ paddingTop: '120px', textAlign: 'center' }}>
       <h1 style={{ fontSize: '2.25rem', fontWeight: '200', letterSpacing: '0.15em', marginBottom: '8px', color: 'rgba(255,255,255,0.9)' }}>Legit Tag</h1>
@@ -83,7 +101,7 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker }: HomeScreenP
             padding: '8px',
           }}
         >
-          로그인
+          {t('auth.login')}
         </button>
         <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '13px' }}>|</span>
         <button
@@ -97,7 +115,7 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker }: HomeScreenP
             padding: '8px',
           }}
         >
-          회원가입
+          {t('auth.signup')}
         </button>
       </div>
 

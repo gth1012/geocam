@@ -7,6 +7,7 @@ const ScanResultScreen = ({
   scanResultInfo,
   dinaId,
   networkError,
+  t,
 }: ScanResultScreenProps) => {
   // 로딩 상태
   if (processing || !scanResultInfo) {
@@ -18,7 +19,7 @@ const ScanResultScreen = ({
             <path d="M28 4 A24 24 0 0 1 52 28" stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round" />
           </svg>
         </div>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '16px', fontWeight: '400' }}>검증 중...</p>
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '16px', fontWeight: '400' }}>{t('common.checking')}</p>
         {dinaId && (
           <div style={{ marginTop: '32px', padding: '16px 24px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '6px', letterSpacing: '0.05em' }}>DINA</p>
@@ -34,13 +35,13 @@ const ScanResultScreen = ({
   const getStatusConfig = () => {
     const status = scanResultInfo.status
 
-    // VALID (Green) - 정품 확인
+    // VALID (Green) - 기록 일치
     if (status === 'CLAIMED') {
       return {
         color: '#4ade80',
         bgColor: 'rgba(74, 222, 128, 0.08)',
-        title: '정품 확인',
-        subtitle: '발급 데이터와 일치합니다.',
+        title: t('result.valid'),
+        subtitle: t('result.validDescShort'),
         icon: (
           <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
             <circle cx="32" cy="32" r="30" stroke="#4ade80" strokeWidth="2.5" />
@@ -55,10 +56,10 @@ const ScanResultScreen = ({
       return {
         color: '#fbbf24',
         bgColor: 'rgba(251, 191, 36, 0.08)',
-        title: status === 'ALREADY_CLAIMED' ? '이미 등록됨' : '주의 필요',
+        title: status === 'ALREADY_CLAIMED' ? t('register.alreadyTitle') : t('result.cautionNeeded'),
         subtitle: status === 'ALREADY_CLAIMED'
-          ? '이 제품은 이미 다른 사용자에게 등록되었습니다.'
-          : '추가 확인이 필요합니다.',
+          ? t('register.alreadyMessage')
+          : t('result.cautionNeededDesc'),
         icon: (
           <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
             <circle cx="32" cy="32" r="30" stroke="#fbbf24" strokeWidth="2.5" />
@@ -73,10 +74,10 @@ const ScanResultScreen = ({
     return {
       color: '#f87171',
       bgColor: 'rgba(248, 113, 113, 0.08)',
-      title: networkError ? '연결 오류' : '검증 실패',
+      title: networkError ? t('result.networkError') : t('result.verifyFailed'),
       subtitle: networkError
-        ? '네트워크 연결을 확인해주세요.'
-        : scanResultInfo.message || '발급 데이터를 확인할 수 없습니다.',
+        ? t('result.networkErrorDesc')
+        : scanResultInfo.message || t('result.verifyFailedDesc'),
       icon: (
         <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
           <circle cx="32" cy="32" r="30" stroke="#f87171" strokeWidth="2.5" />
@@ -153,7 +154,7 @@ const ScanResultScreen = ({
         marginBottom: '24px',
         padding: '0 16px'
       }}>
-        GeoCam은 공식 발급 기록을 기반으로 검증 정보를 제공합니다.
+        {t('common.disclaimer')}
       </p>
 
       {/* 하단 버튼: 다시 스캔 + 홈 */}
@@ -172,7 +173,7 @@ const ScanResultScreen = ({
             cursor: 'pointer'
           }}
         >
-          다시 스캔
+          {t('common.scanAgain')}
         </button>
         <button
           onClick={safeGoHome}
@@ -188,7 +189,7 @@ const ScanResultScreen = ({
             cursor: 'pointer'
           }}
         >
-          홈
+          {t('common.home')}
         </button>
       </div>
     </div>

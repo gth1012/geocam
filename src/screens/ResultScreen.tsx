@@ -28,6 +28,7 @@ const ResultScreen = ({
   setError,
   setProcessing,
   setVerifyStatus,
+  t,
 }: ResultScreenProps) => {
   const isCamera = scanMode === 'camera'
   const displayImage = capturedImage || previewImage
@@ -39,8 +40,8 @@ const ResultScreen = ({
       return {
         color: '#f87171',
         bgColor: 'rgba(248, 113, 113, 0.08)',
-        title: '연결 오류',
-        subtitle: '네트워크 연결을 확인해주세요.',
+        title: t('result.networkError'),
+        subtitle: t('result.networkErrorDesc'),
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -55,8 +56,8 @@ const ResultScreen = ({
       return {
         color: '#f87171',
         bgColor: 'rgba(248, 113, 113, 0.08)',
-        title: '검증 실패',
-        subtitle: '발급 데이터를 확인할 수 없습니다.',
+        title: t('result.verifyFailed'),
+        subtitle: t('result.verifyFailedDesc'),
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -71,8 +72,8 @@ const ResultScreen = ({
       return {
         color: '#4ade80',
         bgColor: 'rgba(74, 222, 128, 0.08)',
-        title: '기록 일치',
-        subtitle: '발급 데이터와 일치합니다.',
+        title: t('result.valid'),
+        subtitle: t('result.validDescShort'),
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
@@ -87,8 +88,8 @@ const ResultScreen = ({
       return {
         color: '#fbbf24',
         bgColor: 'rgba(251, 191, 36, 0.08)',
-        title: '주의 필요',
-        subtitle: '추가 확인이 필요합니다.',
+        title: t('result.cautionNeeded'),
+        subtitle: t('result.cautionNeededDesc'),
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
@@ -103,8 +104,8 @@ const ResultScreen = ({
     return {
       color: '#f87171',
       bgColor: 'rgba(248, 113, 113, 0.08)',
-      title: '검증 실패',
-      subtitle: '발급 데이터를 확인할 수 없습니다.',
+      title: t('result.verifyFailed'),
+      subtitle: t('result.verifyFailedDesc'),
       icon: (
         <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
           <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -228,7 +229,7 @@ const ResultScreen = ({
           {/* 일치율 */}
           {matchScore !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: confidence !== null ? '6px' : 0 }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>일치율</span>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>{t('result.matchScore')}</span>
               <span style={{ color: config.color, fontSize: '11px', fontWeight: '600' }}>{(matchScore * 100).toFixed(1)}%</span>
             </div>
           )}
@@ -236,7 +237,7 @@ const ResultScreen = ({
           {/* 신뢰도 */}
           {confidence !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>신뢰도</span>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>{t('result.confidence')}</span>
               <span style={{ color: config.color, fontSize: '11px', fontWeight: '600' }}>{confidence}%</span>
             </div>
           )}
@@ -244,7 +245,7 @@ const ResultScreen = ({
           {/* 정보가 없을 때 */}
           {!dinaId && matchScore === null && confidence === null && (
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', textAlign: 'center', margin: 0 }}>
-              상세 정보 없음
+              {t('result.noInfo')}
             </p>
           )}
         </div>
@@ -257,7 +258,7 @@ const ResultScreen = ({
           lineHeight: '1.3',
           margin: 0
         }}>
-          GeoCam은 공식 발급 기록을 기반으로 검증 정보를 제공합니다.
+          {t('common.disclaimer')}
         </p>
 
         {/* VALID일 때 등록 버튼 */}
@@ -277,7 +278,7 @@ const ResultScreen = ({
               cursor: registering ? 'default' : 'pointer'
             }}
           >
-            {registering ? '등록 중...' : '등록'}
+            {registering ? t('register.processing') : t('register.button')}
           </button>
         )}
 
@@ -297,7 +298,7 @@ const ResultScreen = ({
               cursor: 'pointer'
             }}
           >
-            다시 촬영
+            {t('common.retakePhoto')}
           </button>
           <button
             onClick={safeGoHome}
@@ -313,7 +314,7 @@ const ResultScreen = ({
               cursor: 'pointer'
             }}
           >
-            홈
+            {t('common.home')}
           </button>
         </div>
       </div>

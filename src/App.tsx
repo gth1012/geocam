@@ -142,7 +142,7 @@ function App() {
 
   return (
     <ErrorBoundary>
-      {screen === 'home' && <HomeScreen {...commonProps} />}
+      {screen === 'home' && <HomeScreen {...commonProps} setScreen={setScreen} />}
       {screen === 'camera' && <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
       {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
       {screen === 'scanResult' && <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} />}

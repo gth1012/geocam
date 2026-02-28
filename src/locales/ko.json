@@ -1,4 +1,8 @@
 {
+  "auth": {
+    "login": "로그인",
+    "signup": "회원가입"
+  },
   "home": {
     "title": "기록 확인",
     "subtitle": "제품의 발급 기록을 확인하세요",
@@ -34,17 +38,27 @@
     "unknown": "등록되지 않은 제품입니다",
     "pending": "확인 중",
     "validDesc": "등록된 발급 기록과 일치합니다",
+    "validDescShort": "발급 데이터와 일치합니다.",
     "suspectDesc": "촬영 상태가 좋지 않습니다. 다시 촬영해 주세요",
     "invalidDesc": "등록된 발급 기록과 일치하지 않습니다",
-    "unknownDesc": "이 제품은 발급 기록이 등록되어 있지 않습니다"
+    "unknownDesc": "이 제품은 발급 기록이 등록되어 있지 않습니다",
+    "networkError": "연결 오류",
+    "networkErrorDesc": "네트워크 연결을 확인해주세요.",
+    "verifyFailed": "검증 실패",
+    "verifyFailedDesc": "발급 데이터를 확인할 수 없습니다.",
+    "cautionNeeded": "주의 필요",
+    "cautionNeededDesc": "추가 확인이 필요합니다.",
+    "matchScore": "일치율",
+    "confidence": "신뢰도",
+    "noInfo": "상세 정보 없음"
   },
   "register": {
     "button": "등록",
-    "processing": "등록 중",
+    "processing": "등록 중...",
     "successTitle": "등록 완료",
     "successMessage": "이 제품이 등록되었습니다",
-    "alreadyTitle": "이미 등록된 제품",
-    "alreadyMessage": "이 제품은 이미 등록되었습니다"
+    "alreadyTitle": "이미 등록됨",
+    "alreadyMessage": "이 제품은 이미 다른 사용자에게 등록되었습니다."
   },
   "otp": {
     "title": "코드를 입력하세요",
@@ -85,7 +99,10 @@
     "home": "홈",
     "back": "뒤로",
     "scanAgain": "다시 스캔",
+    "retakePhoto": "다시 촬영",
     "contact": "문의하기",
-    "loading": "로딩 중..."
+    "loading": "로딩 중...",
+    "checking": "검증 중...",
+    "disclaimer": "GeoCam은 공식 발급 기록을 기반으로 검증 정보를 제공합니다."
   }
 }

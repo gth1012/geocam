@@ -1,4 +1,8 @@
 {
+  "auth": {
+    "login": "Login",
+    "signup": "Sign Up"
+  },
   "home": {
     "title": "Scan to Check",
     "subtitle": "Check your item's record",
@@ -34,17 +38,27 @@
     "unknown": "Product not registered",
     "pending": "Checking",
     "validDesc": "The item matches the registered record",
+    "validDescShort": "Matches the issued data.",
     "suspectDesc": "The photo quality was not sufficient",
     "invalidDesc": "The item does not match the registered record",
-    "unknownDesc": "This item has not been registered"
+    "unknownDesc": "This item has not been registered",
+    "networkError": "Connection Error",
+    "networkErrorDesc": "Please check your network connection.",
+    "verifyFailed": "Check Failed",
+    "verifyFailedDesc": "Unable to check the issued data.",
+    "cautionNeeded": "Caution Required",
+    "cautionNeededDesc": "Additional check required.",
+    "matchScore": "Match Rate",
+    "confidence": "Confidence",
+    "noInfo": "No details available"
   },
   "register": {
-    "button": "Register Item",
-    "processing": "Registering",
+    "button": "Register",
+    "processing": "Registering...",
     "successTitle": "Registration Complete",
     "successMessage": "This item has been registered",
     "alreadyTitle": "Already Registered",
-    "alreadyMessage": "This item has already been registered"
+    "alreadyMessage": "This item has already been registered by another user."
   },
   "otp": {
     "title": "Enter the code",
@@ -85,7 +99,10 @@
     "home": "Home",
     "back": "Back",
     "scanAgain": "Scan Again",
+    "retakePhoto": "Retake",
     "contact": "Contact Support",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "checking": "Checking...",
+    "disclaimer": "GeoCam provides information based on official issuance records."
   }
 }
