@@ -5,11 +5,17 @@ const config: CapacitorConfig = {
   appName: 'GeoCam',
   webDir: 'dist',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'https',
+    allowNavigation: ['neo-studio-api-production.up.railway.app']
   },
   android: {
     loggingBehavior: 'debug',
     webContentsDebuggingEnabled: true
+  },
+  plugins: {
+    CapacitorHttp: {
+      enabled: true
+    }
   }
 };
 

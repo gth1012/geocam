@@ -17,13 +17,13 @@ const ScanScreen = ({
   setNonce,
   setDinaId,
   setScanResultInfo,
-  setScanMode,
   setScreen,
   cameraError,
   setCameraError,
 }: ScanScreenProps) => {
   const [localProcessing, setLocalProcessing] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(true)
   const scanLockRef = useRef(false)
 
   // scan/start API 호출 후 카메라 화면으로 전환
@@ -34,14 +34,17 @@ const ScanScreen = ({
     setDinaId(dinaCode)
 
     try {
+      const requestBody = {
+        qr_payload: dinaCode,
+        device_id: getDeviceFingerprint(),
+        app_version: '2.0.0'
+      }
+      console.log('[SCAN API CALL]', `${API_BASE_URL}/geocam/scan/start`, requestBody)
+
       const response = await fetch(`${API_BASE_URL}/geocam/scan/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          qr_payload: dinaCode,
-          device_id: getDeviceFingerprint(),
-          app_version: '2.0.0'
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {
@@ -60,6 +63,7 @@ const ScanScreen = ({
       }
 
       const result = await response.json()
+      console.log('[SCAN API RESPONSE]', result)
 
       if (!result.success) {
         const errorCode = result.error
@@ -82,11 +86,18 @@ const ScanScreen = ({
       if (result.asset_info?.dina_id) setDinaId(result.asset_info.dina_id)
       setProcessing(false)
 
-      // 카메라 화면으로 전환 (실물 촬영)
-      setScanMode('scan')  // scan 모드에서 왔음을 표시
-      setScreen('camera')
+      // scanResult 화면으로 이동 (API 응답 데이터 포함)
+      setScanResultInfo({
+        status: result.asset_status || 'PENDING',
+        message: result.asset_info?.series_name || undefined,
+      })
+      setScanning(false)
+      setTimeout(() => {
+        setScreen('scanResult')
+      }, 300)
 
     } catch (err) {
+      console.log('[SCAN API ERROR]', err)
       console.error('scan/start error:', err)
       setNetworkError(true)
       setScanResultInfo({ status: 'ERROR', message: t('error.network') })
@@ -109,9 +120,9 @@ const ScanScreen = ({
         setQrData(data)
         setQrDetected(true)
 
-        // DINA 코드 추출
-        const dinaMatch = data.match(/DINA-[A-Z0-9]{8,16}/)
-        const dinaCode = dinaMatch ? dinaMatch[0] : (/^[A-Z0-9]{8,16}$/.test(data.trim()) ? data.trim() : null)
+        // DINA 코드 추출 (접두사 제거)
+        const dinaMatch = data.match(/DINA-([A-Z0-9]{8,16})/)
+        const dinaCode = dinaMatch ? dinaMatch[1] : (/^[A-Z0-9]{8,16}$/.test(data.trim()) ? data.trim() : null)
 
         if (dinaCode) {
           await startScanSession(dinaCode)
@@ -142,18 +153,20 @@ const ScanScreen = ({
       {/* 카메라 영역 - Scanner 사용 */}
       <div style={{ flex: 1, position: 'relative' }}>
         <div id="scan-scanner" style={{ position: 'absolute', inset: 0 }}>
-          <Scanner
-            onScan={handleQrDetected}
-            constraints={{ facingMode: 'environment' }}
-            styles={{
-              container: { width: '100%', height: '100%' },
-              video: { width: '100%', height: '100%', objectFit: 'cover' }
-            }}
-            onError={(err) => {
-              console.error('Scanner error:', err)
-              setCameraError(t('camera.error'))
-            }}
-          />
+          {scanning && (
+            <Scanner
+              onScan={handleQrDetected}
+              constraints={{ facingMode: 'environment' }}
+              styles={{
+                container: { width: '100%', height: '100%' },
+                video: { width: '100%', height: '100%', objectFit: 'cover' }
+              }}
+              onError={(err) => {
+                console.error('Scanner error:', err)
+                setCameraError(t('camera.error'))
+              }}
+            />
+          )}
         </div>
 
         {/* 카메라 에러 표시 */}

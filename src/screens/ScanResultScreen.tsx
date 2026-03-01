@@ -35,7 +35,25 @@ const ScanResultScreen = ({
   const getStatusConfig = () => {
     const status = scanResultInfo.status
 
-    // VALID (Green) - 기록 일치
+    // UNCLAIMED (Blue) - 미인증 정품: 정품 등록됨, 고객 인증 전
+    if (status === 'UNCLAIMED') {
+      return {
+        color: '#60a5fa',
+        bgColor: 'rgba(96, 165, 250, 0.08)',
+        title: t('result.unclaimed', '미인증 정품'),
+        subtitle: t('result.unclaimedDesc', '정품으로 등록된 제품입니다. 인증을 완료하여 소유권을 등록하세요.'),
+        icon: (
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="30" stroke="#60a5fa" strokeWidth="2.5" />
+            <path d="M32 20v12" stroke="#60a5fa" strokeWidth="3" strokeLinecap="round" />
+            <path d="M26 32l6 6 6-6" stroke="#60a5fa" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="32" cy="46" r="2" fill="#60a5fa" />
+          </svg>
+        )
+      }
+    }
+
+    // CLAIMED (Green) - 인증완료: 고객 QR 스캔 완료
     if (status === 'CLAIMED') {
       return {
         color: '#4ade80',

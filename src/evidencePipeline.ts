@@ -9,7 +9,6 @@ import { ensureDeviceKeypair, signPack, verifyPack, signForGateA } from './ed255
 import { buildGateBPayload } from './deviceGateB';
 import { buildGateCPayload } from './deviceGateC';
 import { detectGeocode } from './geocodeEngine';
-import { Http } from '@capacitor-community/http';
 import { API_BASE_URL } from './api/client';
 
 export interface PipelineInput {
@@ -110,17 +109,16 @@ export async function checkAssetStatus(
   try {
     console.log('[checkAssetStatus] Checking:', dinaCode);
 
-    const startRes = await Http.request({
+    const startRes = await fetch(API_BASE_URL + '/geocam/scan/start', {
       method: 'POST',
-      url: API_BASE_URL + '/geocam/scan/start',
       headers: { 'Content-Type': 'application/json' },
-      data: {
+      body: JSON.stringify({
         qr_payload: dinaCode,
         device_id: deviceId,
-      }
+      })
     });
 
-    const startData = startRes.data;
+    const startData = await startRes.json();
     console.log('[checkAssetStatus] Response:', startData.success, startData.asset_status);
 
     if (!startData.success) {
@@ -176,17 +174,16 @@ export async function verifyWithServer(
     console.log('[verifyWithServer] Starting scan for:', dinaCode);
 
     // Step 1: scan/start - 세션 발급
-    const startRes = await Http.request({
+    const startRes = await fetch(API_BASE_URL + '/geocam/scan/start', {
       method: 'POST',
-      url: API_BASE_URL + '/geocam/scan/start',
       headers: { 'Content-Type': 'application/json' },
-      data: {
+      body: JSON.stringify({
         qr_payload: dinaCode,
         device_id: deviceId,
-      }
+      })
     });
 
-    const startData = startRes.data;
+    const startData = await startRes.json();
     console.log('[verifyWithServer] scan/start response:', startData.success, startData.asset_status);
 
     if (!startData.success) {
@@ -229,11 +226,10 @@ export async function verifyWithServer(
     }
 
     // Step 4: verify - 이미지 검증 (Gate A + B + C 포함)
-    const verifyRes = await Http.request({
+    const verifyRes = await fetch(API_BASE_URL + '/geocam/verify', {
       method: 'POST',
-      url: API_BASE_URL + '/geocam/verify',
       headers: { 'Content-Type': 'application/json' },
-      data: {
+      body: JSON.stringify({
         session_token: startData.session_token,
         nonce: startData.nonce,
         image_data: imageData,
@@ -252,10 +248,10 @@ export async function verifyWithServer(
         }),
         // Gate C: GPS 위치
         ...(gateC && { gps: gateC.gps }),
-      }
+      })
     });
 
-    const verifyData = verifyRes.data;
+    const verifyData = await verifyRes.json();
     console.log('[verifyWithServer] verify response:', verifyData.success, verifyData.result, verifyData.confidence, 'trust:', verifyData.trust_level);
 
     // WRITE_GATE_FAILED 감지: trust_level이 L1이고 gate_results에 실패 항목 존재
@@ -334,21 +330,20 @@ export async function registerWithServer(
       console.warn('[registerWithServer] Gate C failed:', e);
     }
 
-    const res = await Http.request({
+    const res = await fetch(API_BASE_URL + '/geocam/register', {
       method: 'POST',
-      url: API_BASE_URL + '/geocam/register',
       headers: { 'Content-Type': 'application/json' },
-      data: {
+      body: JSON.stringify({
         session_token: sessionToken,
         nonce: nonce,
         dina_id: dinaId,
         ...gateAData,
         ...gateBData,
         ...gateCData,
-      }
+      })
     });
 
-    const data = res.data;
+    const data = await res.json();
     return {
       success: data.success,
       status: data.status,

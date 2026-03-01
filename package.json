@@ -15,7 +15,6 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
-    "@capacitor-community/http": "^1.4.1",
     "@capacitor/android": "^8.0.2",
     "@capacitor/camera": "^8.0.0",
     "@capacitor/cli": "^7.4.5",
