@@ -1,0 +1,120 @@
+{
+  "auth": {
+    "login": "登录",
+    "signup": "注册"
+  },
+  "home": {
+    "title": "正品验证",
+    "subtitle": "查询产品发行记录",
+    "scanButton": "开始扫描"
+  },
+  "camera": {
+    "title": "请扫描QR码",
+    "loading": "相机准备中",
+    "error": "无法访问相机",
+    "permission": "需要相机权限",
+    "retry": "重试",
+    "home": "首页",
+    "guideTitle": "请将验证对象对准画面中央",
+    "guideTip": "15–25cm距离 · 注意光线反射"
+  },
+  "scan": {
+    "title": "QR扫描",
+    "processing": "确认中",
+    "guide": "请将QR码对准画面",
+    "notFound": "未找到产品信息",
+    "invalid": "无效的QR码"
+  },
+  "verify": {
+    "title": "正在确认记录",
+    "subtitle": "请稍候",
+    "cancel": "取消"
+  },
+  "capture": {
+    "title": "请拍摄产品",
+    "retry": "重新拍摄",
+    "gallery": "从相册选择"
+  },
+  "result": {
+    "unclaimed": "待认证",
+    "unclaimedDesc": "发行记录已确认。请点击「认证」完成首次认证。",
+    "valid": "认证完成",
+    "validDescShort": "该产品已完成认证。",
+    "validDesc": "与已登记的发行记录一致",
+    "suspect": "请重新拍摄",
+    "invalid": "发行记录不一致",
+    "unknown": "未登记的产品",
+    "pending": "确认中",
+    "suspectDesc": "拍摄状态不佳，请重新拍摄",
+    "invalidDesc": "与已登记的发行记录不一致",
+    "unknownDesc": "该产品没有已登记的发行记录",
+    "networkError": "连接错误",
+    "networkErrorDesc": "请检查网络连接。",
+    "verifyFailed": "验证失败",
+    "verifyFailedDesc": "无法确认发行记录。",
+    "cautionNeeded": "需要注意",
+    "cautionNeededDesc": "需要进一步确认。",
+    "matchScore": "匹配率",
+    "confidence": "可信度",
+    "noInfo": "无详细信息"
+  },
+  "claim": {
+    "button": "认证",
+    "processing": "认证中..."
+  },
+  "register": {
+    "button": "认证完成",
+    "processing": "认证中...",
+    "successTitle": "认证完成",
+    "successMessage": "认证已完成",
+    "alreadyTitle": "已认证",
+    "alreadyMessage": "该产品已完成认证。"
+  },
+  "otp": {
+    "title": "请输入验证码",
+    "subtitle": "请输入产品上的8位验证码",
+    "confirm": "确认"
+  },
+  "settings": {
+    "title": "设置",
+    "language": "语言",
+    "english": "English",
+    "korean": "한국어",
+    "chinese": "简体中文",
+    "japanese": "日本語",
+    "version": "版本",
+    "about": "关于应用",
+    "privacy": "隐私政策",
+    "terms": "使用条款"
+  },
+  "records": {
+    "title": "扫描记录",
+    "empty": "暂无记录",
+    "date": "日期",
+    "status": "状态",
+    "detail": "查看详情"
+  },
+  "error": {
+    "network": "网络连接失败",
+    "server": "请稍后重试",
+    "claimFailed": "认证失败，请重试。",
+    "dinaNotFound": "未登记的产品。",
+    "rateLimit": "请求过多，请稍后重试",
+    "session": "会话已过期，请重新扫描",
+    "device": "设备验证失败",
+    "batch": "该产品尚未激活"
+  },
+  "common": {
+    "retry": "重试",
+    "confirm": "确认",
+    "close": "关闭",
+    "home": "首页",
+    "back": "返回",
+    "scanAgain": "重新扫描",
+    "retakePhoto": "重新拍摄",
+    "contact": "联系我们",
+    "loading": "加载中...",
+    "checking": "确认中...",
+    "disclaimer": "LegitTag基于官方发行记录提供验证信息。"
+  }
+}

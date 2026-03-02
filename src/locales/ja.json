@@ -1,0 +1,120 @@
+{
+  "auth": {
+    "login": "ログイン",
+    "signup": "会員登録"
+  },
+  "home": {
+    "title": "正規品確認",
+    "subtitle": "製品の発行記録を確認してください",
+    "scanButton": "スキャン開始"
+  },
+  "camera": {
+    "title": "QRコードをスキャンしてください",
+    "loading": "カメラ準備中",
+    "error": "カメラにアクセスできません",
+    "permission": "カメラの許可が必要です",
+    "retry": "再試行",
+    "home": "ホーム",
+    "guideTitle": "検証する対象を画面中央に合わせてください",
+    "guideTip": "15–25cm距離 · 光の反射にご注意"
+  },
+  "scan": {
+    "title": "QRスキャン",
+    "processing": "確認中",
+    "guide": "QRコードを画面に合わせてください",
+    "notFound": "製品情報が見つかりません",
+    "invalid": "無効なQRコードです"
+  },
+  "verify": {
+    "title": "記録を確認しています",
+    "subtitle": "しばらくお待ちください",
+    "cancel": "キャンセル"
+  },
+  "capture": {
+    "title": "製品を撮影してください",
+    "retry": "再撮影",
+    "gallery": "ギャラリーから選択"
+  },
+  "result": {
+    "unclaimed": "認証前",
+    "unclaimedDesc": "発行記録が確認されました。「認証する」をタップして初回認証を完了してください。",
+    "valid": "認証完了",
+    "validDescShort": "認証が完了した製品です。",
+    "validDesc": "登録された発行記録と一致します",
+    "suspect": "撮り直してください",
+    "invalid": "発行記録と一致しません",
+    "unknown": "登録されていない製品です",
+    "pending": "確認中",
+    "suspectDesc": "撮影状態が良くありません。撮り直してください",
+    "invalidDesc": "登録された発行記録と一致しません",
+    "unknownDesc": "この製品は発行記録が登録されていません",
+    "networkError": "接続エラー",
+    "networkErrorDesc": "ネットワーク接続を確認してください。",
+    "verifyFailed": "検証失敗",
+    "verifyFailedDesc": "発行記録を確認できません。",
+    "cautionNeeded": "注意が必要",
+    "cautionNeededDesc": "追加の確認が必要です。",
+    "matchScore": "一致率",
+    "confidence": "信頼度",
+    "noInfo": "詳細情報なし"
+  },
+  "claim": {
+    "button": "認証する",
+    "processing": "認証中..."
+  },
+  "register": {
+    "button": "認証完了",
+    "processing": "認証中...",
+    "successTitle": "認証完了",
+    "successMessage": "認証が完了しました",
+    "alreadyTitle": "認証済み",
+    "alreadyMessage": "すでに認証された製品です。"
+  },
+  "otp": {
+    "title": "コードを入力してください",
+    "subtitle": "製品に記載の8桁コードを入力してください",
+    "confirm": "確認"
+  },
+  "settings": {
+    "title": "設定",
+    "language": "言語",
+    "english": "English",
+    "korean": "한국어",
+    "chinese": "简体中文",
+    "japanese": "日本語",
+    "version": "バージョン",
+    "about": "アプリ情報",
+    "privacy": "プライバシーポリシー",
+    "terms": "利用規約"
+  },
+  "records": {
+    "title": "スキャン履歴",
+    "empty": "履歴はありません",
+    "date": "日付",
+    "status": "状態",
+    "detail": "詳細を見る"
+  },
+  "error": {
+    "network": "ネットワーク接続に失敗しました",
+    "server": "しばらくしてから再試行してください",
+    "claimFailed": "認証に失敗しました。再試行してください。",
+    "dinaNotFound": "登録されていない製品です。",
+    "rateLimit": "リクエストが多すぎます。しばらくしてから再試行してください",
+    "session": "セッションが期限切れです。再スキャンしてください",
+    "device": "デバイスの確認に失敗しました",
+    "batch": "まだ有効化されていない製品です"
+  },
+  "common": {
+    "retry": "再試行",
+    "confirm": "確認",
+    "close": "閉じる",
+    "home": "ホーム",
+    "back": "戻る",
+    "scanAgain": "再スキャン",
+    "retakePhoto": "再撮影",
+    "contact": "お問い合わせ",
+    "loading": "読み込み中...",
+    "checking": "確認中...",
+    "disclaimer": "LegitTagは公式発行記録に基づいて検証情報を提供します。"
+  }
+}

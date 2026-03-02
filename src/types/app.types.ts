@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 
 export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult'
 export type ScanMode = 'camera' | 'scan'
-export type ScanStatus = 'PENDING' | 'CLAIMED' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
+export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
 export type VerifyStatus = 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | null
 
 export interface RecordInfo {
@@ -50,7 +50,7 @@ export interface ScreenProps {
   runPipeline: (qrRaw: string | null, imageUri: string) => Promise<void>;
   getDeviceFingerprint: () => string;
   BackArrow: () => ReactElement;
-  t: (key: string) => string;
+  t: any;
 }
 
 export interface HomeScreenProps extends ScreenProps {
@@ -96,6 +96,8 @@ export interface ScanResultScreenProps extends ScreenProps {
   scanResultInfo: ScanResultInfo | null;
   dinaId: string | null;
   networkError: boolean;
+  setScanResultInfo: (info: ScanResultInfo | null) => void;
+  setScreen: (screen: Screen) => void;
 }
 
 export interface ResultScreenProps extends ScreenProps {

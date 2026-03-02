@@ -4,8 +4,8 @@
     "signup": "Sign Up"
   },
   "home": {
-    "title": "Scan to Check",
-    "subtitle": "Check your item's record",
+    "title": "Verify Authenticity",
+    "subtitle": "Check your item's issuance record",
     "scanButton": "Start Scan"
   },
   "camera": {
@@ -15,16 +15,18 @@
     "permission": "Camera permission required",
     "retry": "Try Again",
     "home": "Back to Home",
-    "guideTitle": "Center the image on the screen",
-    "guideTip": "15-25cm distance · Avoid reflections"
+    "guideTitle": "Center the item on the screen",
+    "guideTip": "15–25cm distance · Avoid reflections"
   },
   "scan": {
-    "processing": "Processing QR code",
+    "title": "QR Scan",
+    "processing": "Checking",
+    "guide": "Align the QR code on screen",
     "notFound": "Item not found",
     "invalid": "Invalid QR code"
   },
   "verify": {
-    "title": "Checking the item",
+    "title": "Checking issuance record",
     "subtitle": "Please wait a moment",
     "cancel": "Cancel"
   },
@@ -34,33 +36,39 @@
     "gallery": "Choose from gallery"
   },
   "result": {
-    "valid": "Record Matched",
+    "unclaimed": "Unclaimed",
+    "unclaimedDesc": "Issuance record verified. Tap Claim to complete first-time verification.",
+    "valid": "Verified",
+    "validDescShort": "This item has been verified and claimed.",
+    "validDesc": "The item matches the registered record",
     "suspect": "Please try again",
     "invalid": "Information does not match",
     "unknown": "Product not registered",
     "pending": "Checking",
-    "validDesc": "The item matches the registered record",
-    "validDescShort": "Matches the issued data.",
     "suspectDesc": "The photo quality was not sufficient",
     "invalidDesc": "The item does not match the registered record",
     "unknownDesc": "This item has not been registered",
     "networkError": "Connection Error",
     "networkErrorDesc": "Please check your network connection.",
     "verifyFailed": "Check Failed",
-    "verifyFailedDesc": "Unable to check the issued data.",
+    "verifyFailedDesc": "Unable to check the issuance record.",
     "cautionNeeded": "Caution Required",
     "cautionNeededDesc": "Additional check required.",
     "matchScore": "Match Rate",
     "confidence": "Confidence",
     "noInfo": "No details available"
   },
+  "claim": {
+    "button": "Claim",
+    "processing": "Claiming..."
+  },
   "register": {
-    "button": "Register",
-    "processing": "Registering...",
-    "successTitle": "Registration Complete",
-    "successMessage": "This item has been registered",
-    "alreadyTitle": "Already Registered",
-    "alreadyMessage": "This item has already been registered by another user."
+    "button": "Verified",
+    "processing": "Verifying...",
+    "successTitle": "Verification Complete",
+    "successMessage": "Verification has been completed",
+    "alreadyTitle": "Already Claimed",
+    "alreadyMessage": "This item has already been claimed."
   },
   "otp": {
     "title": "Enter the code",
@@ -89,10 +97,12 @@
   "error": {
     "network": "Network connection failed",
     "server": "Temporary server issue",
+    "claimFailed": "Verification failed. Please try again.",
+    "dinaNotFound": "This item is not registered.",
     "rateLimit": "Too many requests",
     "session": "Session expired",
     "device": "Device check failed",
-    "batch": "Item not available yet"
+    "batch": "Item not yet activated"
   },
   "common": {
     "retry": "Retry",
@@ -105,6 +115,6 @@
     "contact": "Contact Support",
     "loading": "Loading...",
     "checking": "Checking...",
-    "disclaimer": "GeoCam provides information based on official issuance records."
+    "disclaimer": "LegitTag provides information based on official issuance records."
   }
 }

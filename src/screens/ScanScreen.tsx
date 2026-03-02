@@ -5,7 +5,6 @@ import type { ScanScreenProps } from '../types/app.types'
 
 const ScanScreen = ({
   safeGoHome,
-  getDeviceFingerprint,
   BackArrow,
   t,
   setQrData,
@@ -13,8 +12,6 @@ const ScanScreen = ({
   setProcessing,
   setNetworkError,
   setErrorCode,
-  setSessionToken,
-  setNonce,
   setDinaId,
   setScanResultInfo,
   setScreen,
@@ -26,36 +23,33 @@ const ScanScreen = ({
   const [scanning, setScanning] = useState(true)
   const scanLockRef = useRef(false)
 
-  // scan/start API 호출 후 카메라 화면으로 전환
-  const startScanSession = async (dinaCode: string) => {
+  // QR스캔 → 정품인증 플로우: GET /status/:dinaId로 상태 조회
+  const checkDinaStatus = async (dinaCode: string) => {
     setProcessing(true)
     setNetworkError(false)
     setErrorCode(null)
     setDinaId(dinaCode)
 
     try {
-      const requestBody = {
-        qr_payload: dinaCode,
-        device_id: getDeviceFingerprint(),
-        app_version: '2.0.0'
-      }
-      console.log('[SCAN API CALL]', `${API_BASE_URL}/geocam/scan/start`, requestBody)
+      console.log('[QR SCAN] Status check:', `${API_BASE_URL}/geocam/status/${dinaCode}`)
 
-      const response = await fetch(`${API_BASE_URL}/geocam/scan/start`, {
-        method: 'POST',
+      const response = await fetch(`${API_BASE_URL}/geocam/status/${dinaCode}`, {
+        method: 'GET',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {
-        if (response.status >= 500) {
+        if (response.status === 404) {
+          // DINA ID가 NeoStudio에 없음 = 미등록
+          setScanResultInfo({ status: 'ERROR', message: t('error.dinaNotFound') || '등록되지 않은 제품입니다.' })
+        } else if (response.status >= 500) {
           setNetworkError(true)
-          setScanResultInfo({ status: 'ERROR', message: t('error.server') })
+          setScanResultInfo({ status: 'ERROR', message: t('error.server') || '서버 오류가 발생했습니다.' })
         } else if (response.status === 429) {
           setErrorCode('RATE_LIMIT_EXCEEDED')
-          setScanResultInfo({ status: 'ERROR', message: t('error.rateLimit') })
+          setScanResultInfo({ status: 'ERROR', message: t('error.rateLimit') || '요청이 너무 많습니다.' })
         } else {
-          setScanResultInfo({ status: 'ERROR', message: t('error.network') })
+          setScanResultInfo({ status: 'ERROR', message: t('error.network') || '네트워크 오류가 발생했습니다.' })
         }
         setProcessing(false)
         setScreen('scanResult')
@@ -63,44 +57,39 @@ const ScanScreen = ({
       }
 
       const result = await response.json()
-      console.log('[SCAN API RESPONSE]', result)
+      console.log('[QR SCAN] Status response:', result)
 
-      if (!result.success) {
-        const errorCode = result.error
-        if (errorCode === 'BATCH_NOT_SHIPPED') {
-          setErrorCode('BATCH_NOT_SHIPPED')
-          setScanResultInfo({ status: 'ERROR', message: t('error.batch') })
-        } else if (errorCode === 'INVALID_QR') {
-          setScanResultInfo({ status: 'ERROR', message: t('scan.invalid') })
-        } else {
-          setScanResultInfo({ status: 'ERROR', message: result.error || t('error.server') })
-        }
-        setProcessing(false)
-        setScreen('scanResult')
-        return
+      // 상태에 따라 scanResultInfo 설정
+      if (result.status === 'UNCLAIMED') {
+        setScanResultInfo({
+          status: 'UNCLAIMED',
+          message: result.series_id || undefined,
+        })
+      } else if (result.status === 'CLAIMED') {
+        setScanResultInfo({
+          status: 'CLAIMED',
+          message: undefined,
+        })
+      } else {
+        // UNREGISTERED 등 기타 상태
+        setScanResultInfo({
+          status: 'ERROR',
+          message: t('error.dinaNotFound') || '등록되지 않은 제품입니다.',
+        })
       }
 
-      // 세션 정보 저장
-      setSessionToken(result.session_token)
-      setNonce(result.nonce)
-      if (result.asset_info?.dina_id) setDinaId(result.asset_info.dina_id)
+      setDinaId(result.dina_id || dinaCode)
       setProcessing(false)
-
-      // scanResult 화면으로 이동 (API 응답 데이터 포함)
-      setScanResultInfo({
-        status: result.asset_status || 'PENDING',
-        message: result.asset_info?.series_name || undefined,
-      })
       setScanning(false)
       setTimeout(() => {
         setScreen('scanResult')
       }, 300)
 
     } catch (err) {
-      console.log('[SCAN API ERROR]', err)
-      console.error('scan/start error:', err)
+      console.log('[QR SCAN] Error:', err)
+      console.error('status check error:', err)
       setNetworkError(true)
-      setScanResultInfo({ status: 'ERROR', message: t('error.network') })
+      setScanResultInfo({ status: 'ERROR', message: t('error.network') || '네트워크 오류가 발생했습니다.' })
       setProcessing(false)
       setScreen('scanResult')
     }
@@ -125,7 +114,7 @@ const ScanScreen = ({
         const dinaCode = dinaMatch ? dinaMatch[1] : (/^[A-Z0-9]{8,16}$/.test(data.trim()) ? data.trim() : null)
 
         if (dinaCode) {
-          await startScanSession(dinaCode)
+          await checkDinaStatus(dinaCode)
         } else {
           setScanError(t('scan.invalid'))
           setTimeout(() => setScanError(null), 2000)
@@ -146,7 +135,7 @@ const ScanScreen = ({
         <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <BackArrow />
         </button>
-        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>{t('camera.title')}</span>
+        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>{t('scan.title')}</span>
         <div style={{ width: '40px' }} />
       </div>
 
@@ -180,10 +169,10 @@ const ScanScreen = ({
 
         {/* 스캔 영역 가이드 */}
         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '240px', height: '240px', zIndex: 10, pointerEvents: 'none' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '50px', height: '50px', borderTop: '4px solid #4ade80', borderLeft: '4px solid #4ade80', borderTopLeftRadius: '16px' }} />
-          <div style={{ position: 'absolute', top: 0, right: 0, width: '50px', height: '50px', borderTop: '4px solid #4ade80', borderRight: '4px solid #4ade80', borderTopRightRadius: '16px' }} />
-          <div style={{ position: 'absolute', bottom: 0, left: 0, width: '50px', height: '50px', borderBottom: '4px solid #4ade80', borderLeft: '4px solid #4ade80', borderBottomLeftRadius: '16px' }} />
-          <div style={{ position: 'absolute', bottom: 0, right: 0, width: '50px', height: '50px', borderBottom: '4px solid #4ade80', borderRight: '4px solid #4ade80', borderBottomRightRadius: '16px' }} />
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '50px', height: '50px', borderTop: '4px solid #60a5fa', borderLeft: '4px solid #60a5fa', borderTopLeftRadius: '16px' }} />
+          <div style={{ position: 'absolute', top: 0, right: 0, width: '50px', height: '50px', borderTop: '4px solid #60a5fa', borderRight: '4px solid #60a5fa', borderTopRightRadius: '16px' }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: '50px', height: '50px', borderBottom: '4px solid #60a5fa', borderLeft: '4px solid #60a5fa', borderBottomLeftRadius: '16px' }} />
+          <div style={{ position: 'absolute', bottom: 0, right: 0, width: '50px', height: '50px', borderBottom: '4px solid #60a5fa', borderRight: '4px solid #60a5fa', borderBottomRightRadius: '16px' }} />
         </div>
 
         {/* 에러 메시지 */}
@@ -196,7 +185,7 @@ const ScanScreen = ({
         {/* 처리 중 표시 */}
         {localProcessing && (
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: '16px 32px', background: 'rgba(0,0,0,0.8)', borderRadius: '12px', zIndex: 20 }}>
-            <p style={{ color: '#4ade80', fontSize: '16px', margin: 0 }}>{t('scan.processing')}...</p>
+            <p style={{ color: '#60a5fa', fontSize: '16px', margin: 0 }}>{t('scan.processing')}...</p>
           </div>
         )}
       </div>
@@ -204,10 +193,10 @@ const ScanScreen = ({
       {/* 하단 안내 */}
       <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
         <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
-          {t('camera.title')}
+          {t('scan.title')}
         </p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', margin: 0 }}>
-          {t('scan.processing')}
+          {t('scan.guide')}
         </p>
       </div>
 
