@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult'
+export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login'
 export type ScanMode = 'camera' | 'scan'
 export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
 export type VerifyStatus = 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | null
@@ -40,6 +40,9 @@ export interface AppState {
   registerStatus: string | null;
   registerError: string | null;
   otpInput: string;
+  authToken: string | null;
+  userId: string | null;
+  userNickname: string | null;
 }
 
 export interface ScreenProps {
@@ -159,6 +162,17 @@ export interface OtpInputScreenProps extends ScreenProps {
 export interface RegisterResultScreenProps extends ScreenProps {
   registerStatus: string | null;
   registerError: string | null;
+  onGoCollection: () => void;
+}
+
+export interface CollectionScreenProps extends ScreenProps {
+  setScreen: (screen: Screen) => void;
+  authToken: string | null;
+  userId: string | null;
+}
+
+export interface LoginScreenProps extends ScreenProps {
+  onLoginSuccess: (token: string, userId: string, nickname: string) => void;
 }
 
 export interface SettingsScreenProps extends ScreenProps {

@@ -16,6 +16,8 @@ import {
   RegisterResultScreen,
   SettingsScreen,
   RecordsScreen,
+  CollectionScreen,
+  LoginScreen,
 } from './screens'
 import type { Screen, ScanMode, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
@@ -46,6 +48,11 @@ function App() {
   const [registerStatus, setRegisterStatus] = useState<string | null>(null)
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [otpInput, setOtpInput] = useState('')
+
+  // 인증 상태
+  const [authToken, setAuthToken] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [_userNickname, setUserNickname] = useState<string | null>(null)
 
   const getDeviceFingerprint = (): string => {
     const nav = navigator;
@@ -84,6 +91,21 @@ function App() {
       setRecordInfo(null); setError(null); setProcessing(false); setNetworkError(false);
       setScanResultInfo(null); setScreen('scan');
     } catch (e) { console.error('error:', e); setScreen('scan'); }
+  }, []);
+
+  const onGoCollection = useCallback(() => {
+    if (!authToken) {
+      setScreen('login');
+    } else {
+      setScreen('collection');
+    }
+  }, [authToken]);
+
+  const onLoginSuccess = useCallback((token: string, uid: string, nickname: string) => {
+    setAuthToken(token);
+    setUserId(uid);
+    setUserNickname(nickname);
+    setScreen('collection');
   }, []);
 
   const openGalleryPicker = useCallback(async () => {
@@ -151,7 +173,9 @@ function App() {
       {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}
       {screen === 'preview' && <PreviewScreen {...commonProps} previewImage={previewImage} setCapturedImage={setCapturedImage} setScreen={setScreen} />}
       {screen === 'otpInput' && <OtpInputScreen {...commonProps} qrData={qrData} otpInput={otpInput} setOtpInput={setOtpInput} setQrData={setQrData} setScanMode={setScanMode} setQrDetected={setQrDetected} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setErrorCode={setErrorCode} setProcessing={setProcessing} setNetworkError={setNetworkError} setVerifyStatus={setVerifyStatus} setCameraError={setCameraError} setScreen={setScreen} />}
-      {screen === 'registerResult' && <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} />}
+      {screen === 'registerResult' && <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} onGoCollection={onGoCollection} />}
+      {screen === 'collection' && <CollectionScreen {...commonProps} setScreen={setScreen} authToken={authToken} userId={userId} />}
+      {screen === 'login' && <LoginScreen {...commonProps} onLoginSuccess={onLoginSuccess} />}
       {screen === 'settings' && <SettingsScreen {...commonProps} i18n={i18n} />}
     </ErrorBoundary>
   )

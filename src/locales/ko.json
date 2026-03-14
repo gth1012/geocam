@@ -15,7 +15,7 @@
     "permission": "카메라 권한이 필요합니다",
     "retry": "다시 시도",
     "home": "홈으로",
-    "guideTitle": "검증할 대상을 화면 중앙에 맞춰주세요",
+    "guideTitle": "",
     "guideTip": "15–25cm 거리 · 빛 반사 주의"
   },
   "scan": {
@@ -50,13 +50,13 @@
     "unknownDesc": "이 제품은 발급 기록이 등록되어 있지 않습니다",
     "networkError": "연결 오류",
     "networkErrorDesc": "네트워크 연결을 확인해주세요.",
-    "verifyFailed": "검증 실패",
+    "verifyFailed": "정품 기록을 확인할 수 없습니다.",
     "verifyFailedDesc": "발급 기록을 확인할 수 없습니다.",
     "cautionNeeded": "주의 필요",
     "cautionNeededDesc": "추가 확인이 필요합니다.",
     "matchScore": "일치율",
     "confidence": "신뢰도",
-    "noInfo": "상세 정보 없음"
+    "noInfo": ""
   },
   "claim": {
     "button": "인증하기",
@@ -118,3 +118,4 @@
     "disclaimer": "LegitTag은 공식 발급 기록을 기반으로 검증 정보를 제공합니다."
   }
 }
+

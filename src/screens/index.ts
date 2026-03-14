@@ -9,3 +9,7 @@ export { default as OtpInputScreen } from './OtpInputScreen'
 export { default as RegisterResultScreen } from './RegisterResultScreen'
 export { default as SettingsScreen } from './SettingsScreen'
 export { default as RecordsScreen } from './RecordsScreen'
+
+export { default as CollectionScreen } from './CollectionScreen'
+
+export { default as LoginScreen } from './LoginScreen'
