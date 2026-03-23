@@ -49,7 +49,6 @@ function App() {
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [otpInput, setOtpInput] = useState('')
 
-  // 인증 상태
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [_userNickname, setUserNickname] = useState<string | null>(null)
@@ -105,7 +104,7 @@ function App() {
     setAuthToken(token);
     setUserId(uid);
     setUserNickname(nickname);
-    setScreen('collection');
+    setScreen('home');
   }, []);
 
   const openGalleryPicker = useCallback(async () => {

@@ -54,7 +54,17 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
       try {
         const result = await KakaoLoginPlugin.goLogin()
         if (result.accessToken) {
-          alert('Kakao login success: ' + result.accessToken)
+          const res = await fetch(API_BASE + '/user/auth/kakao', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: result.accessToken }),
+          })
+          const data = await res.json()
+          if (data.success) {
+            onLoginSuccess(data.data.token, data.data.user_id, data.data.nickname)
+          } else {
+            alert('Login failed: ' + (data.error?.message || 'unknown'))
+          }
         }
       } catch (e: any) {
         alert('Kakao login failed: ' + e.message)
