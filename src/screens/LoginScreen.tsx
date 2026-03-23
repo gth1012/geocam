@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { KakaoLoginPlugin } from 'capacitor-kakao-login-plugin'
 import type { ScreenProps } from '../types/app.types'
 
 interface LoginScreenProps extends ScreenProps {
@@ -48,8 +49,19 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
     }
   }
 
-  const handleSnsLogin = (provider: string) => {
-    alert(`${provider} 로그인은 준비 중입니다.`)
+  const handleSnsLogin = async (provider: string) => {
+    if (provider === '카카오') {
+      try {
+        const result = await KakaoLoginPlugin.goLogin()
+        if (result.accessToken) {
+          alert('Kakao login success: ' + result.accessToken)
+        }
+      } catch (e: any) {
+        alert('Kakao login failed: ' + e.message)
+      }
+      return
+    }
+    alert(provider + ' 로그인은 준비 중입니다.')
   }
 
   const inputStyle = {
@@ -110,14 +122,12 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
       paddingBottom: 'max(40px, env(safe-area-inset-bottom))',
       boxSizing: 'border-box',
     }}>
-      {/* Back */}
       <div style={{ marginBottom: '36px' }}>
         <button onClick={safeGoHome} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: '13px', cursor: 'pointer', padding: '0' }}>
           ← 홈으로
         </button>
       </div>
 
-      {/* Title */}
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '24px', fontWeight: '300', letterSpacing: '0.05em', marginBottom: '8px' }}>
           {mode === 'login' ? '로그인' : '회원가입'}
@@ -127,7 +137,6 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
         </p>
       </div>
 
-      {/* Input fields */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
         {mode === 'signup' && (
           <input type="text" placeholder="닉네임 (선택)" value={nickname} onChange={e => setNickname(e.target.value)} style={inputStyle} />
@@ -136,10 +145,8 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
         <input type="password" placeholder="비밀번호 (6자 이상)" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} />
       </div>
 
-      {/* Error */}
       {error && <p style={{ color: '#f87171', fontSize: '13px', marginBottom: '12px', textAlign: 'center' }}>{error}</p>}
 
-      {/* Submit button */}
       <button
         onClick={handleSubmit}
         disabled={loading}
@@ -153,7 +160,6 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
         {loading ? '처리 중...' : mode === 'login' ? '로그인' : '가입하기'}
       </button>
 
-      {/* Mode toggle */}
       <button
         onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(null); }}
         style={{
@@ -166,14 +172,12 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
         {mode === 'login' ? '회원가입' : '이미 계정이 있어요'}
       </button>
 
-      {/* Divider */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
         <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
         <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>또는 SNS로 계속하기</span>
         <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
       </div>
 
-      {/* SNS icons */}
       <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
         {snsIcons.map(btn => (
           <button

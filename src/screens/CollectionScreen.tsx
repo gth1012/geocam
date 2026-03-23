@@ -1,7 +1,7 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import type { CollectionScreenProps } from '../types/app.types'
 
-const API_BASE = 'https://neo-studio-api-production.up.railway.app/api';
+const API_BASE = 'https://api.artionchain.com/api';
 
 interface CollectionItem {
   asset_id: string;

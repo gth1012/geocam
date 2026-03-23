@@ -23,6 +23,7 @@
     "@capacitor/geolocation": "^8.0.0",
     "@tailwindcss/vite": "^4.1.18",
     "@yudiel/react-qr-scanner": "^2.5.1",
+    "capacitor-kakao-login-plugin": "^3.0.0",
     "expo": "^54.0.33",
     "html5-qrcode": "^2.3.8",
     "i18next": "^25.8.13",
