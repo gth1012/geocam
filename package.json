@@ -21,6 +21,7 @@
     "@capacitor/core": "^8.0.2",
     "@capacitor/device": "^8.0.0",
     "@capacitor/geolocation": "^8.0.0",
+    "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
     "@tailwindcss/vite": "^4.1.18",
     "@yudiel/react-qr-scanner": "^2.5.1",
     "capacitor-kakao-login-plugin": "^3.0.0",

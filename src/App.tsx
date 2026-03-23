@@ -18,6 +18,7 @@ import {
   RecordsScreen,
   CollectionScreen,
   LoginScreen,
+  RegisterPendingScreen,
 } from './screens'
 import type { Screen, ScanMode, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
@@ -51,7 +52,11 @@ function App() {
 
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
-  const [_userNickname, setUserNickname] = useState<string | null>(null)
+  const [userNickname, setUserNickname] = useState<string | null>(null)
+
+  // Welcome modal state
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false)
+  const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)
 
   const getDeviceFingerprint = (): string => {
     const nav = navigator;
@@ -100,11 +105,24 @@ function App() {
     }
   }, [authToken]);
 
-  const onLoginSuccess = useCallback((token: string, uid: string, nickname: string) => {
+  // Login success handler - route by status
+  const onLoginSuccess = useCallback((token: string, uid: string, nickname: string, status: string) => {
     setAuthToken(token);
     setUserId(uid);
     setUserNickname(nickname);
+    if (status === 'REGISTER_PENDING') {
+      setScreen('registerPending');
+    } else {
+      setScreen('home');
+    }
+  }, []);
+
+  // Profile complete handler - show welcome modal then go home
+  const onProfileComplete = useCallback((nickname: string) => {
+    setUserNickname(nickname);
+    setWelcomeNickname(nickname);
     setScreen('home');
+    setShowWelcomeModal(true);
   }, []);
 
   const openGalleryPicker = useCallback(async () => {
@@ -175,7 +193,125 @@ function App() {
       {screen === 'registerResult' && <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} onGoCollection={onGoCollection} />}
       {screen === 'collection' && <CollectionScreen {...commonProps} setScreen={setScreen} authToken={authToken} userId={userId} />}
       {screen === 'login' && <LoginScreen {...commonProps} onLoginSuccess={onLoginSuccess} />}
+      {screen === 'registerPending' && authToken && <RegisterPendingScreen authToken={authToken} onProfileComplete={onProfileComplete} />}
       {screen === 'settings' && <SettingsScreen {...commonProps} i18n={i18n} />}
+
+      {/* Welcome modal */}
+      {showWelcomeModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '480px',
+            backgroundColor: '#0a0a0c',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '24px 24px 0 0',
+            padding: '32px 28px 28px',
+          }}>
+            {/* Title */}
+            <p style={{
+              color: 'rgba(255,255,255,0.3)',
+              fontSize: '11px',
+              letterSpacing: '0.15em',
+              fontWeight: '300',
+              marginBottom: '8px',
+            }}>
+              WELCOME
+            </p>
+            <h2 style={{
+              color: 'rgba(255,255,255,0.9)',
+              fontSize: '22px',
+              fontWeight: '200',
+              letterSpacing: '0.05em',
+              marginBottom: '4px',
+            }}>
+              환영합니다, {welcomeNickname}님
+            </h2>
+            <p style={{
+              color: 'rgba(255,255,255,0.35)',
+              fontSize: '13px',
+              fontWeight: '300',
+              marginBottom: '28px',
+            }}>
+              LegitTag 가입이 완료되었습니다.
+            </p>
+
+            {/* Benefits */}
+            <div style={{
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              padding: '20px 0',
+              marginBottom: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                <span style={{ color: 'rgba(167,139,250,0.8)', fontSize: '13px', marginTop: '1px' }}>✓</span>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>
+                  첫 정품인증 1회 무료 제공
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                <span style={{ color: 'rgba(167,139,250,0.8)', fontSize: '13px', marginTop: '1px' }}>✓</span>
+                <div>
+                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300', marginBottom: '2px' }}>
+                    추가 5회 무료 크레딧 받기
+                  </p>
+                  <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '11px', fontWeight: '300' }}>
+                    프로필 추가 정보 입력 시 지급 예정
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setShowWelcomeModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '15px',
+                  borderRadius: '16px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  color: 'rgba(255,255,255,0.4)',
+                  fontSize: '14px',
+                  fontWeight: '300',
+                  cursor: 'pointer',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                나중에
+              </button>
+              <button
+                onClick={() => {
+                  setShowWelcomeModal(false);
+                  alert('준비 중입니다.');
+                }}
+                style={{
+                  flex: 2,
+                  padding: '15px',
+                  borderRadius: '16px',
+                  background: 'rgba(167,139,250,0.12)',
+                  border: '1px solid rgba(167,139,250,0.25)',
+                  color: '#a78bfa',
+                  fontSize: '14px',
+                  fontWeight: '400',
+                  cursor: 'pointer',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                정보 입력하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ErrorBoundary>
   )
 }

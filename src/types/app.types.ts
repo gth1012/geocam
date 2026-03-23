@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login'
+export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending'
 export type ScanMode = 'camera' | 'scan'
 export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
 export type VerifyStatus = 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | null
@@ -172,7 +172,12 @@ export interface CollectionScreenProps extends ScreenProps {
 }
 
 export interface LoginScreenProps extends ScreenProps {
-  onLoginSuccess: (token: string, userId: string, nickname: string) => void;
+  onLoginSuccess: (token: string, userId: string, nickname: string, status: string) => void;
+}
+
+export interface RegisterPendingScreenProps {
+  onProfileComplete: (nickname: string) => void;
+  authToken: string;
 }
 
 export interface SettingsScreenProps extends ScreenProps {

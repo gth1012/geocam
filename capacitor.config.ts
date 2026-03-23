@@ -17,6 +17,11 @@ const config: CapacitorConfig = {
     },
     Camera: {
       presentationStyle: 'fullscreen'
+    },
+    GoogleAuth: {
+      scopes: ['profile', 'email'],
+      serverClientId: '443118969490-cfo1b6peii07cm7a9js3vauer5p59667.apps.googleusercontent.com',
+      forceCodeForRefreshToken: true
     }
   }
 };
