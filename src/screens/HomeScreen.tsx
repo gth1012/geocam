@@ -1,4 +1,5 @@
 import type { HomeScreenProps } from '../types/app.types'
+
 const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen }: HomeScreenProps) => (
   <div style={{
     minHeight: '100vh',
@@ -13,7 +14,7 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen 
     position: 'relative',
     boxSizing: 'border-box',
   }}>
-    {/* 설정 아이콘 */}
+    {/* Settings button */}
     <button
       onClick={() => setScreen('settings')}
       style={{
@@ -31,12 +32,12 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen 
       ⚙
     </button>
 
-    {/* 헤더 영역 */}
+    {/* Logo */}
     <div style={{ textAlign: 'center', paddingTop: '48px' }}>
       <h1 style={{ fontSize: '2.25rem', fontWeight: '200', letterSpacing: '0.15em', marginBottom: '0', color: 'rgba(255,255,255,0.9)' }}>Legit Tag</h1>
     </div>
 
-    {/* 버튼 영역 */}
+    {/* Main buttons */}
     <div style={{ width: '260px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <button
         onClick={safeGoCamera}
@@ -108,10 +109,11 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen 
       </button>
     </div>
 
-    {/* 하단 영역 */}
+    {/* Login / Signup */}
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         <button
+          onClick={() => setScreen('login')}
           style={{
             background: 'transparent',
             border: 'none',
@@ -126,6 +128,7 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen 
         </button>
         <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '13px' }}>|</span>
         <button
+          onClick={() => setScreen('login')}
           style={{
             background: 'transparent',
             border: 'none',
@@ -143,4 +146,5 @@ const HomeScreen = ({ safeGoScan, safeGoCamera, openGalleryPicker, t, setScreen 
     </div>
   </div>
 )
+
 export default HomeScreen
