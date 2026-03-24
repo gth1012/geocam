@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { RegisterPendingScreenProps } from '../types/app.types'
 
 const API_BASE = 'https://api.artionchain.com/api';
 
 const RegisterPendingScreen = ({ onProfileComplete, authToken }: RegisterPendingScreenProps) => {
+  const { t } = useTranslation()
   const [nickname, setNickname] = useState('')
   const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
@@ -11,7 +13,7 @@ const RegisterPendingScreen = ({ onProfileComplete, authToken }: RegisterPending
 
   const handleComplete = async () => {
     if (!nickname || !phone) {
-      setError('All fields are required.')
+      setError(t('registerPending.errorRequired'))
       return
     }
 
@@ -33,22 +35,22 @@ const RegisterPendingScreen = ({ onProfileComplete, authToken }: RegisterPending
       if (!data.success) {
         const code = data.error?.code
         if (code === 'INVALID_NICKNAME') {
-          setError('Nickname must be 2~12 chars. Korean, English, numbers, and _ only.')
+          setError(t('registerPending.errorInvalidNickname'))
         } else if (code === 'FORBIDDEN_NICKNAME') {
-          setError('This nickname is not allowed.')
+          setError(t('registerPending.errorForbiddenNickname'))
         } else if (code === 'INVALID_PHONE') {
-          setError('Please enter a valid phone number (10~11 digits, no dashes).')
+          setError(t('registerPending.errorInvalidPhone'))
         } else if (code === 'PHONE_EXISTS') {
-          setError('This phone number is already in use.')
+          setError(t('registerPending.errorPhoneExists'))
         } else {
-          setError(data.error?.message || 'Something went wrong.')
+          setError(data.error?.message || t('registerPending.errorGeneric'))
         }
         return
       }
 
       onProfileComplete(data.data.nickname)
     } catch (e) {
-      setError('Network error. Please try again.')
+      setError(t('error.network'))
     } finally {
       setLoading(false)
     }
@@ -85,24 +87,24 @@ const RegisterPendingScreen = ({ onProfileComplete, authToken }: RegisterPending
           letterSpacing: '0.05em',
           marginBottom: '8px',
         }}>
-          Additional Info
+          {t('registerPending.title')}
         </h1>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>
-          Please fill in the details below to continue.
+          {t('registerPending.subtitle')}
         </p>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
         <input
           type="text"
-          placeholder="Nickname (2~12 chars)"
+          placeholder={t('registerPending.nicknamePlaceholder')}
           value={nickname}
           onChange={e => setNickname(e.target.value)}
           style={inputStyle}
         />
         <input
           type="tel"
-          placeholder="Phone number (no dashes)"
+          placeholder={t('registerPending.phonePlaceholder')}
           value={phone}
           onChange={e => setPhone(e.target.value)}
           style={inputStyle}
@@ -131,7 +133,7 @@ const RegisterPendingScreen = ({ onProfileComplete, authToken }: RegisterPending
           opacity: loading ? 0.5 : 1,
         }}
       >
-        {loading ? 'Saving...' : 'Complete'}
+        {loading ? t('registerPending.savingButton') : t('registerPending.completeButton')}
       </button>
 
       <p style={{
@@ -141,7 +143,7 @@ const RegisterPendingScreen = ({ onProfileComplete, authToken }: RegisterPending
         marginTop: '24px',
         letterSpacing: '0.05em',
       }}>
-        This information is required to use all features.
+        {t('registerPending.requiredNotice')}
       </p>
     </div>
   )

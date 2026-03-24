@@ -53,10 +53,15 @@ export interface ScreenProps {
   runPipeline: (qrRaw: string | null, imageUri: string) => Promise<void>;
   getDeviceFingerprint: () => string;
   BackArrow: () => ReactElement;
-  t: any;
+  t: (key: string) => string;
 }
 
-export interface HomeScreenProps extends ScreenProps {
+export interface HomeScreenProps {
+  safeGoHome: () => void;
+  safeGoCamera: () => void;
+  safeGoScan: () => void;
+  openGalleryPicker: () => Promise<void>;
+  BackArrow: () => ReactElement;
   setScreen: (screen: Screen) => void;
 }
 
@@ -165,13 +170,16 @@ export interface RegisterResultScreenProps extends ScreenProps {
   onGoCollection: () => void;
 }
 
-export interface CollectionScreenProps extends ScreenProps {
+export interface CollectionScreenProps {
+  safeGoHome: () => void;
+  BackArrow: () => ReactElement;
   setScreen: (screen: Screen) => void;
   authToken: string | null;
   userId: string | null;
 }
 
-export interface LoginScreenProps extends ScreenProps {
+export interface LoginScreenProps {
+  safeGoHome: () => void;
   onLoginSuccess: (token: string, userId: string, nickname: string, status: string) => void;
 }
 

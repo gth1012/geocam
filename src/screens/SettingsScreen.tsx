@@ -1,18 +1,17 @@
+import { useTranslation } from 'react-i18next'
 import type { SettingsScreenProps } from '../types/app.types'
 
-const SettingsScreen = ({
-  safeGoHome,
-  BackArrow,
-  t,
-  i18n,
-}: SettingsScreenProps) => {
-  const currentLang = i18n.language;
-  const changeLang = (lng: string) => { i18n.changeLanguage(lng); };
+const SettingsScreen = ({ safeGoHome, BackArrow, i18n }: SettingsScreenProps) => {
+  const { t } = useTranslation()
+  const currentLang = i18n.language
+  const changeLang = (lng: string) => { i18n.changeLanguage(lng) }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
-        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}><BackArrow /></button>
+        <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '16px' }}>
+          <BackArrow />
+        </button>
         <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '18px', margin: 0 }}>{t('settings.title')}</h2>
       </div>
       <div style={{ marginTop: '24px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -29,7 +28,7 @@ const SettingsScreen = ({
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', margin: '4px 0 0 0' }}>Powered by Artion</p>
       </div>
     </div>
-  );
-};
+  )
+}
 
 export default SettingsScreen

@@ -49,12 +49,9 @@ function App() {
   const [registerStatus, setRegisterStatus] = useState<string | null>(null)
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [otpInput, setOtpInput] = useState('')
-
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
-  const [userNickname, setUserNickname] = useState<string | null>(null)
-
-  // Welcome modal state
+  const [, setUserNickname] = useState<string | null>(null)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
   const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)
 
@@ -98,14 +95,9 @@ function App() {
   }, []);
 
   const onGoCollection = useCallback(() => {
-    if (!authToken) {
-      setScreen('login');
-    } else {
-      setScreen('collection');
-    }
+    if (!authToken) { setScreen('login') } else { setScreen('collection') }
   }, [authToken]);
 
-  // Login success handler - route by status
   const onLoginSuccess = useCallback((token: string, uid: string, nickname: string, status: string) => {
     setAuthToken(token);
     setUserId(uid);
@@ -117,7 +109,6 @@ function App() {
     }
   }, []);
 
-  // Profile complete handler - show welcome modal then go home
   const onProfileComplete = useCallback((nickname: string) => {
     setUserNickname(nickname);
     setWelcomeNickname(nickname);
@@ -128,17 +119,14 @@ function App() {
   const openGalleryPicker = useCallback(async () => {
     try {
       const image = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Photos
+        quality: 90, allowEditing: false,
+        resultType: CameraResultType.DataUrl, source: CameraSource.Photos
       })
       if (image.dataUrl) {
         setQrDetected(false); setQrData(null); setCapturedImage(null);
         setRecordInfo(null); setError(null); setProcessing(false);
         setNetworkError(false); setVerifyStatus(null); setCameraError(null);
-        setCapturedImage(image.dataUrl)
-        setScanMode('scan')
+        setCapturedImage(image.dataUrl); setScanMode('scan');
         runPipeline(null, image.dataUrl)
       }
     } catch (e: any) {
@@ -177,11 +165,11 @@ function App() {
     finally { setProcessing(false); }
   }
 
-  const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow, t };
+  const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow };
 
   return (
     <ErrorBoundary>
-      {screen === 'home' && <HomeScreen {...commonProps} setScreen={setScreen} />}
+      {screen === 'home' && <HomeScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} setScreen={setScreen} />}
       {screen === 'camera' && <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
       {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
       {screen === 'scanResult' && <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} setScreen={setScreen} />}
@@ -191,122 +179,33 @@ function App() {
       {screen === 'preview' && <PreviewScreen {...commonProps} previewImage={previewImage} setCapturedImage={setCapturedImage} setScreen={setScreen} />}
       {screen === 'otpInput' && <OtpInputScreen {...commonProps} qrData={qrData} otpInput={otpInput} setOtpInput={setOtpInput} setQrData={setQrData} setScanMode={setScanMode} setQrDetected={setQrDetected} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setErrorCode={setErrorCode} setProcessing={setProcessing} setNetworkError={setNetworkError} setVerifyStatus={setVerifyStatus} setCameraError={setCameraError} setScreen={setScreen} />}
       {screen === 'registerResult' && <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} onGoCollection={onGoCollection} />}
-      {screen === 'collection' && <CollectionScreen {...commonProps} setScreen={setScreen} authToken={authToken} userId={userId} />}
-      {screen === 'login' && <LoginScreen {...commonProps} onLoginSuccess={onLoginSuccess} />}
+      {screen === 'collection' && <CollectionScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} authToken={authToken} userId={userId} />}
+      {screen === 'login' && <LoginScreen safeGoHome={safeGoHome} onLoginSuccess={onLoginSuccess} />}
       {screen === 'registerPending' && authToken && <RegisterPendingScreen authToken={authToken} onProfileComplete={onProfileComplete} />}
       {screen === 'settings' && <SettingsScreen {...commonProps} i18n={i18n} />}
 
-      {/* Welcome modal */}
       {showWelcomeModal && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          backgroundColor: 'rgba(0,0,0,0.6)',
-          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-          paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
-        }}>
-          <div style={{
-            width: '100%',
-            maxWidth: '480px',
-            backgroundColor: '#0a0a0c',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '24px 24px 0 0',
-            padding: '32px 28px 28px',
-          }}>
-            {/* Title */}
-            <p style={{
-              color: 'rgba(255,255,255,0.3)',
-              fontSize: '11px',
-              letterSpacing: '0.15em',
-              fontWeight: '300',
-              marginBottom: '8px',
-            }}>
-              WELCOME
-            </p>
-            <h2 style={{
-              color: 'rgba(255,255,255,0.9)',
-              fontSize: '22px',
-              fontWeight: '200',
-              letterSpacing: '0.05em',
-              marginBottom: '4px',
-            }}>
-              환영합니다, {welcomeNickname}님
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}>
+          <div style={{ width: '100%', maxWidth: '480px', backgroundColor: '#0a0a0c', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '24px 24px 0 0', padding: '32px 28px 28px' }}>
+            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', letterSpacing: '0.15em', fontWeight: '300', marginBottom: '8px' }}>WELCOME</p>
+            <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '22px', fontWeight: '200', letterSpacing: '0.05em', marginBottom: '4px' }}>
+              {welcomeNickname}{t('registerPending.subtitle') ? '' : ''}님, 환영합니다
             </h2>
-            <p style={{
-              color: 'rgba(255,255,255,0.35)',
-              fontSize: '13px',
-              fontWeight: '300',
-              marginBottom: '28px',
-            }}>
-              LegitTag 가입이 완료되었습니다.
+            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '13px', fontWeight: '300', marginBottom: '28px' }}>
+              LegitTag {t('register.successMessage')}
             </p>
-
-            {/* Benefits */}
-            <div style={{
-              borderTop: '1px solid rgba(255,255,255,0.06)',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
-              padding: '20px 0',
-              marginBottom: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-            }}>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '20px 0', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                 <span style={{ color: 'rgba(167,139,250,0.8)', fontSize: '13px', marginTop: '1px' }}>✓</span>
-                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>
-                  첫 정품인증 1회 무료 제공
-                </p>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                <span style={{ color: 'rgba(167,139,250,0.8)', fontSize: '13px', marginTop: '1px' }}>✓</span>
-                <div>
-                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300', marginBottom: '2px' }}>
-                    추가 5회 무료 크레딧 받기
-                  </p>
-                  <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '11px', fontWeight: '300' }}>
-                    프로필 추가 정보 입력 시 지급 예정
-                  </p>
-                </div>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>{t('register.successTitle')}</p>
               </div>
             </div>
-
-            {/* Buttons */}
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={() => setShowWelcomeModal(false)}
-                style={{
-                  flex: 1,
-                  padding: '15px',
-                  borderRadius: '16px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  color: 'rgba(255,255,255,0.4)',
-                  fontSize: '14px',
-                  fontWeight: '300',
-                  cursor: 'pointer',
-                  letterSpacing: '0.05em',
-                }}
-              >
-                나중에
+              <button onClick={() => setShowWelcomeModal(false)} style={{ flex: 1, padding: '15px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '300', cursor: 'pointer', letterSpacing: '0.05em' }}>
+                {t('common.close')}
               </button>
-              <button
-                onClick={() => {
-                  setShowWelcomeModal(false);
-                  alert('준비 중입니다.');
-                }}
-                style={{
-                  flex: 2,
-                  padding: '15px',
-                  borderRadius: '16px',
-                  background: 'rgba(167,139,250,0.12)',
-                  border: '1px solid rgba(167,139,250,0.25)',
-                  color: '#a78bfa',
-                  fontSize: '14px',
-                  fontWeight: '400',
-                  cursor: 'pointer',
-                  letterSpacing: '0.05em',
-                }}
-              >
-                정보 입력하기
+              <button onClick={() => { setShowWelcomeModal(false); alert(t('common.checking')); }} style={{ flex: 2, padding: '15px', borderRadius: '16px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: '14px', fontWeight: '400', cursor: 'pointer', letterSpacing: '0.05em' }}>
+                {t('registerPending.completeButton')}
               </button>
             </div>
           </div>

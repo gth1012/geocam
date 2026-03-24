@@ -6,7 +6,10 @@
   "home": {
     "title": "Verify Authenticity",
     "subtitle": "Check your item's issuance record",
-    "scanButton": "Start Scan"
+    "scanButton": "Start Scan",
+    "cameraButton": "Camera",
+    "galleryButton": "Gallery",
+    "collectionButton": "My Collection"
   },
   "camera": {
     "title": "Scan the QR code",
@@ -73,7 +76,9 @@
   "otp": {
     "title": "Enter the code",
     "subtitle": "Enter the 8-digit code included with the product",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "placeholder": "OTP Code",
+    "dinaLabel": "DINA Code"
   },
   "settings": {
     "title": "Settings",
@@ -116,5 +121,68 @@
     "loading": "Loading...",
     "checking": "Checking...",
     "disclaimer": "LegitTag provides information based on official issuance records."
+  },
+  "login": {
+    "title": "Sign In",
+    "signupTitle": "Sign Up",
+    "subtitle": "Sign in to your LegitTag account",
+    "signupSubtitle": "Create your LegitTag account",
+    "nicknamePlaceholder": "Nickname (optional)",
+    "emailPlaceholder": "Email",
+    "passwordPlaceholder": "Password (min 6 chars)",
+    "switchToSignup": "Create an account",
+    "switchToLogin": "Already have an account? Sign In",
+    "continueWith": "or continue with"
+  },
+  "registerPending": {
+    "title": "Additional Info",
+    "subtitle": "Please fill in the details below to continue.",
+    "nicknamePlaceholder": "Nickname (2~12 chars)",
+    "phonePlaceholder": "Phone number (no dashes)",
+    "completeButton": "Complete",
+    "savingButton": "Saving...",
+    "requiredNotice": "This information is required to use all features.",
+    "errorRequired": "All fields are required.",
+    "errorInvalidNickname": "Nickname must be 2~12 chars. Korean, English, numbers, and _ only.",
+    "errorForbiddenNickname": "This nickname is not allowed.",
+    "errorInvalidPhone": "Please enter a valid phone number (10~11 digits, no dashes).",
+    "errorPhoneExists": "This phone number is already in use.",
+    "errorGeneric": "Something went wrong."
+  },
+  "collection": {
+    "title": "My Collection",
+    "detailTitle": "Card Detail",
+    "statusSellable": "For Sale",
+    "statusListed": "Listed",
+    "statusSold": "Sold",
+    "agency": "Agency",
+    "series": "Series",
+    "artist": "Artist",
+    "status": "Status",
+    "showMore": "Show More",
+    "showLess": "Show Less",
+    "editionInfo": "Edition Info",
+    "editionNumber": "Edition No.",
+    "issuedAt": "Issued Date",
+    "claimInfo": "Claim Info",
+    "claimedAt": "Claimed Date",
+    "tradeHistory": "Trade History",
+    "tradePending": "Coming Soon",
+    "sellButton": "Sell",
+    "homeButton": "Back to Home",
+    "sellModalTitle": "List for Sale",
+    "sellPrice": "Price (KRW)",
+    "sellDescription": "Description (optional)",
+    "sellDescriptionPlaceholder": "Enter a description",
+    "sellSubmit": "List Item",
+    "sellSubmitting": "Listing...",
+    "sellCancel": "Cancel",
+    "sellSuccessTitle": "Listed Successfully!",
+    "sellSuccessDesc": "Listed for {price} KRW",
+    "sellBackButton": "Back to Collection",
+    "errorInvalidPrice": "Please enter a valid price.",
+    "errorLoginRequired": "Please log in first.",
+    "errorListFailed": "Failed to list item.",
+    "errorNetwork": "Network error occurred."
   }
 }
