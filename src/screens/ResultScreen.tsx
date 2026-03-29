@@ -33,9 +33,7 @@ const ResultScreen = ({
   const isCamera = scanMode === 'camera'
   const displayImage = capturedImage || previewImage
 
-  // 상태별 설정 (Color → Icon → Text 우선순위)
   const getStatusConfig = () => {
-    // 네트워크 에러
     if (networkError) {
       return {
         color: '#f87171',
@@ -51,7 +49,6 @@ const ResultScreen = ({
       }
     }
 
-    // 에러 코드 기반 처리
     if (errorCode) {
       return {
         color: '#f87171',
@@ -67,7 +64,6 @@ const ResultScreen = ({
       }
     }
 
-    // VALID (Green) - 기록 일치
     if (verifyStatus === 'VALID') {
       return {
         color: '#4ade80',
@@ -83,7 +79,6 @@ const ResultScreen = ({
       }
     }
 
-    // SUSPECT (Yellow) - 주의 필요
     if (verifyStatus === 'SUSPECT') {
       return {
         color: '#fbbf24',
@@ -100,7 +95,6 @@ const ResultScreen = ({
       }
     }
 
-    // INVALID/UNKNOWN (Red) - 검증 실패
     return {
       color: '#f87171',
       bgColor: 'rgba(248, 113, 113, 0.08)',
@@ -117,7 +111,6 @@ const ResultScreen = ({
 
   const config = getStatusConfig()
 
-  // 다시 촬영
   const handleRetry = useCallback(() => {
     setQrDetected(false)
     setQrData(null)
@@ -134,7 +127,6 @@ const ResultScreen = ({
     }
   }, [isCamera, openGalleryPicker, setQrDetected, setQrData, setCapturedImage, setRecordInfo, setError, setProcessing, setVerifyStatus, setScreen])
 
-  // 등록 (VALID일 때만)
   const handleRegister = async () => {
     if (!sessionToken || !dinaId || !nonce) return
     setRegistering(true)
@@ -152,30 +144,52 @@ const ResultScreen = ({
   }
 
   return (
-    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', overflow: 'hidden' }}>
 
-      {/* 상단: 촬영 이미지 (maxHeight 65vh) */}
-      <div style={{ maxHeight: '65vh', position: 'relative', overflow: 'hidden' }}>
+      {/* 상단: 촬영 이미지 — 55vh 고정, 세로 중앙 정렬 */}
+      <div style={{
+        height: '55vh',
+        position: 'relative',
+        overflow: 'hidden',
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#111'
+      }}>
         {displayImage && (
           <img
             src={displayImage}
             alt="captured"
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'center center'
+            }}
           />
         )}
-        {/* 그라데이션 오버레이 */}
+        {/* 하단 그라데이션 오버레이 */}
         <div style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          height: '40px',
+          height: '48px',
           background: 'linear-gradient(to top, #0a0a0c, transparent)'
         }} />
       </div>
 
-      {/* 하단: 결과 패널 (minHeight 35vh) */}
-      <div style={{ minHeight: '35vh', padding: '12px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* 하단: 결과 패널 — 나머지 공간 채움 */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '12px',
+        paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px'
+      }}>
 
         {/* 상태 표시 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -218,7 +232,6 @@ const ResultScreen = ({
           borderRadius: '8px',
           padding: '10px'
         }}>
-          {/* DINA 코드 */}
           {dinaId && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: matchScore !== null || confidence !== null ? '6px' : 0 }}>
               <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>DINA</span>
@@ -226,7 +239,6 @@ const ResultScreen = ({
             </div>
           )}
 
-          {/* 일치율 */}
           {matchScore !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: confidence !== null ? '6px' : 0 }}>
               <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>{t('result.matchScore')}</span>
@@ -234,7 +246,6 @@ const ResultScreen = ({
             </div>
           )}
 
-          {/* 신뢰도 */}
           {confidence !== null && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>{t('result.confidence')}</span>
@@ -242,7 +253,6 @@ const ResultScreen = ({
             </div>
           )}
 
-          {/* 정보가 없을 때 */}
           {!dinaId && matchScore === null && confidence === null && (
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', textAlign: 'center', margin: 0 }}>
               {t('result.noInfo')}
