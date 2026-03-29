@@ -44,12 +44,14 @@ const OtpInputScreen = ({
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
-        <button onClick={safeGoScan} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><BackArrow /></button>
+        <button onClick={safeGoScan} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <BackArrow />
+        </button>
         <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', marginLeft: '16px', letterSpacing: '0.1em' }}>{t('otp.title')}</span>
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '40px' }}>
         <div style={{ marginBottom: '32px', padding: '12px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>DINA 코드</p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>{t('otp.dinaLabel')}</p>
           <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontFamily: 'monospace', letterSpacing: '0.1em', margin: 0 }}>{dinaDisplay}</p>
         </div>
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', marginBottom: '24px', maxWidth: '280px', lineHeight: '1.5' }}>{t('otp.subtitle')}</p>
@@ -58,7 +60,7 @@ const OtpInputScreen = ({
           value={otpInput}
           onChange={(e) => setOtpInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
           maxLength={8}
-          placeholder="OTP"
+          placeholder={t('otp.placeholder')}
           style={{
             width: '240px', padding: '16px', fontSize: '20px', fontFamily: 'monospace', letterSpacing: '0.3em', textAlign: 'center',
             background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '12px',

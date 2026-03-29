@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import type { CameraScreenProps } from '../types/app.types'
 
@@ -6,7 +7,6 @@ const CameraScreen = ({
   safeGoHome,
   runPipeline,
   BackArrow,
-  t,
   sessionToken,
   nonce,
   dinaId,
@@ -23,6 +23,7 @@ const CameraScreen = ({
   cameraError,
   setCameraError,
 }: CameraScreenProps) => {
+  const { t } = useTranslation()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -31,7 +32,6 @@ const CameraScreen = ({
   const [capturing, setCapturing] = useState(false)
   const [showGuideOverlay, setShowGuideOverlay] = useState(true)
 
-  // 가이드 오버레이 3초 후 자동 fade out
   useEffect(() => {
     if (cameraReady && showGuideOverlay) {
       const timer = setTimeout(() => {
@@ -41,7 +41,6 @@ const CameraScreen = ({
     }
   }, [cameraReady, showGuideOverlay])
 
-  // 카메라 시작
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) {
@@ -50,11 +49,7 @@ const CameraScreen = ({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false
       })
 
@@ -81,7 +76,6 @@ const CameraScreen = ({
     }
   }, [t, setCameraError])
 
-  // 카메라 정지
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
@@ -93,13 +87,11 @@ const CameraScreen = ({
     setCameraReady(false)
   }, [])
 
-  // 마운트 시 카메라 시작, 언마운트 시 정지
   useEffect(() => {
     startCamera()
     return () => { stopCamera() }
   }, [startCamera, stopCamera])
 
-  // 사진 촬영
   const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !cameraReady) return
 
@@ -109,10 +101,7 @@ const CameraScreen = ({
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
 
-    if (!ctx) {
-      setCapturing(false)
-      return
-    }
+    if (!ctx) { setCapturing(false); return }
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
@@ -123,38 +112,26 @@ const CameraScreen = ({
     stopCamera()
     setCapturedImage(imageDataUrl)
 
-    // QR 스캔에서 넘어온 세션 정보가 있으면 detect → verify 순서로 실행
     if (sessionToken && nonce && dinaId) {
       setProcessing(true)
       try {
         const imageBase64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
 
-        // ── Step 1: GeoCode 검출 (V3 신규) ──────────────────────
         let patternResult: string | null = null
         try {
           const detectResponse = await fetch(`${API_BASE_URL}/geocam/detect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dina_id: dinaId,
-              image_data: imageBase64,
-              session_token: sessionToken,
-              profile: 'P-PAPER',
-            })
+            body: JSON.stringify({ dina_id: dinaId, image_data: imageBase64, session_token: sessionToken, profile: 'P-PAPER' })
           })
-
           if (detectResponse.ok) {
             const detectResult = await detectResponse.json()
             patternResult = detectResult.pattern_result || null
-            console.log('[detect] result:', patternResult, 'score:', detectResult.detect_score)
-          } else {
-            console.warn('[detect] failed:', detectResponse.status, '— proceeding without GeoCode result')
           }
         } catch (detectErr) {
-          console.warn('[detect] network error:', detectErr, '— proceeding without GeoCode result')
+          console.warn('[detect] network error:', detectErr)
         }
 
-        // ── Step 2: verify API 호출 ──────────────────────────────
         const verifyResponse = await fetch(`${API_BASE_URL}/geocam/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -181,17 +158,12 @@ const CameraScreen = ({
           setConfidence(result.confidence)
           setMatchScore(result.match_score || null)
           setVerifyStatus(result.result)
-          setRecordInfo({
-            recordId: crypto.randomUUID(),
-            packHash: 'verify-' + Date.now(),
-            createdAt: new Date().toISOString()
-          })
+          setRecordInfo({ recordId: crypto.randomUUID(), packHash: 'verify-' + Date.now(), createdAt: new Date().toISOString() })
         } else {
           setErrorCode(result.error)
           setVerifyStatus(result.result || 'UNKNOWN')
         }
         setScreen('result')
-
       } catch (err) {
         console.error('pipeline error:', err)
         setNetworkError(true)
@@ -200,7 +172,6 @@ const CameraScreen = ({
       }
       setProcessing(false)
     } else {
-      // 세션 정보 없으면 기존 파이프라인 실행 (QR 없이 카메라만)
       runPipeline(qrData, imageDataUrl)
     }
 
@@ -212,7 +183,6 @@ const CameraScreen = ({
     safeGoHome()
   }, [stopCamera, safeGoHome])
 
-  // 권한 오류 화면
   if (permissionDenied || cameraError) {
     return (
       <div style={{ position: 'fixed', inset: 0, backgroundColor: '#0a0a0c', display: 'flex', flexDirection: 'column' }}>
@@ -241,7 +211,6 @@ const CameraScreen = ({
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
-      {/* 헤더 */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button onClick={handleBack} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <BackArrow />
@@ -250,17 +219,9 @@ const CameraScreen = ({
         <div style={{ width: '40px' }} />
       </div>
 
-      {/* 카메라 뷰 */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-        />
+        <video ref={videoRef} autoPlay playsInline muted style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
 
-        {/* 로딩 표시 */}
         {!cameraReady && !cameraError && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)' }}>
             <div style={{ textAlign: 'center' }}>
@@ -273,7 +234,6 @@ const CameraScreen = ({
           </div>
         )}
 
-        {/* 촬영 가이드 프레임 */}
         {cameraReady && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
             <div style={{ width: '280px', height: '280px', position: 'relative' }}>
@@ -285,7 +245,6 @@ const CameraScreen = ({
           </div>
         )}
 
-        {/* 초기 가이드 오버레이 */}
         {cameraReady && showGuideOverlay && (
           <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, animation: 'fadeOut 0.5s ease-out 2.5s forwards', pointerEvents: 'none' }}>
             <p style={{ color: 'rgba(255,255,255,0.95)', fontSize: '16px', fontWeight: '500', textAlign: 'center', marginBottom: '12px', padding: '0 24px', lineHeight: '1.5' }}>
@@ -298,7 +257,6 @@ const CameraScreen = ({
         )}
       </div>
 
-      {/* 하단 버튼 */}
       <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '20px', textAlign: 'center' }}>
           {t('capture.title')}
@@ -318,7 +276,6 @@ const CameraScreen = ({
         </button>
       </div>
 
-      {/* 숨겨진 캔버스 */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       <style>{`

@@ -6,7 +6,10 @@
   "home": {
     "title": "정품 확인",
     "subtitle": "정품 기록을 확인하세요",
-    "scanButton": "스캔 시작"
+    "scanButton": "QR Scan",
+    "cameraButton": "Camera",
+    "galleryButton": "Gallery",
+    "collectionButton": "My Collection"
   },
   "camera": {
     "title": "QR 코드를 스캔하세요",
@@ -15,7 +18,7 @@
     "permission": "카메라 권한이 필요합니다",
     "retry": "다시 시도",
     "home": "홈으로",
-    "guideTitle": "",
+    "guideTitle": "화면에 제품을 맞춰주세요",
     "guideTip": "15–25cm 거리 · 빛 반사 주의"
   },
   "scan": {
@@ -73,7 +76,9 @@
   "otp": {
     "title": "코드를 입력하세요",
     "subtitle": "제품에 포함된 8자리 코드를 입력하세요",
-    "confirm": "확인"
+    "confirm": "확인",
+    "placeholder": "OTP 코드",
+    "dinaLabel": "DINA 코드"
   },
   "settings": {
     "title": "설정",
@@ -116,6 +121,68 @@
     "loading": "로딩 중...",
     "checking": "확인 중...",
     "disclaimer": "LegitTag은 공식 발급 기록을 기반으로 검증 정보를 제공합니다."
+  },
+  "login": {
+    "title": "로그인",
+    "signupTitle": "회원가입",
+    "subtitle": "LegitTag 계정에 로그인하세요",
+    "signupSubtitle": "LegitTag 계정을 만들어보세요",
+    "nicknamePlaceholder": "닉네임 (선택)",
+    "emailPlaceholder": "이메일",
+    "passwordPlaceholder": "비밀번호 (최소 6자)",
+    "switchToSignup": "계정 만들기",
+    "switchToLogin": "이미 계정이 있으신가요? 로그인",
+    "continueWith": "또는 소셜 계정으로 계속"
+  },
+  "registerPending": {
+    "title": "추가 정보 입력",
+    "subtitle": "서비스 이용을 위해 아래 정보를 입력해주세요.",
+    "nicknamePlaceholder": "닉네임 (2~12자)",
+    "phonePlaceholder": "전화번호 (숫자만 입력)",
+    "completeButton": "완료",
+    "savingButton": "저장 중...",
+    "requiredNotice": "모든 기능 이용을 위해 필요한 정보입니다.",
+    "errorRequired": "모든 항목을 입력해주세요.",
+    "errorInvalidNickname": "닉네임은 2~12자, 한글/영문/숫자/_ 만 사용 가능합니다.",
+    "errorForbiddenNickname": "사용할 수 없는 닉네임입니다.",
+    "errorInvalidPhone": "올바른 전화번호를 입력해주세요 (10~11자리, 숫자만).",
+    "errorPhoneExists": "이미 사용 중인 전화번호입니다.",
+    "errorGeneric": "오류가 발생했습니다. 다시 시도해주세요."
+  },
+  "collection": {
+    "title": "내 컬렉션",
+    "detailTitle": "포카 상세",
+    "statusSellable": "판매 가능",
+    "statusListed": "판매 중",
+    "statusSold": "판매 완료",
+    "agency": "기획사",
+    "series": "시리즈",
+    "artist": "아티스트",
+    "status": "상태",
+    "showMore": "더보기",
+    "showLess": "접기",
+    "editionInfo": "에디션 정보",
+    "editionNumber": "에디션 번호",
+    "issuedAt": "발행일",
+    "claimInfo": "인증 정보",
+    "claimedAt": "최초 등록일",
+    "tradeHistory": "거래 내역",
+    "tradePending": "준비 중",
+    "sellButton": "판매하기",
+    "homeButton": "홈으로",
+    "sellModalTitle": "판매 등록",
+    "sellPrice": "판매 가격 (KRW)",
+    "sellDescription": "설명 (선택)",
+    "sellDescriptionPlaceholder": "판매 관련 설명을 입력하세요",
+    "sellSubmit": "판매 등록",
+    "sellSubmitting": "등록 중...",
+    "sellCancel": "취소",
+    "sellSuccessTitle": "판매 등록 완료!",
+    "sellSuccessDesc": "{price}원에 등록됐어요",
+    "sellBackButton": "컬렉션으로 돌아가기",
+    "errorInvalidPrice": "올바른 가격을 입력해 주세요.",
+    "errorLoginRequired": "로그인이 필요합니다.",
+    "errorListFailed": "판매 등록에 실패했습니다.",
+    "errorNetwork": "네트워크 오류가 발생했습니다."
   }
 }
-
