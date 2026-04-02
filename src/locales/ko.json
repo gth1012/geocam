@@ -59,7 +59,13 @@
     "cautionNeededDesc": "추가 확인이 필요합니다.",
     "matchScore": "일치율",
     "confidence": "신뢰도",
-    "noInfo": ""
+    "noInfo": "",
+    "present": "정품 패턴 감지됨",
+    "presentDesc": "물리 GeoCode 패턴이 확인되었습니다.",
+    "weak": "패턴 미약 감지",
+    "weakDesc": "패턴이 약하게 감지되었습니다. 다시 촬영해 주세요.",
+    "absent": "패턴 없음",
+    "absentDesc": "정품 패턴을 찾을 수 없습니다."
   },
   "claim": {
     "button": "인증하기",

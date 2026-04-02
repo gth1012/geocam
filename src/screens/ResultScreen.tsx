@@ -61,6 +61,46 @@ const ResultScreen = ({
       }
     }
 
+    if (verifyStatus === 'PRESENT') {
+      return {
+        color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
+        title: t('result.present'), subtitle: t('result.presentDesc'),
+        icon: (
+          <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
+            <path d="M14 24l7 7 13-13" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )
+      }
+    }
+
+    if (verifyStatus === 'WEAK') {
+      return {
+        color: '#fbbf24', bgColor: 'rgba(251, 191, 36, 0.08)',
+        title: t('result.weak'), subtitle: t('result.weakDesc'),
+        icon: (
+          <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
+            <path d="M24 14v14" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+            <circle cx="24" cy="35" r="2.5" fill="#fbbf24" />
+          </svg>
+        )
+      }
+    }
+
+    if (verifyStatus === 'ABSENT') {
+      return {
+        color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
+        title: t('result.absent'), subtitle: t('result.absentDesc'),
+        icon: (
+          <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
+            <path d="M16 16l16 16M32 16l-16 16" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        )
+      }
+    }
+
     if (verifyStatus === 'VALID') {
       return {
         color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',

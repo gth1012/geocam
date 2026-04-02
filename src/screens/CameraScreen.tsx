@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import type { CameraScreenProps } from '../types/app.types'
 
+const GEOSTUDIO_API_URL = 'https://geo-api.artionchain.com'
+const INTERNAL_API_KEY = 'geo-artion-2026-prod'
+
 const CameraScreen = ({
   safeGoHome,
   runPipeline,
@@ -92,6 +95,70 @@ const CameraScreen = ({
     return () => { stopCamera() }
   }, [startCamera, stopCamera])
 
+  // Mode B: Track A 2축 붕괴 측정 엔진 (detect-physical)
+  // 검출기는 패턴을 찾지 않는다. 붕괴를 측정한다.
+  const runModeB = useCallback(async (imageBase64: string) => {
+    setProcessing(true)
+    try {
+      const detectResponse = await fetch(`${GEOSTUDIO_API_URL}/api/geocode/detect-physical`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': INTERNAL_API_KEY,
+        },
+        body: JSON.stringify({
+          image_data: imageBase64,
+          profile: 'P-PAPER',
+        })
+      })
+
+      if (!detectResponse.ok) {
+        console.error('[ModeB] GeoStudio error:', detectResponse.status)
+        setNetworkError(true)
+        setVerifyStatus('ABSENT')
+        setScreen('result')
+        setProcessing(false)
+        return
+      }
+
+      const detectResult = await detectResponse.json()
+
+      console.log('[ModeB detect-physical]',
+        `band2_collapse=${detectResult.band2_collapse_rate}%`,
+        `ratio_change=${detectResult.ratio_change_rate}%`,
+        `verdict=${detectResult.verdict}`,
+        `axis1=${detectResult.axis1_triggered}`,
+        `axis2=${detectResult.axis2_triggered}`,
+      )
+
+      const verdict: string = detectResult.verdict ?? 'ABSENT'
+
+      if (verdict === 'PRESENT') {
+        setVerifyStatus('PRESENT')
+      } else if (verdict === 'WEAK') {
+        setVerifyStatus('WEAK')
+      } else {
+        setVerifyStatus('ABSENT')
+      }
+
+      // band2_collapse_rate를 match_score로 전달 (UI 참고용)
+      const score = detectResult.band2_collapse_rate != null
+        ? Math.max(0, Math.round((1 - detectResult.band2_collapse_rate / 100) * 100) / 100)
+        : null
+      if (score !== null) {
+        setMatchScore(score)
+      }
+
+      setScreen('result')
+    } catch (err) {
+      console.error('[ModeB] network error:', err)
+      setNetworkError(true)
+      setVerifyStatus('ABSENT')
+      setScreen('result')
+    }
+    setProcessing(false)
+  }, [setProcessing, setNetworkError, setVerifyStatus, setMatchScore, setScreen])
+
   const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !cameraReady) return
 
@@ -112,11 +179,12 @@ const CameraScreen = ({
     stopCamera()
     setCapturedImage(imageDataUrl)
 
+    const imageBase64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
+
     if (sessionToken && nonce && dinaId) {
+      // Mode A: QR-linked full verify flow
       setProcessing(true)
       try {
-        const imageBase64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
-
         let patternResult: string | null = null
         try {
           const detectResponse = await fetch(`${API_BASE_URL}/geocam/detect`, {
@@ -129,7 +197,7 @@ const CameraScreen = ({
             patternResult = detectResult.pattern_result || null
           }
         } catch (detectErr) {
-          console.warn('[detect] network error:', detectErr)
+          console.warn('[ModeA detect] network error:', detectErr)
         }
 
         const verifyResponse = await fetch(`${API_BASE_URL}/geocam/verify`, {
@@ -152,7 +220,7 @@ const CameraScreen = ({
         })
 
         const result = await verifyResponse.json()
-        console.log('[verify] response:', result, 'pattern:', patternResult)
+        console.log('[ModeA verify] response:', result, 'pattern:', patternResult)
 
         if (result.success) {
           setConfidence(result.confidence)
@@ -165,18 +233,22 @@ const CameraScreen = ({
         }
         setScreen('result')
       } catch (err) {
-        console.error('pipeline error:', err)
+        console.error('[ModeA] pipeline error:', err)
         setNetworkError(true)
         setVerifyStatus('UNKNOWN')
         setScreen('result')
       }
       setProcessing(false)
+    } else if (!sessionToken && !nonce && !dinaId) {
+      // Mode B: Track A 2축 붕괴 측정
+      await runModeB(imageBase64)
     } else {
+      // fallback: legacy pipeline
       runPipeline(qrData, imageDataUrl)
     }
 
     setCapturing(false)
-  }, [cameraReady, stopCamera, sessionToken, nonce, dinaId, qrData, setCapturedImage, setProcessing, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo, setErrorCode, setNetworkError, setScreen, runPipeline])
+  }, [cameraReady, stopCamera, sessionToken, nonce, dinaId, qrData, setCapturedImage, setProcessing, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo, setErrorCode, setNetworkError, setScreen, runPipeline, runModeB])
 
   const handleBack = useCallback(() => {
     stopCamera()

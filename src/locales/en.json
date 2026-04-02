@@ -59,7 +59,13 @@
     "cautionNeededDesc": "Additional check required.",
     "matchScore": "Match Rate",
     "confidence": "Confidence",
-    "noInfo": "No details available"
+    "noInfo": "No details available",
+    "present": "Pattern Detected",
+    "presentDesc": "Physical GeoCode pattern confirmed.",
+    "weak": "Weak Pattern",
+    "weakDesc": "Pattern detected but weak. Please retake the photo.",
+    "absent": "No Pattern",
+    "absentDesc": "No authentic GeoCode pattern found."
   },
   "claim": {
     "button": "Claim",
