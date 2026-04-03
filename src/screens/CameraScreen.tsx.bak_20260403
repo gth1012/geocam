@@ -95,12 +95,8 @@ const CameraScreen = ({
     return () => { stopCamera() }
   }, [startCamera, stopCamera])
 
-  // Mode B: Track A v3.0 local_rg_cv engine (detect-physical)
-  // Physical law: RGB channel resampling scar
-  // Replica chain (scan->reprint): R/G channels resampled independently -> ratio fluctuates -> high CV
-  // Authentic (1st gen print): R/G ratio stable per block -> low CV
-  // Threshold: local_rg_cv > 0.485 = ABSENT (replica detected)
-  // Validated: B=100% PRESENT, C=100% ABSENT (real data, 2026-04-03)
+  // Mode B: Track A 2축 붕괴 측정 엔진 (detect-physical)
+  // 검출기는 패턴을 찾지 않는다. 붕괴를 측정한다.
   const runModeB = useCallback(async (imageBase64: string) => {
     setProcessing(true)
     try {
@@ -127,28 +123,31 @@ const CameraScreen = ({
 
       const detectResult = await detectResponse.json()
 
-      console.log('[ModeB detect-physical v3.0]',
-        `local_rg_cv=${detectResult.local_rg_cv}`,
-        `threshold=${detectResult.threshold}`,
+      console.log('[ModeB detect-physical]',
+        `band2_collapse=${detectResult.band2_collapse_rate}%`,
+        `ratio_change=${detectResult.ratio_change_rate}%`,
         `verdict=${detectResult.verdict}`,
-        `engine=${detectResult.engine_version}`,
+        `axis1=${detectResult.axis1_triggered}`,
+        `axis2=${detectResult.axis2_triggered}`,
       )
 
       const verdict: string = detectResult.verdict ?? 'ABSENT'
 
       if (verdict === 'PRESENT') {
         setVerifyStatus('PRESENT')
+      } else if (verdict === 'WEAK') {
+        setVerifyStatus('WEAK')
       } else {
         setVerifyStatus('ABSENT')
       }
 
-      // local_rg_cv -> match_score (UI display)
-      const rgCv = detectResult.local_rg_cv ?? 0
-      const thr  = detectResult.threshold ?? 0.485
-      const score = verdict === 'PRESENT'
-        ? Math.round(Math.max(0, (1 - rgCv / thr)) * 100) / 100
-        : 0
-      setMatchScore(score)
+      // band2_collapse_rate를 match_score로 전달 (UI 참고용)
+      const score = detectResult.band2_collapse_rate != null
+        ? Math.max(0, Math.round((1 - detectResult.band2_collapse_rate / 100) * 100) / 100)
+        : null
+      if (score !== null) {
+        setMatchScore(score)
+      }
 
       setScreen('result')
     } catch (err) {
@@ -241,7 +240,7 @@ const CameraScreen = ({
       }
       setProcessing(false)
     } else if (!sessionToken && !nonce && !dinaId) {
-      // Mode B: Track A v3.0 local_rg_cv engine
+      // Mode B: Track A 2축 붕괴 측정
       await runModeB(imageBase64)
     } else {
       // fallback: legacy pipeline

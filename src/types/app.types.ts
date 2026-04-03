@@ -1,9 +1,9 @@
-import type { ReactElement } from 'react'
+﻿import type { ReactElement } from 'react'
 
 export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending'
 export type ScanMode = 'camera' | 'scan'
 export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
-export type VerifyStatus = 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | null
+export type VerifyStatus = 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | 'PRESENT' | 'ABSENT' | 'WEAK' | null
 
 export interface RecordInfo {
   recordId: string;

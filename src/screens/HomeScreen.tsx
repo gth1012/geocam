@@ -1,7 +1,7 @@
-import { useTranslation } from 'react-i18next'
+﻿import { useTranslation } from 'react-i18next'
 import type { HomeScreenProps } from '../types/app.types'
 
-const HomeScreen = ({ safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, BackArrow, setScreen }: HomeScreenProps) => {
+const HomeScreen = ({ safeGoHome: _safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, BackArrow: _BackArrow, setScreen }: HomeScreenProps) => {
   const { t } = useTranslation()
 
   return (

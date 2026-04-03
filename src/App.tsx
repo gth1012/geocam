@@ -1,4 +1,4 @@
-import './i18n';
+﻿import './i18n';
 import { useTranslation } from 'react-i18next';
 import { useState, useCallback } from 'react'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
@@ -165,7 +165,7 @@ function App() {
     finally { setProcessing(false); }
   }
 
-  const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow };
+  const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow, t };
 
   return (
     <ErrorBoundary>
