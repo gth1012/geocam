@@ -1,9 +1,9 @@
+import { useTranslation } from 'react-i18next'
 import type { OtpInputScreenProps } from '../types/app.types'
 
 const OtpInputScreen = ({
   safeGoScan,
   BackArrow,
-  t,
   qrData,
   otpInput,
   setOtpInput,
@@ -20,6 +20,8 @@ const OtpInputScreen = ({
   setCameraError,
   setScreen,
 }: OtpInputScreenProps) => {
+  const { t } = useTranslation()
+
   const handleOtpSubmit = () => {
     if (otpInput.length === 8) {
       const updatedQr = (qrData || '') + ' OTP-' + otpInput.toUpperCase();

@@ -53,7 +53,7 @@ export interface ScreenProps {
   runPipeline: (qrRaw: string | null, imageUri: string) => Promise<void>;
   getDeviceFingerprint: () => string;
   BackArrow: () => ReactElement;
-  t: (key: string) => string;
+  
 }
 
 export interface HomeScreenProps {
