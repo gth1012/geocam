@@ -1,15 +1,29 @@
-﻿/**
+/**
  * Evidence Pipeline (E2E Orchestrator)
  * Phase 2-A / Step 6
  * 서버 API 연동 버전
+ *
+ * W2 정정 (2026-04-27, P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 5-1 + 빅보스 D1 LOCK):
+ * - 로컬 ONNX AI (geocodeEngine) 완전 제거
+ *   * 로컬 AI import 제거
+ *   * Step 2 로컬 ONNX 호출 블록 삭제
+ *   * Step 5 fallback 판정 삭제 (서버 실패 = INSUFFICIENT_DATA)
+ *   * Step 6 evidencePack 로컬 AI 필드 제거
+ *   * 이미지 유사도 점수 필드 제거 (GC-SPEC-013 v0.5 § 1.5 위반)
+ *   * 클라이언트 confidence 파라미터 제거
+ * - PipelineOutput.verify_status 4-state → 3-state (PRESENT/ABSENT/INSUFFICIENT_DATA)
+ * - ServerVerifyResult.status 3-state 정합
+ * - 서버 단독 검증 (NeoSystem 범위 = 코드 검증만, 학습 LOCK 8 정합)
  */
 import { parseQr, isError, isMissing } from './qrParser';
 import { canonicalizePack } from './packCanonical';
 import { ensureDeviceKeypair, signPack, verifyPack, signForGateA } from './ed25519Signer';
 import { buildGateBPayload } from './deviceGateB';
 import { buildGateCPayload } from './deviceGateC';
-import { detectGeocode } from './geocodeEngine';
 import { API_BASE_URL } from './api/client';
+
+// W2 정정: 3-state 타입 (LT-ENGINE v0.2 § 3.1 LOCK + AUDIT D2)
+export type VerifyStatusV2 = 'PRESENT' | 'ABSENT' | 'INSUFFICIENT_DATA';
 
 export interface PipelineInput {
   qrRaw: string | null;
@@ -25,9 +39,9 @@ export interface PipelineOutput {
   error?: string;
   error_code?: string;
   qr_status?: 'found' | 'missing' | 'invalid';
-  verify_status?: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
+  verify_status?: VerifyStatusV2;     // W2 정정: 3-state
   confidence?: number | null;
-  match_score?: number | null;
+  // 이미지 유사도 점수 필드 제거 (W2 정정 - GC-SPEC-013 v0.5 § 1.5 위반)
   sessionToken?: string;
   nonce?: string;
   dinaId?: string;
@@ -78,12 +92,17 @@ async function imageUriToBase64(imageUri: string): Promise<string> {
   }
 }
 
+/**
+ * W2 정정: ServerVerifyResult.status 3-state 정합
+ * NeoStudio toScanResultV2 응답 = 'PRESENT' | 'ABSENT' | 'INSUFFICIENT_DATA' (3-state)
+ * 호환성: result_legacy 필드 (구 4-state) 추가 보존, 단 status는 3-state 우선
+ */
 export interface ServerVerifyResult {
   success: boolean;
   isAuthentic: boolean;
-  status: 'VALID' | 'SUSPECT' | 'UNCERTAIN' | 'INVALID' | 'UNKNOWN' | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
+  status: VerifyStatusV2 | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
   confidence?: number;
-  match_score?: number;  // 0~1 범위의 이미지 유사도 점수
+  // 이미지 유사도 점수 필드 제거 (W2 정정)
   sessionToken?: string;
   nonce?: string;
   dinaId?: string;
@@ -93,6 +112,8 @@ export interface ServerVerifyResult {
     batch_id: string;
     created_at: string;
   };
+  is_conflict?: boolean;       // W2 신규: NeoStudio toScanResultV2 is_conflict 보존
+  reason_code?: string;        // W2 신규: NeoStudio reason_code 보존
   error?: string;
   error_code?: string;
   httpStatus?: number;
@@ -125,7 +146,7 @@ export async function checkAssetStatus(
       return {
         success: false,
         isAuthentic: false,
-        status: 'UNKNOWN',
+        status: 'INSUFFICIENT_DATA',
         error: startData.error || 'SCAN_START_FAILED',
         error_code: startData.error,
       };
@@ -136,7 +157,7 @@ export async function checkAssetStatus(
     return {
       success: true,
       isAuthentic: assetStatus === 'SHIPPED' || assetStatus === 'ACTIVATED',
-      status: assetStatus || 'UNKNOWN',
+      status: assetStatus || 'INSUFFICIENT_DATA',
       sessionToken: startData.session_token,
       dinaId: startData.asset_info?.dina_id,
       assetInfo: startData.asset_info,
@@ -159,16 +180,15 @@ export async function checkAssetStatus(
 
 /**
  * 서버 API를 통한 검증 (scan/start → verify)
- * @param dinaCode - DINA 코드 (QR에서 추출)
- * @param deviceId - 디바이스 ID
- * @param imageData - Base64 인코딩된 이미지 데이터
- * @param clientConfidence - 클라이언트 측 AI confidence (optional)
+ *
+ * W2 정정: 클라이언트 confidence 파라미터 제거 (D1 LOCK)
+ *   - 클라이언트 단독 판정 권한 박탈 (학습 LOCK 4 + AUDIT D1)
+ *   - 서버 단독 검증 (NeoStudio toScanResultV2 결과만 사용)
  */
 export async function verifyWithServer(
   dinaCode: string,
   deviceId: string,
-  imageData: string,
-  clientConfidence?: number
+  imageData: string
 ): Promise<ServerVerifyResult> {
   try {
     console.log('[verifyWithServer] Starting scan for:', dinaCode);
@@ -190,7 +210,7 @@ export async function verifyWithServer(
       return {
         success: false,
         isAuthentic: false,
-        status: 'UNKNOWN',
+        status: 'INSUFFICIENT_DATA',
         error: startData.error || 'SCAN_START_FAILED'
       };
     }
@@ -226,6 +246,7 @@ export async function verifyWithServer(
     }
 
     // Step 4: verify - 이미지 검증 (Gate A + B + C 포함)
+    // W2 정정: 클라이언트 confidence 제거 (D1 LOCK)
     const verifyRes = await fetch(API_BASE_URL + '/geocam/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -233,7 +254,6 @@ export async function verifyWithServer(
         session_token: startData.session_token,
         nonce: startData.nonce,
         image_data: imageData,
-        client_confidence: clientConfidence,
         device_info: gateB?.device_info || {
           platform: 'web',
           model: navigator.platform || 'Unknown',
@@ -264,16 +284,18 @@ export async function verifyWithServer(
       }
     }
 
+    // W2 정정: NeoStudio toScanResultV2 응답 (result = 3-state)
     return {
       success: verifyData.success,
-      isAuthentic: verifyData.result === 'VALID',
-      status: verifyData.result || 'UNKNOWN',
+      isAuthentic: verifyData.result === 'PRESENT',
+      status: verifyData.result || 'INSUFFICIENT_DATA',
       confidence: verifyData.confidence,
-      match_score: verifyData.match_score,
       sessionToken: startData.session_token,
       nonce: startData.nonce,
       dinaId: verifyData.matched_dina_id || startData.asset_info?.dina_id,
       assetInfo: startData.asset_info,
+      is_conflict: verifyData.is_conflict,
+      reason_code: verifyData.reason_code,
       error: verifyData.error,
       error_code: resolvedErrorCode,
     };
@@ -363,21 +385,30 @@ export async function registerWithServer(
   }
 }
 
+/**
+ * Evidence Pipeline 메인 오케스트레이터
+ *
+ * W2 정정 (D1 LOCK):
+ * - Step 2 로컬 AI 호출 제거
+ * - Step 5 로컬 AI fallback 제거 (서버 실패 = INSUFFICIENT_DATA)
+ * - Step 6 evidencePack.geocode 필드 제거
+ * - 이미지 유사도 점수 반환 제거
+ */
 export async function runEvidencePipeline(input: PipelineInput): Promise<PipelineOutput> {
   try {
     // 1. QR 파싱
     const qrResult = parseQr(input.qrRaw);
     if (isError(qrResult)) {
-      return { ok: false, error: 'QR_PARSE_FAILED: ' + qrResult.error, qr_status: 'invalid', verify_status: 'INVALID' };
+      return { ok: false, error: 'QR_PARSE_FAILED: ' + qrResult.error, qr_status: 'invalid', verify_status: 'INSUFFICIENT_DATA' };
     }
     const qrStatus = qrResult.status;
     const dinaCode = isMissing(qrResult) ? null : qrResult.dina_code;
     const otp = isMissing(qrResult) ? null : (qrResult.otp || null);
     console.log('[Pipeline] QR:', qrStatus, '| DINA:', dinaCode);
 
-    // 2. 로컬 AI 엔진 호출 (GeoCode 감지)
-    const geocodeResult = await detectGeocode(input.imageUri);
-    console.log('[Pipeline] Local AI:', geocodeResult.status, '| confidence:', geocodeResult.confidence);
+    // W2 정정: Step 2 로컬 AI 엔진 호출 제거 (D1 LOCK)
+    //   기존: 로컬 ONNX 모델로 GeoCode 감지 → 클라이언트 confidence 산출
+    //   변경: 서버 단독 검증 (NeoSystem 범위 = 코드 검증만)
 
     // 3. 이미지를 Base64로 변환
     let imageBase64: string | null = null;
@@ -389,17 +420,13 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
     }
 
     // 4. 서버 API 검증 (DINA 코드가 있고 이미지 변환 성공 시)
+    // W2 정정: 클라이언트 confidence 제거 (D1 LOCK)
     let serverResult: ServerVerifyResult | null = null;
     if (dinaCode && imageBase64) {
-      const clientConfidence = geocodeResult.confidence !== null
-        ? Math.round(geocodeResult.confidence * 100)
-        : undefined;
-
       serverResult = await verifyWithServer(
         dinaCode,
         input.deviceFingerprintHash,
-        imageBase64,
-        clientConfidence
+        imageBase64
       );
       console.log('[Pipeline] Server verify:', serverResult.status, '| confidence:', serverResult.confidence);
     }
@@ -412,49 +439,33 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
           ok: false,
           error: code,
           error_code: code,
-          verify_status: 'INVALID',
+          verify_status: 'INSUFFICIENT_DATA',
         };
       }
     }
 
-    // 5. 최종 verify_status 결정 (서버 결과 우선, 없으면 로컬 AI 결과 사용)
-    let verifyStatus: 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID';
+    // 5. W2 정정: 최종 verify_status 결정 (서버 단독 - D1 LOCK)
+    //   서버 결과 = NeoStudio toScanResultV2 (PRESENT/ABSENT/INSUFFICIENT_DATA)
+    //   서버 실패 시 = INSUFFICIENT_DATA (로컬 AI fallback 제거)
+    let verifyStatus: VerifyStatusV2;
     let finalConfidence: number | null = null;
 
     if (serverResult && serverResult.success) {
-      // 서버 검증 결과 사용
-      if (serverResult.status === 'VALID') {
-        verifyStatus = 'VALID';
-      } else if (serverResult.status === 'SUSPECT' || serverResult.status === 'UNCERTAIN') {
-        verifyStatus = 'SUSPECT';
-      } else if (serverResult.status === 'INVALID') {
-        verifyStatus = 'INVALID';
-      } else if (serverResult.status === 'UNKNOWN') {
-        verifyStatus = 'UNKNOWN';
+      // NeoStudio toScanResultV2 결과 그대로 (3-state)
+      const status = serverResult.status;
+      if (status === 'PRESENT' || status === 'ABSENT' || status === 'INSUFFICIENT_DATA') {
+        verifyStatus = status;
       } else {
-        verifyStatus = 'UNKNOWN';
+        // ACTIVATED/SHIPPED/ERROR 등 → INSUFFICIENT_DATA
+        verifyStatus = 'INSUFFICIENT_DATA';
       }
       finalConfidence = serverResult.confidence || null;
     } else {
-      // 서버 실패 시 로컬 AI 결과 사용
-      const localConf = geocodeResult.confidence;
-      if (geocodeResult.status === 'DETECTED') {
-        if (localConf !== null && localConf >= 0.8) {
-          verifyStatus = 'VALID';
-        } else if (localConf !== null && localConf >= 0.5) {
-          verifyStatus = 'SUSPECT';
-        } else {
-          verifyStatus = 'SUSPECT';
-        }
-        finalConfidence = localConf !== null ? Math.round(localConf * 100) : null;
-      } else if (geocodeResult.status === 'NOT_DETECTED') {
-        verifyStatus = 'INVALID';
-      } else {
-        verifyStatus = 'UNKNOWN';
-      }
+      // W2 정정: 서버 실패 = INSUFFICIENT_DATA (로컬 AI fallback 제거, D1 LOCK)
+      verifyStatus = 'INSUFFICIENT_DATA';
     }
 
-    // 6. Evidence Pack 생성
+    // 6. W2 정정: Evidence Pack 생성 (geocode 필드 제거)
     const evidencePack = {
       version: '2.0',
       qr_status: qrStatus,
@@ -463,21 +474,15 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       imageUri: input.imageUri,
       geoBucket: input.geoBucket || null,
       deviceFingerprintHash: input.deviceFingerprintHash,
-      geocode: {
-        status: geocodeResult.status,
-        geocodeId: geocodeResult.geocodeId || null,
-        confidence: geocodeResult.confidence || null,
-        ai_mode: geocodeResult.ai_mode,
-        ai_status: geocodeResult.ai_status,
-        model_name: geocodeResult.model_name,
-        model_version: geocodeResult.model_version,
-      },
+      // W2 정정: 로컬 AI 정보 필드 제거 (D1 LOCK)
       server: serverResult ? {
         success: serverResult.success,
         status: serverResult.status,
         confidence: serverResult.confidence,
         dinaId: serverResult.dinaId,
         sessionToken: serverResult.sessionToken,
+        is_conflict: serverResult.is_conflict,
+        reason_code: serverResult.reason_code,
       } : null,
       timestamp: new Date().toISOString(),
     };
@@ -497,7 +502,8 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
     }
 
     const recordId = generateUuid();
-    const isOk = verifyStatus === 'VALID' || verifyStatus === 'SUSPECT';
+    // W2 정정: ok 판정 = PRESENT만 (구 4-state → 신규 'PRESENT'만)
+    const isOk = verifyStatus === 'PRESENT';
 
     return {
       ok: isOk,
@@ -506,7 +512,7 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       qr_status: qrStatus,
       verify_status: verifyStatus,
       confidence: finalConfidence,
-      match_score: serverResult?.match_score || null,
+      // 이미지 유사도 점수 필드 제거 (W2 정정)
       error_code: serverResult?.error_code,
       sessionToken: serverResult?.sessionToken,
       nonce: serverResult?.nonce,
@@ -518,7 +524,7 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
     return {
       ok: false,
       error: 'PIPELINE_ERROR: ' + (err instanceof Error ? err.message : String(err)),
-      verify_status: 'UNKNOWN',
+      verify_status: 'INSUFFICIENT_DATA',     // W2 정정: 4-state → 3-state
     };
   }
 }

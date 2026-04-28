@@ -3,8 +3,27 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import type { CameraScreenProps } from '../types/app.types'
 
-const GEOSTUDIO_API_URL = 'https://geo-api.artionchain.com'
-const INTERNAL_API_KEY = 'geo-artion-2026-prod'
+// W4-1 정정 (2026-04-27, P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 D1/D2/D4 LOCK):
+// - GeoStudio 직접 호출 URL 상수 제거 (D4: NeoStudio 프록시 강제)
+// - 클라이언트 API 키 상수 제거 (D4: 클라이언트 키 노출 금지)
+// - runModeB URL: GeoStudio physical detect → NeoStudio /geocam/detect-only
+// - API 키 헤더 제거 (D4 정합)
+// - 응답 매핑: 4-state 결과 필드 → pattern_result (PRESENT/WEAK/ABSENT)
+//   * WEAK → INSUFFICIENT_DATA (W2 정합 - False Positive 방지)
+// - 이미지 유사도 점수 호출 제거 (D1: GC-SPEC-013 v0.5 § 1.5 위반)
+// - 4-state 폴백 → 'INSUFFICIENT_DATA' (D2: 3-state 단일)
+//
+// W4-2 정정 (2026-04-28, 빅보스 D3 LOCK + 메모리 #1 NeoSystem 3레이어 OFFICIAL LOCK):
+// - 메모리 #1 LOCK: 정품판단 = 오직 GeoCode (CameraScreen)
+//                   QR/DINA = 정체성 (ScanScreen 별도)
+//                   Event = 이력 (ScanResultScreen 별도)
+// - autoCapture Mode A/C 분기 제거 → runModeB 단일 호출
+// - capturePhoto Mode A/C 분기 제거 → runModeB 단일 호출
+// - CameraScreen = GeoCode 물리 검증 단독 책임
+// - QR/DINA/Gate A/B/C 검증 로직 완전 제거 (ScanScreen + ScanResultScreen으로 분리)
+// 보류:
+//   * dinaId/sessionToken/nonce/qrData props 시그니처 유지 (빅보스 명시 보류)
+//   * setMatchScore/setConfidence/setRecordInfo props 시그니처 유지
 
 // LT-SPEC-002 v1.3 LOCK detection parameters
 const DETECT_INTERVAL_MS    = 150
@@ -211,6 +230,11 @@ const CameraScreen = ({
   const [stableProgress, setStableProgress]       = useState(0)
   const [guideBox, setGuideBox]                   = useState({ x: 0, y: 0, w: 280, h: 432, visible: false })
 
+  // W4-2 LOCK: 보류된 미사용 props는 유지 (빅보스 명시 - 컴파일 통과 후 정리)
+  // dinaId/sessionToken/nonce/qrData/setConfidence/setMatchScore/setRecordInfo/setErrorCode/runPipeline
+  void sessionToken; void nonce; void dinaId; void qrData
+  void setConfidence; void setMatchScore; void setRecordInfo; void setErrorCode; void runPipeline
+
   useEffect(() => { setShowGuideOverlay(true) }, [])
 
   const handleGuideConfirm = useCallback(() => { setShowGuideOverlay(false) }, [])
@@ -243,28 +267,64 @@ const CameraScreen = ({
     if (detectLoopRef.current) { clearInterval(detectLoopRef.current); detectLoopRef.current = null }
   }, [])
 
-  const runModeB = useCallback(async (imageBase64: string, isSuspect: boolean = false) => {
+  // [W4-1+W4-2 LOCK] CameraScreen = GeoCode 물리 검증 단독 책임
+  // 메모리 #1 NeoSystem 3레이어 OFFICIAL LOCK 정합:
+  //   ① GeoCode (물리) = 정품판단 = 이 화면 단독 책임
+  //   ② DINA/QR (정체성) = ScanScreen 별도 처리
+  //   ③ Event/Time (이력) = ScanResultScreen 별도 처리
+  //
+  // NeoStudio /geocam/detect-only 호출 (D4 정합: NeoStudio 프록시, 클라이언트 키 노출 X)
+  // 응답 매핑 (D2 정합: 3-state 단일):
+  //   pattern_result: PRESENT → setVerifyStatus('PRESENT')
+  //   pattern_result: WEAK    → setVerifyStatus('INSUFFICIENT_DATA')  (W2 정합)
+  //   pattern_result: ABSENT  → setVerifyStatus('ABSENT')
+  //   기타/실패 → setVerifyStatus('INSUFFICIENT_DATA')
+  const runModeB = useCallback(async (imageBase64: string) => {
     setProcessing(true)
     try {
-      const res = await fetch(`${GEOSTUDIO_API_URL}/api/geocode/detect-physical`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': INTERNAL_API_KEY },
-        body: JSON.stringify({ image_data: imageBase64, profile: 'P-PAPER', suspect: isSuspect })
+      // W4-1 정정: NeoStudio /geocam/detect-only (D4 LOCK)
+      //   기존: GeoStudio physical detect API + 클라이언트 API 키
+      //   변경: NeoStudio /geocam/detect-only (헤더 키 제거, 프록시 강제)
+      const res = await fetch(`${API_BASE_URL}/geocam/detect-only`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_data: imageBase64, profile: 'P-PAPER' })
       })
-      if (!res.ok) { setNetworkError(true); setVerifyStatus('ABSENT'); setScreen('result'); setProcessing(false); return }
-      const result = await res.json()
-      const verdict: string = result.verdict ?? 'ABSENT'
-      if (verdict === 'SUSPECT') {
-        setVerifyStatus('SUSPECT'); setMatchScore(0); setScreen('result')
-      } else {
-        setVerifyStatus(verdict === 'PRESENT' ? 'PRESENT' : 'ABSENT')
-        const dist = result.distance ?? 0
-        setMatchScore(verdict === 'PRESENT' ? Math.round(Math.max(0, 1 - dist / 5.0) * 100) / 100 : 0)
+      if (!res.ok) {
+        setNetworkError(true)
+        setVerifyStatus('INSUFFICIENT_DATA')
         setScreen('result')
+        setProcessing(false)
+        return
       }
-    } catch (err) { setNetworkError(true); setVerifyStatus('ABSENT'); setScreen('result') }
-    setProcessing(false)
-  }, [setProcessing, setNetworkError, setVerifyStatus, setMatchScore, setScreen])
+      const result = await res.json()
+      const patternResult: string = result.pattern_result ?? ''
 
+      // W4-1 정정: pattern_result → 3-state 매핑
+      // W2 정합: WEAK → INSUFFICIENT_DATA (False Positive 방지)
+      if (patternResult === 'PRESENT') {
+        setVerifyStatus('PRESENT')
+      } else if (patternResult === 'ABSENT') {
+        setVerifyStatus('ABSENT')
+      } else {
+        // WEAK / 기타 / 빈 응답 → INSUFFICIENT_DATA
+        setVerifyStatus('INSUFFICIENT_DATA')
+      }
+      // W4-1 정정: 이미지 유사도 점수 호출 제거 (D1: 이미지 유사도 검증 금지)
+      setScreen('result')
+    } catch (err) {
+      setNetworkError(true)
+      setVerifyStatus('INSUFFICIENT_DATA')
+      setScreen('result')
+    }
+    setProcessing(false)
+  }, [setProcessing, setNetworkError, setVerifyStatus, setScreen])
+
+  // W4-2 정정: Mode A/C 분기 제거 → runModeB 단일 호출 (메모리 #1 정합)
+  //   기존: if (sessionToken && nonce && dinaId) Mode A
+  //         else if (!sessionToken && !nonce && !dinaId) Mode B
+  //         else Mode C (runPipeline)
+  //   변경: 무조건 runModeB (GeoCode 물리 검증 단독)
   const autoCapture = useCallback(async (candidate: CardCandidate) => {
     if (!videoRef.current || !canvasRef.current) return
     stopDetectLoop(); setCapturing(true); setDetectState('idle')
@@ -276,27 +336,10 @@ const CameraScreen = ({
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     const fullDataUrl = await canvasToPngBase64(canvas)
     setCapturedImage(fullDataUrl); stopCamera()
-    if (sessionToken && nonce && dinaId) {
-      setProcessing(true)
-      try {
-        try {
-          const detectRes = await fetch(`${API_BASE_URL}/geocam/detect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dina_id: dinaId, image_data: roiBase64, session_token: sessionToken, profile: 'P-PAPER' }) })
-          if (detectRes.ok) { await detectRes.json() }
-        } catch (e) { console.warn('[ModeA detect]', e) }
-        const verifyRes = await fetch(`${API_BASE_URL}/geocam/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_token: sessionToken, session_id: sessionToken, dina_id: dinaId, nonce, signature: 'auto-capture', device_info: { platform: navigator.platform || 'web', model: 'WebCamera', os_version: navigator.userAgent.substring(0, 50), fingerprint: navigator.userAgent.substring(0, 32) }, client_timestamp: Date.now() }) })
-        const result = await verifyRes.json()
-        if (result.success) { setConfidence(result.confidence); setMatchScore(result.match_score || null); setVerifyStatus(result.result); setRecordInfo({ recordId: crypto.randomUUID(), packHash: 'verify-' + Date.now(), createdAt: new Date().toISOString() }) }
-        else { setErrorCode(result.error); setVerifyStatus(result.result || 'UNKNOWN') }
-        setScreen('result')
-      } catch (err) { setNetworkError(true); setVerifyStatus('UNKNOWN'); setScreen('result') }
-      setProcessing(false)
-    } else if (!sessionToken && !nonce && !dinaId) {
-      await runModeB(roiBase64)
-    } else {
-      runPipeline(qrData, fullDataUrl)
-    }
+    // W4-2: GeoCode 물리 검증 단독 (Mode A/C 분기 제거)
+    await runModeB(roiBase64)
     setCapturing(false)
-  }, [stopDetectLoop, stopCamera, sessionToken, nonce, dinaId, qrData, setCapturedImage, setProcessing, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo, setErrorCode, setNetworkError, setScreen, runPipeline, runModeB])
+  }, [stopDetectLoop, stopCamera, setCapturedImage, runModeB])
 
   const startDetectLoop = useCallback(() => {
     if (!autoDetectEnabled) return
@@ -379,6 +422,7 @@ const CameraScreen = ({
   useEffect(() => { startCamera(); return () => { stopCamera(); stopDetectLoop() } }, [startCamera, stopCamera, stopDetectLoop])
   useEffect(() => { if (cameraReady && autoDetectEnabled) startDetectLoop(); return () => stopDetectLoop() }, [cameraReady, autoDetectEnabled, startDetectLoop, stopDetectLoop])
 
+  // W4-2 정정: Mode A/C 분기 제거 → runModeB 단일 호출 (메모리 #1 정합)
   const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !cameraReady) return
     stopDetectLoop(); setCapturing(true)
@@ -389,50 +433,30 @@ const CameraScreen = ({
     const imageDataUrl = await canvasToPngBase64(canvas)
     stopCamera(); setCapturedImage(imageDataUrl)
     const imageBase64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
-    if (sessionToken && nonce && dinaId) {
-      setProcessing(true)
-      try {
-        try {
-          const detectRes = await fetch(`${API_BASE_URL}/geocam/detect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dina_id: dinaId, image_data: imageBase64, session_token: sessionToken, profile: 'P-PAPER' }) })
-          if (detectRes.ok) { await detectRes.json() }
-        } catch (e) { console.warn('[ModeA detect]', e) }
-        const verifyRes = await fetch(`${API_BASE_URL}/geocam/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_token: sessionToken, session_id: sessionToken, dina_id: dinaId, nonce, signature: 'camera-capture', device_info: { platform: navigator.platform || 'web', model: 'WebCamera', os_version: navigator.userAgent.substring(0, 50), fingerprint: navigator.userAgent.substring(0, 32) }, client_timestamp: Date.now() }) })
-        const result = await verifyRes.json()
-        if (result.success) { setConfidence(result.confidence); setMatchScore(result.match_score || null); setVerifyStatus(result.result); setRecordInfo({ recordId: crypto.randomUUID(), packHash: 'verify-' + Date.now(), createdAt: new Date().toISOString() }) }
-        else { setErrorCode(result.error); setVerifyStatus(result.result || 'UNKNOWN') }
-        setScreen('result')
-      } catch (err) { setNetworkError(true); setVerifyStatus('UNKNOWN'); setScreen('result') }
-      setProcessing(false)
-    } else if (!sessionToken && !nonce && !dinaId) {
-      await runModeB(imageBase64)
-    } else {
-      runPipeline(qrData, imageDataUrl)
-    }
+    // W4-2: GeoCode 물리 검증 단독 (Mode A/C 분기 제거)
+    await runModeB(imageBase64)
     setCapturing(false)
-  }, [cameraReady, stopDetectLoop, stopCamera, sessionToken, nonce, dinaId, qrData, setCapturedImage, setProcessing, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo, setErrorCode, setNetworkError, setScreen, runPipeline, runModeB])
+  }, [cameraReady, stopDetectLoop, stopCamera, setCapturedImage, runModeB])
 
   const handleBack = useCallback(() => { stopDetectLoop(); stopCamera(); safeGoHome() }, [stopDetectLoop, stopCamera, safeGoHome])
 
-  // 배너 텍스트 (DetectState → 메시지)
   const getBannerText = () => {
     switch (detectState) {
-      case 'stabilizing':       return t('camera.guideDetecting')
-      case 'detecting':         return t('camera.shootingGuideSummary')
+      case 'stabilizing':        return t('camera.guideDetecting')
+      case 'detecting':          return t('camera.shootingGuideSummary')
       case 'qc_fail_brightness': return t('camera.qcBrightness') || '조명을 밝게 해주세요'
-      case 'qc_fail_blur':      return t('camera.qcBlur') || '카드를 선명하게 맞춰주세요'
-      case 'qc_fail_angle':     return t('camera.qcAngle') || '카드를 똑바로 놓아주세요'
-      default:                  return t('camera.shootingGuideSummary')
+      case 'qc_fail_blur':       return t('camera.qcBlur') || '카드를 선명하게 맞춰주세요'
+      case 'qc_fail_angle':      return t('camera.qcAngle') || '카드를 똑바로 놓아주세요'
+      default:                   return t('camera.shootingGuideSummary')
     }
   }
 
-  // 가이드박스 색상
   const getGuideColor = () => {
     if (detectState === 'stabilizing') return 'rgba(74,222,128,0.9)'
     if (detectState.startsWith('qc_fail')) return 'rgba(250,204,21,0.8)'
     return 'rgba(255,255,255,0.6)'
   }
 
-  // 배너 스타일
   const getBannerStyle = () => {
     if (detectState === 'stabilizing') return { bg: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.35)', color: '#4ade80' }
     if (detectState.startsWith('qc_fail')) return { bg: 'rgba(250,204,21,0.10)', border: '1px solid rgba(250,204,21,0.35)', color: '#facc15' }

@@ -3,6 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { registerWithServer } from '../evidencePipeline'
 import type { ResultScreenProps } from '../types/app.types'
 
+// W3 정정 (P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
+// - 4-state 레거시 분기 (4-state) 삭제
+// - 3-state (PRESENT / ABSENT / INSUFFICIENT_DATA) 단일 LOCK
+// - Register 버튼 분기: 4-state → 3-state 매핑 (1라인)
+// - 호환성 매핑: GENUINE/REPRODUCTION_TRACE/INSUFFICIENT_DATA = NeoStudio toScanResultV2 결과
+
 const ResultScreen = ({
   safeGoHome,
   openGalleryPicker,
@@ -61,7 +67,7 @@ const ResultScreen = ({
       }
     }
 
-    // 3상태 체계 LOCK: PRESENT / ABSENT / INSUFFICIENT_DATA
+    // 3상태 체계 LOCK: PRESENT / ABSENT / INSUFFICIENT_DATA (빅보스 결정 D2)
     if (verifyStatus === 'PRESENT') {
       return {
         color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
@@ -103,33 +109,7 @@ const ResultScreen = ({
       }
     }
 
-    // 레거시 호환
-    if (verifyStatus === 'VALID') {
-      return {
-        color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
-        title: t('result.valid'), subtitle: t('result.validDescShort'),
-        icon: (
-          <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
-            <path d="M14 24l7 7 13-13" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )
-      }
-    }
-
-    if (verifyStatus === 'SUSPECT') {
-      return {
-        color: '#fbbf24', bgColor: 'rgba(251, 191, 36, 0.08)',
-        title: t('result.cautionNeeded'), subtitle: t('result.cautionNeededDesc'),
-        icon: (
-          <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
-            <path d="M24 14v14" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="24" cy="35" r="2.5" fill="#fbbf24" />
-          </svg>
-        )
-      }
-    }
+    // W3 정정: 4-state 레거시 분기 (4-state) 삭제 — 3-state 단일 LOCK
 
     return {
       color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
@@ -162,7 +142,7 @@ const ResultScreen = ({
     try {
       const res = await registerWithServer(sessionToken, dinaId, nonce)
       setRegisterStatus(res.status)
-      if (!res.success) setRegisterError(res.error_code || res.error || 'UNKNOWN')
+      if (!res.success) setRegisterError(res.error_code || res.error || 'REGISTRATION_ERROR')
       setScreen('registerResult')
     } catch (e) {
       setRegisterStatus('FAILED')
@@ -239,7 +219,8 @@ const ResultScreen = ({
           {t('common.disclaimer')}
         </p>
 
-        {verifyStatus === 'VALID' && sessionToken && (
+        {/* W3 정정: 4-state → 3-state 매핑 (3-state 단일 LOCK) */}
+        {verifyStatus === 'PRESENT' && sessionToken && (
           <button
             onClick={handleRegister}
             disabled={registering}

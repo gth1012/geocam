@@ -20,13 +20,22 @@ import {
   LoginScreen,
   RegisterPendingScreen,
 } from './screens'
-import type { Screen, ScanMode, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
+import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
+
+// W4 정정 (2026-04-27, P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
+// - runPipeline() verifyStatus 매핑: 4-state → 3-state
+//   * 정품 매핑 → 'PRESENT'
+//   * 불확실 매핑 → 'INSUFFICIENT_DATA'
+// - PipelineOutput.match_score 사용처 제거 (W2에서 필드 제거됨)
+// - matchScore state 자체는 유지 (CameraScreen에서 setMatchScore 호출)
+// 분리 LOCK: LoginScreen onLoginSuccess 시그니처 (line 189) = P0-5 무관, 별도 처리
 
 function App() {
   const { t, i18n } = useTranslation();
   const [screen, setScreen] = useState<Screen>('home')
   const [scanMode, setScanMode] = useState<ScanMode>('camera')
+  const [scanContext, setScanContext] = useState<ScanContext>('claim')
   const [, setQrDetected] = useState(false)
   const [qrData, setQrData] = useState<string | null>(null)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
@@ -74,23 +83,28 @@ function App() {
       setVerifyStatus(null); setCameraError(null);
       setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null); setConfidence(null); setMatchScore(null);
       setRegistering(false); setRegisterStatus(null); setRegisterError(null); setOtpInput('');
+      setScanContext('claim');
       setScreen('home');
     } catch (e) { console.error('error:', e); setScreen('home'); }
   }, []);
 
+  // Camera 탭 = Physical-only Mode (image only, dina_id 불필요)
+  // /detect API → 3-state result (PRESENT/ABSENT/INSUFFICIENT_DATA) → 물리 검증 결과
   const safeGoCamera = useCallback(() => {
     try {
       setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null);
       setRecordInfo(null); setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false);
-      setVerifyStatus(null); setCameraError(null); setScreen('camera');
+      setVerifyStatus(null); setCameraError(null);
+      setScreen('camera');
     } catch (e) { console.error('error:', e); setScreen('camera'); }
   }, []);
 
+  // QR Scan 탭 = 소유권 이벤트 (claim 컨텍스트)
   const safeGoScan = useCallback(() => {
     try {
       setScanMode('scan'); setQrDetected(false); setQrData(null); setCapturedImage(null);
       setRecordInfo(null); setError(null); setProcessing(false); setNetworkError(false);
-      setScanResultInfo(null); setScreen('scan');
+      setScanResultInfo(null); setScanContext('claim'); setScreen('scan');
     } catch (e) { console.error('error:', e); setScreen('scan'); }
   }, []);
 
@@ -144,14 +158,16 @@ function App() {
       if (result.dinaId) setDinaId(result.dinaId);
       if (result.signatureVerified !== undefined) setSignatureVerified(result.signatureVerified);
       if (result.confidence !== undefined && result.confidence !== null) setConfidence(result.confidence);
-      if (result.match_score !== undefined && result.match_score !== null) setMatchScore(result.match_score);
+      // W4 정정: 이미지 유사도 점수 사용처 제거 (W2에서 PipelineOutput 필드 제거됨)
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
-        setVerifyStatus(result.verify_status || 'VALID');
+        // W4 정정: 4-state → 3-state 'PRESENT' (단일 LOCK)
+        setVerifyStatus(result.verify_status || 'PRESENT');
         setScreen('result');
       } else {
-        setError(result.error || 'UNKNOWN_ERROR');
-        setVerifyStatus(result.verify_status || 'UNKNOWN');
+        setError(result.error || 'PIPELINE_ERROR');
+        // W4 정정: 4-state → 3-state 'INSUFFICIENT_DATA' (단일 LOCK)
+        setVerifyStatus(result.verify_status || 'INSUFFICIENT_DATA');
         setScreen('result');
       }
     } catch (err) {
@@ -159,7 +175,8 @@ function App() {
         setNetworkError(true);
       }
       setError(err instanceof Error ? err.message : 'PIPELINE_ERROR');
-      setVerifyStatus('UNKNOWN');
+      // W4 정정: 4-state → 3-state 'INSUFFICIENT_DATA' (catch 블록)
+      setVerifyStatus('INSUFFICIENT_DATA');
       setScreen('result');
     }
     finally { setProcessing(false); }
@@ -171,7 +188,7 @@ function App() {
     <ErrorBoundary>
       {screen === 'home' && <HomeScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} setScreen={setScreen} />}
       {screen === 'camera' && <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
-      {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
+      {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />}
       {screen === 'scanResult' && <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} setScreen={setScreen} />}
       {screen === 'result' && <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} setScreen={setScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />}
       {screen === 'records' && <RecordsScreen {...commonProps} />}

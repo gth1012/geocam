@@ -3,7 +3,16 @@ import type { ReactElement } from 'react'
 export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending'
 export type ScanMode = 'camera' | 'scan'
 export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
-export type VerifyStatus = 'VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID' | null
+// W1 정정 (P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
+// VerifyStatus = 4-state ('VALID' | 'SUSPECT' | 'UNKNOWN' | 'INVALID') → 3-state
+// 근거: GC-SPEC-015 v1.1 §9.2 3-state LOCK / NeoStudio /verify result 매핑 정합
+// 매핑: GENUINE → PRESENT / REPRODUCTION_TRACE → ABSENT / INSUFFICIENT → INSUFFICIENT_DATA
+export type VerifyStatus = 'PRESENT' | 'ABSENT' | 'INSUFFICIENT_DATA' | null
+
+// QR 스캔 컨텍스트:
+// 'claim' = 소유권 이벤트 (기존 QR 스캔 버튼 흐름)
+// 'verify' = 자산 식별만 (Camera 버튼 → 물리 검증 흐름, claim 발생 금지)
+export type ScanContext = 'claim' | 'verify'
 
 export interface RecordInfo {
   recordId: string;
@@ -53,7 +62,6 @@ export interface ScreenProps {
   runPipeline: (qrRaw: string | null, imageUri: string) => Promise<void>;
   getDeviceFingerprint: () => string;
   BackArrow: () => ReactElement;
-  
 }
 
 export interface HomeScreenProps {
@@ -97,6 +105,8 @@ export interface ScanScreenProps extends ScreenProps {
   setScreen: (screen: Screen) => void;
   cameraError: string | null;
   setCameraError: (error: string | null) => void;
+  // 'claim' = 소유권 이벤트 / 'verify' = 자산 식별만 (claim 발생 금지)
+  scanContext: ScanContext;
 }
 
 export interface ScanResultScreenProps extends ScreenProps {

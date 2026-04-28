@@ -17,6 +17,7 @@ const ScanScreen = ({
   setScreen,
   cameraError,
   setCameraError,
+  scanContext,
 }: ScanScreenProps) => {
   const { t } = useTranslation()
   const [localProcessing, setLocalProcessing] = useState(false)
@@ -24,7 +25,50 @@ const ScanScreen = ({
   const [scanning, setScanning] = useState(true)
   const scanLockRef = useRef(false)
 
-  const checkDinaStatus = async (dinaCode: string) => {
+  // verify 컨텍스트: dina_id만 확보 후 카메라로 이동 (claim 발생 금지)
+  const handleVerifyContext = async (dinaCode: string) => {
+    setProcessing(true)
+    setNetworkError(false)
+    setErrorCode(null)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/geocam/status/${dinaCode}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          setScanResultInfo({ status: 'ERROR', message: t('error.dinaNotFound') })
+          setScreen('scanResult')
+        } else {
+          setNetworkError(true)
+          setScanResultInfo({ status: 'ERROR', message: t('error.server') })
+          setScreen('scanResult')
+        }
+        setProcessing(false)
+        return
+      }
+
+      const result = await response.json()
+      const resolvedDinaId = result.dina_id || dinaCode
+      setDinaId(resolvedDinaId)
+      setProcessing(false)
+      setScanning(false)
+      // verify 컨텍스트: claim 없이 카메라로 이동
+      setTimeout(() => { setScreen('camera') }, 300)
+
+    } catch (err) {
+      console.error('verify context status check error:', err)
+      setNetworkError(true)
+      setScanResultInfo({ status: 'ERROR', message: t('error.network') })
+      setProcessing(false)
+      setScreen('scanResult')
+    }
+  }
+
+  // claim 컨텍스트: 기존 흐름 (소유권 이벤트, scanResult로 이동)
+  const handleClaimContext = async (dinaCode: string) => {
     setProcessing(true)
     setNetworkError(false)
     setErrorCode(null)
@@ -92,7 +136,12 @@ const ScanScreen = ({
         const dinaCode = dinaMatch ? dinaMatch[1] : (/^[A-Z0-9]{8,16}$/.test(data.trim()) ? data.trim() : null)
 
         if (dinaCode) {
-          await checkDinaStatus(dinaCode)
+          // 컨텍스트에 따라 분기
+          if (scanContext === 'verify') {
+            await handleVerifyContext(dinaCode)
+          } else {
+            await handleClaimContext(dinaCode)
+          }
         } else {
           setScanError(t('scan.invalid'))
           setTimeout(() => setScanError(null), 2000)
@@ -104,7 +153,7 @@ const ScanScreen = ({
         setTimeout(() => setScanError(null), 2000)
       }
     }
-  }, [localProcessing, t, setQrData, setQrDetected])
+  }, [localProcessing, scanContext, t, setQrData, setQrDetected])
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
@@ -112,7 +161,9 @@ const ScanScreen = ({
         <button onClick={safeGoHome} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <BackArrow />
         </button>
-        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>{t('scan.title')}</span>
+        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '300', letterSpacing: '0.1em' }}>
+          {scanContext === 'verify' ? '물리 검증' : t('scan.title')}
+        </span>
         <div style={{ width: '40px' }} />
       </div>
 
@@ -143,6 +194,16 @@ const ScanScreen = ({
           <div style={{ position: 'absolute', bottom: 0, right: 0, width: '50px', height: '50px', borderBottom: '4px solid #60a5fa', borderRight: '4px solid #60a5fa', borderBottomRightRadius: '16px' }} />
         </div>
 
+        {scanContext === 'verify' && (
+          <div style={{ position: 'absolute', top: 'max(90px, calc(env(safe-area-inset-top) + 74px))', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 15, pointerEvents: 'none' }}>
+            <div style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', borderRadius: '20px', padding: '5px 16px' }}>
+              <p style={{ color: '#60a5fa', fontSize: '12px', fontWeight: '300', letterSpacing: '0.04em', textAlign: 'center' }}>
+                포카 QR을 스캔하면 물리 검증이 시작됩니다
+              </p>
+            </div>
+          </div>
+        )}
+
         {scanError && (
           <div style={{ position: 'absolute', top: '25%', left: '50%', transform: 'translateX(-50%)', padding: '12px 24px', background: 'rgba(248,113,113,0.9)', borderRadius: '12px', zIndex: 30 }}>
             <p style={{ color: 'white', fontSize: '14px', margin: 0 }}>{scanError}</p>
@@ -157,7 +218,9 @@ const ScanScreen = ({
       </div>
 
       <div style={{ padding: '24px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', textAlign: 'center', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', position: 'relative', zIndex: 10 }}>
-        <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>{t('scan.title')}</p>
+        <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
+          {scanContext === 'verify' ? 'QR 스캔 → 물리 검증' : t('scan.title')}
+        </p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', margin: 0 }}>{t('scan.guide')}</p>
       </div>
 
