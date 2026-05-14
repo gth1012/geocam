@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import type { ScreenProps } from '../types/app.types'
 
-interface LoginScreenProps extends ScreenProps {
-  onLoginSuccess: (token: string, userId: string, nickname: string) => void;
+interface LoginScreenProps {
+  safeGoHome: () => void;
+  onLoginSuccess: (token: string, userId: string, nickname: string, status: string) => void;
 }
 
 const API_BASE = 'https://api.artionchain.com/api';
@@ -40,7 +40,7 @@ const LoginScreen = ({ safeGoHome, onLoginSuccess }: LoginScreenProps) => {
         return
       }
 
-      onLoginSuccess(data.data.token, data.data.user_id, data.data.nickname)
+      onLoginSuccess(data.data.token, data.data.user_id, data.data.nickname, data.data.status || 'ACTIVE')
     } catch (e) {
       setError('네트워크 오류가 발생했습니다.')
     } finally {
