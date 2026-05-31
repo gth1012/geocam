@@ -1,5 +1,2 @@
-﻿// API 모듈 export
-
-export * from './types';
+// API 모듈 export
 export * from './client';
-export * from './geocam.api';
