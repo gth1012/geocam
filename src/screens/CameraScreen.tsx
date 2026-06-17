@@ -299,11 +299,17 @@ const CameraScreen = ({
         return
       }
       const result = await res.json()
-      const verdict: string = result.verdict ?? ''
+      // VN-PHYS-001: verdict → decision 매핑 수정
+      // GENUINE → PRESENT / REPRODUCTION_TRACE_DETECTED → ABSENT / INSUFFICIENT_DATA → INSUFFICIENT_DATA
+      const decision: string = result.decision ?? ''
+      const signalStrength: number = result.signal_strength ?? 0
+      const validRoiCount: number = result.valid_roi_count ?? 0
+      // 실험 데이터 콘솔 기록 (VN-PHYS-001)
+      console.log('[VN-PHYS-001]', { decision, signal_strength: signalStrength, valid_roi_count: validRoiCount, best_roi: result.best_roi, detector_version: result.detector_version })
 
-      if (verdict === 'PRESENT') {
+      if (decision === 'GENUINE') {
         setVerifyStatus('PRESENT')
-      } else if (verdict === 'ABSENT') {
+      } else if (decision === 'REPRODUCTION_TRACE_DETECTED') {
         setVerifyStatus('ABSENT')
       } else {
         // INSUFFICIENT_DATA / 기타 / 빈 응답
@@ -611,3 +617,4 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+
