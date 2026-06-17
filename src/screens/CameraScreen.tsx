@@ -285,7 +285,8 @@ const CameraScreen = ({
       // W4-1 정정: NeoStudio /geocam/detect-only (D4 LOCK)
       //   기존: GeoStudio physical detect API + 클라이언트 API 키
       //   변경: NeoStudio /geocam/detect-only (헤더 키 제거, 프록시 강제)
-      const res = await fetch(`${API_BASE_URL}/geocam/detect-only`, {
+      // 2026-06-17: /detect-only → /detect-vn 전환 (D4 LOCK)
+      const res = await fetch(`${API_BASE_URL}/geocam/detect-vn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image_data: imageBase64, profile: 'P-PAPER' })
@@ -298,19 +299,16 @@ const CameraScreen = ({
         return
       }
       const result = await res.json()
-      const patternResult: string = result.pattern_result ?? ''
+      const verdict: string = result.verdict ?? ''
 
-      // W4-1 정정: pattern_result → 3-state 매핑
-      // W2 정합: WEAK → INSUFFICIENT_DATA (False Positive 방지)
-      if (patternResult === 'PRESENT') {
+      if (verdict === 'PRESENT') {
         setVerifyStatus('PRESENT')
-      } else if (patternResult === 'ABSENT') {
+      } else if (verdict === 'ABSENT') {
         setVerifyStatus('ABSENT')
       } else {
-        // WEAK / 기타 / 빈 응답 → INSUFFICIENT_DATA
+        // INSUFFICIENT_DATA / 기타 / 빈 응답
         setVerifyStatus('INSUFFICIENT_DATA')
       }
-      // W4-1 정정: 이미지 유사도 점수 호출 제거 (D1: 이미지 유사도 검증 금지)
       setScreen('result')
     } catch (err) {
       setNetworkError(true)
