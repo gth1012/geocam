@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending' | 'digitalVerify'
+export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending'
 export type ScanMode = 'camera' | 'scan'
 export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
 // W1 정정 (P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
@@ -8,9 +8,6 @@ export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED'
 // 근거: GC-SPEC-015 v1.1 §9.2 3-state LOCK / NeoStudio /verify result 매핑 정합
 // 매핑: GENUINE → PRESENT / REPRODUCTION_TRACE → ABSENT / INSUFFICIENT → INSUFFICIENT_DATA
 export type VerifyStatus = 'PRESENT' | 'ABSENT' | 'INSUFFICIENT_DATA' | null
-
-// SS PRN 디지털 검증 결과 (LegCam-RPK-001)
-export type DigitalVerifyStatus = 'ORIGINAL' | 'MODIFIED' | 'INVALID' | 'TAMPERED' | 'ERROR' | null
 
 // QR 스캔 컨텍스트:
 // 'claim' = 소유권 이벤트 (기존 QR 스캔 버튼 흐름)
@@ -26,20 +23,6 @@ export interface RecordInfo {
 export interface ScanResultInfo {
   status: ScanStatus;
   pendingId?: string;
-  message?: string;
-}
-
-// SS PRN 디지털 검증 결과 (LegCam-RPK-001)
-export interface DigitalVerifyResult {
-  status: DigitalVerifyStatus;
-  pearson_r: number | null;
-  score: number | null;
-  asset: {
-    dina_id: string;
-    series?: string;
-    artist?: string;
-    [key: string]: any;
-  } | null;
   message?: string;
 }
 
@@ -86,12 +69,6 @@ export interface HomeScreenProps {
   safeGoCamera: () => void;
   safeGoScan: () => void;
   openGalleryPicker: () => Promise<void>;
-  BackArrow: () => ReactElement;
-  setScreen: (screen: Screen) => void;
-}
-
-export interface DigitalVerifyScreenProps {
-  safeGoHome: () => void;
   BackArrow: () => ReactElement;
   setScreen: (screen: Screen) => void;
 }

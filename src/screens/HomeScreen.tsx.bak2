@@ -43,21 +43,6 @@ const HomeScreen = ({ safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, B
 
       {/* Main buttons */}
       <div style={{ width: '260px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-        {/* Digital Verify — 최상단 accent 버튼 (LegCam-RPK-001) */}
-        <button
-          onClick={() => setScreen('digitalVerify')}
-          style={{
-            width: '100%', padding: '16px', borderRadius: '16px',
-            background: 'rgba(167,139,250,0.12)',
-            border: '1px solid rgba(167,139,250,0.35)',
-            color: '#a78bfa', fontWeight: '400', letterSpacing: '0.1em',
-            cursor: 'pointer', fontSize: '15px',
-          }}
-        >
-          Digital Verify
-        </button>
-
         <button
           onClick={safeGoCamera}
           style={{

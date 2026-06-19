@@ -19,7 +19,6 @@ import {
   CollectionScreen,
   LoginScreen,
   RegisterPendingScreen,
-  DigitalVerifyScreen,
 } from './screens'
 import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
@@ -31,7 +30,6 @@ import './App.css'
 // - PipelineOutput.match_score 사용처 제거 (W2에서 필드 제거됨)
 // - matchScore state 자체는 유지 (CameraScreen에서 setMatchScore 호출)
 // 분리 LOCK: LoginScreen onLoginSuccess 시그니처 (line 189) = P0-5 무관, 별도 처리
-// LegCam-RPK-001 (2026-06-17): DigitalVerifyScreen 추가 (SS PRN 디지털 검증)
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -189,7 +187,6 @@ function App() {
   return (
     <ErrorBoundary>
       {screen === 'home' && <HomeScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} setScreen={setScreen} />}
-      {screen === 'digitalVerify' && <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} />}
       {screen === 'camera' && <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
       {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />}
       {screen === 'scanResult' && <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} setScreen={setScreen} />}

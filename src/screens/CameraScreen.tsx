@@ -229,6 +229,10 @@ const CameraScreen = ({
   const [detectState, setDetectState]             = useState<DetectState>('idle')
   const [stableProgress, setStableProgress]       = useState(0)
   const [guideBox, setGuideBox]                   = useState({ x: 0, y: 0, w: 280, h: 432, visible: false })
+  // [VN-PHYS-001 EXPERIMENT_ONLY - 운영 LOCK 금지]
+  const PHYS_TEST_DINA_IDS = ['TNML5HK9J14O','ZM5W2VF1816P','Q7W40UJ1XH3S','4C95TCVMSMIU','7OO48UGP1AU3']
+  const [shotIndex, setShotIndex] = useState(0)
+  const physTestDinaId = PHYS_TEST_DINA_IDS[shotIndex % 5]
 
   // W4-2 LOCK: 보류된 미사용 props는 유지 (빅보스 명시 - 컴파일 통과 후 정리)
   // dinaId/sessionToken/nonce/qrData/setConfidence/setMatchScore/setRecordInfo/setErrorCode/runPipeline
@@ -289,7 +293,7 @@ const CameraScreen = ({
       const res = await fetch(`${API_BASE_URL}/geocam/detect-vn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_data: imageBase64, profile: 'P-PAPER' })
+        body: JSON.stringify({ image_data: imageBase64, profile: 'P-PAPER', dina_id: physTestDinaId })
       })
       if (!res.ok) {
         setNetworkError(true)
@@ -305,7 +309,8 @@ const CameraScreen = ({
       const signalStrength: number = result.signal_strength ?? 0
       const validRoiCount: number = result.valid_roi_count ?? 0
       // 실험 데이터 콘솔 기록 (VN-PHYS-001)
-      console.log('[VN-PHYS-001]', { decision, signal_strength: signalStrength, valid_roi_count: validRoiCount, best_roi: result.best_roi, detector_version: result.detector_version })
+      console.log(`[VN-PHYS-001] shot=${shotIndex} dina=${physTestDinaId} decision=${decision} signal=${signalStrength} valid_roi=${validRoiCount} best_roi=${result.best_roi}`)
+      setShotIndex(prev => prev + 1)
 
       if (decision === 'GENUINE') {
         setVerifyStatus('PRESENT')
@@ -322,7 +327,7 @@ const CameraScreen = ({
       setScreen('result')
     }
     setProcessing(false)
-  }, [setProcessing, setNetworkError, setVerifyStatus, setScreen])
+  }, [setProcessing, setNetworkError, setVerifyStatus, setScreen, physTestDinaId])
 
   // W4-2 정정: Mode A/C 분기 제거 → runModeB 단일 호출 (메모리 #1 정합)
   //   기존: if (sessionToken && nonce && dinaId) Mode A
@@ -598,7 +603,15 @@ const CameraScreen = ({
       </div>
 
       <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', marginBottom: '16px', textAlign: 'center', letterSpacing: '0.05em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', justifyContent: 'center' }}>
+          <button onClick={() => setShotIndex(prev => Math.max(0, prev - 1))} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>{'<'}</button>
+          <div style={{ padding: '4px 12px', borderRadius: '8px', background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', textAlign: 'center' }}>
+            <div style={{ color: '#4ade80', fontSize: '10px', letterSpacing: '0.08em' }}>SHOT {shotIndex + 1}/5 EXP</div>
+            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', fontFamily: 'monospace' }}>{physTestDinaId.slice(0,8)}</div>
+          </div>
+          <button onClick={() => setShotIndex(prev => prev + 1)} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>{'>'}</button>
+        </div>
+        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
           {autoDetectEnabled ? t('camera.autoActive') : t('capture.title')}
         </p>
         <button onClick={capturePhoto} disabled={!cameraReady || capturing} style={{ width: '72px', height: '72px', borderRadius: '50%', background: cameraReady ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.2)', border: '3px solid rgba(255,255,255,0.2)', cursor: cameraReady ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.1s' }}>
@@ -617,4 +630,5 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+
 
