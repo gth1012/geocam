@@ -13,3 +13,5 @@ export { default as CollectionScreen } from './CollectionScreen'
 export { default as LoginScreen } from './LoginScreen'
 export { default as RegisterPendingScreen } from './RegisterPendingScreen'
 export { default as DigitalVerifyScreen } from './DigitalVerifyScreen'
+
+export { default as ClaimScreen } from './ClaimScreen'

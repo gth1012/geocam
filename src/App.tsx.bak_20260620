@@ -1,6 +1,6 @@
 import './i18n';
 import { useTranslation } from 'react-i18next';
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { runEvidencePipeline } from './evidencePipeline'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -20,7 +20,6 @@ import {
   LoginScreen,
   RegisterPendingScreen,
   DigitalVerifyScreen,
-  ClaimScreen,
 } from './screens'
 import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
@@ -33,7 +32,6 @@ import './App.css'
 // - matchScore state 자체는 유지 (CameraScreen에서 setMatchScore 호출)
 // 분리 LOCK: LoginScreen onLoginSuccess 시그니처 (line 189) = P0-5 무관, 별도 처리
 // LegCam-RPK-001 (2026-06-17): DigitalVerifyScreen 추가 (SS PRN 디지털 검증)
-// Phase 2 (2026-06-20): ClaimScreen 추가 (GeoCapsule Claim)
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -67,18 +65,6 @@ function App() {
   const [, setUserNickname] = useState<string | null>(null)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
   const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)
-  // Phase 2: GeoCapsule Claim token (URL 파싱)
-  const [claimToken, setClaimToken] = useState<string | null>(null)
-
-  // Phase 2: URL에서 /claim/:token 파싱 → ClaimScreen 자동 진입
-  useEffect(() => {
-    const hash = window.location.hash // e.g. #/claim/abc123...
-    const match = hash.match(/^#\/claim\/([a-f0-9]+)$/)
-    if (match && match[1]) {
-      setClaimToken(match[1])
-      setScreen('claim')
-    }
-  }, [])
 
   const getDeviceFingerprint = (): string => {
     const nav = navigator;
@@ -100,12 +86,12 @@ function App() {
       setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null); setConfidence(null); setMatchScore(null);
       setRegistering(false); setRegisterStatus(null); setRegisterError(null); setOtpInput('');
       setScanContext('claim');
-      setClaimToken(null);
       setScreen('home');
     } catch (e) { console.error('error:', e); setScreen('home'); }
   }, []);
 
   // Camera 탭 = Physical-only Mode (image only, dina_id 불필요)
+  // /detect API → 3-state result (PRESENT/ABSENT/INSUFFICIENT_DATA) → 물리 검증 결과
   const safeGoCamera = useCallback(() => {
     try {
       setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null);
@@ -135,14 +121,9 @@ function App() {
     if (status === 'REGISTER_PENDING') {
       setScreen('registerPending');
     } else {
-      // 로그인 후 claimToken 있으면 Claim 화면으로 복귀
-      if (claimToken) {
-        setScreen('claim');
-      } else {
-        setScreen('home');
-      }
+      setScreen('home');
     }
-  }, [claimToken]);
+  }, []);
 
   const onProfileComplete = useCallback((nickname: string) => {
     setUserNickname(nickname);
@@ -179,12 +160,15 @@ function App() {
       if (result.dinaId) setDinaId(result.dinaId);
       if (result.signatureVerified !== undefined) setSignatureVerified(result.signatureVerified);
       if (result.confidence !== undefined && result.confidence !== null) setConfidence(result.confidence);
+      // W4 정정: 이미지 유사도 점수 사용처 제거 (W2에서 PipelineOutput 필드 제거됨)
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
+        // W4 정정: 4-state → 3-state 'PRESENT' (단일 LOCK)
         setVerifyStatus(result.verify_status || 'PRESENT');
         setScreen('result');
       } else {
         setError(result.error || 'PIPELINE_ERROR');
+        // W4 정정: 4-state → 3-state 'INSUFFICIENT_DATA' (단일 LOCK)
         setVerifyStatus(result.verify_status || 'INSUFFICIENT_DATA');
         setScreen('result');
       }
@@ -193,6 +177,7 @@ function App() {
         setNetworkError(true);
       }
       setError(err instanceof Error ? err.message : 'PIPELINE_ERROR');
+      // W4 정정: 4-state → 3-state 'INSUFFICIENT_DATA' (catch 블록)
       setVerifyStatus('INSUFFICIENT_DATA');
       setScreen('result');
     }
@@ -205,7 +190,6 @@ function App() {
     <ErrorBoundary>
       {screen === 'home' && <HomeScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} setScreen={setScreen} />}
       {screen === 'digitalVerify' && <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} />}
-      {screen === 'claim' && <ClaimScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} claimToken={claimToken} authToken={authToken} userId={userId} />}
       {screen === 'camera' && <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
       {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />}
       {screen === 'scanResult' && <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} setScreen={setScreen} />}

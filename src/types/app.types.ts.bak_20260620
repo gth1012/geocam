@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending' | 'digitalVerify' | 'claim'
+export type Screen = 'home' | 'camera' | 'scan' | 'scanResult' | 'result' | 'records' | 'gallery' | 'preview' | 'settings' | 'otpInput' | 'registerResult' | 'collection' | 'login' | 'registerPending' | 'digitalVerify'
 export type ScanMode = 'camera' | 'scan'
 export type ScanStatus = 'UNCLAIMED' | 'CLAIMED' | 'PENDING' | 'ALREADY_CLAIMED' | 'EXPIRED' | 'ERROR'
 // W1 정정 (P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
@@ -94,16 +94,6 @@ export interface DigitalVerifyScreenProps {
   safeGoHome: () => void;
   BackArrow: () => ReactElement;
   setScreen: (screen: Screen) => void;
-}
-
-// Phase 2: GeoCapsule Claim 화면 props
-export interface ClaimScreenProps {
-  safeGoHome: () => void;
-  BackArrow: () => ReactElement;
-  setScreen: (screen: Screen) => void;
-  claimToken: string | null;
-  authToken: string | null;
-  userId: string | null;
 }
 
 export interface CameraScreenProps extends ScreenProps {
