@@ -265,7 +265,8 @@ const CameraScreen = ({
   const [stableProgress, setStableProgress]       = useState(0)
   const [guideBox, setGuideBox]                   = useState({ x: 0, y: 0, w: 280, h: 432, visible: false })
 
-  const geocodeToken = dinaId || qrData || ''
+  // TEST: 실물 테스트용 고정 dina_id (실물 테스트 완료 후 제거)
+  const geocodeToken = dinaId || qrData || 'TEST-DINA-LAYER2-001'
 
   void sessionToken; void nonce
   void setConfidence; void setMatchScore; void setRecordInfo; void setErrorCode; void runPipeline

@@ -109,6 +109,7 @@ function App() {
   const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)
   const [claimToken, setClaimToken] = useState<string | null>(null)
   const [bundleClaimToken, setBundleClaimToken] = useState<string | null>(null)
+  const [layer2Debug, setLayer2Debug] = useState<any>(null)
 
   // ─────────────────────────────────────────────
   // 중앙 Auth Gate — 모든 화면 이동은 여기를 통과
@@ -367,7 +368,7 @@ function App() {
             <ClaimBundleScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} bundleClaimToken={bundleClaimToken} authToken={authToken} userId={userId} />
           )}
           {screen === 'camera' && (
-            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} />
+            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} setLayer2Debug={setLayer2Debug} />
           )}
           {screen === 'qrScan' && (
             <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />
@@ -376,7 +377,7 @@ function App() {
             <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} navigateToScreen={navigateToScreen} />
           )}
           {screen === 'result' && (
-            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />
+            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} layer2Debug={layer2Debug} />
           )}
           {screen === 'records' && <RecordsScreen {...commonProps} />}
           {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}
@@ -437,3 +438,5 @@ function App() {
 }
 
 export default App
+
+
