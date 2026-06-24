@@ -2,6 +2,8 @@ import { useState, useRef } from 'react'
 import { Device } from '@capacitor/device'
 import type { DigitalVerifyScreenProps, DigitalVerifyStatus, DigitalVerifyResult } from '../types/app.types'
 
+// Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen (현재 미사용)
+
 const API_BASE_URL = 'https://geo-api.artionchain.com'
 const NEO_API_URL = 'https://neo-api.artionchain.com'
 
@@ -43,7 +45,10 @@ const STATUS_CONFIG: Record<NonNullable<DigitalVerifyStatus>, { color: string; b
   },
 }
 
-const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerifyScreenProps) => {
+const DigitalVerifyScreen = ({ safeGoHome, BackArrow, navigateToScreen }: DigitalVerifyScreenProps) => {
+  // navigateToScreen은 현재 미사용 — 추후 확장용
+  void navigateToScreen
+
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DigitalVerifyResult | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
@@ -51,7 +56,6 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
-  // Ownership 등록 상태
   const [ownershipLoading, setOwnershipLoading] = useState(false)
   const [ownershipDone, setOwnershipDone] = useState(false)
   const [ownershipError, setOwnershipError] = useState<string | null>(null)
@@ -139,13 +143,11 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
     }
   }
 
-  // 내 컬렉션 등록 — Ownership Register
   const handleOwnershipRegister = async () => {
     if (!result?.asset?.dina_id) return
     setOwnershipLoading(true)
     setOwnershipError(null)
     try {
-      // device ID를 owner_id로 사용
       const deviceInfo = await Device.getId()
       const ownerId = deviceInfo.identifier
 
@@ -186,8 +188,6 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
       paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
       boxSizing: 'border-box',
     }}>
-
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
         <button onClick={safeGoHome} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 8px 8px 0', marginRight: '12px' }}>
           <BackArrow />
@@ -198,7 +198,6 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
         </div>
       </div>
 
-      {/* 모드 선택 탭 */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
         <button
           onClick={() => { setMode('capsule'); setResult(null); setFileName(null); setOwnershipDone(false); setOwnershipError(null); }}
@@ -226,7 +225,6 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
         </button>
       </div>
 
-      {/* 업로드 영역 */}
       <div
         onClick={!loading ? (mode === 'capsule' ? handleCapsuleSelect : handleImageSelect) : undefined}
         style={{
@@ -274,11 +272,9 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
         )}
       </div>
 
-      {/* hidden input */}
       <input ref={fileInputRef} type="file" accept="*/*" style={{ display: 'none' }} onChange={handleCapsuleChange} />
       <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageChange} />
 
-      {/* 결과 카드 */}
       {result && cfg && !loading && (
         <div style={{
           borderRadius: '16px', border: `1px solid ${cfg.border}`,
@@ -332,7 +328,6 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', fontWeight: '300', margin: '12px 0 0' }}>{result.message}</p>
           )}
 
-          {/* Ownership 등록 완료 표시 */}
           {ownershipDone && (
             <div style={{ borderTop: '1px solid rgba(52,211,153,0.15)', paddingTop: '14px', marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ color: '#34d399', fontSize: '14px' }}>✓</span>
@@ -346,10 +341,7 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, setScreen }: DigitalVerify
         </div>
       )}
 
-      {/* 액션 버튼 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
-
-        {/* 내 컬렉션 등록 버튼 — ORIGINAL 판정 시에만 표시 */}
         {showOwnershipBtn && !loading && (
           <button
             onClick={handleOwnershipRegister}

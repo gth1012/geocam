@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { PreviewScreenProps, Screen } from '../types/app.types'
+import type { PreviewScreenProps } from '../types/app.types'
+
+// Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen 교체
 
 const PreviewScreen = ({
   runPipeline,
   BackArrow,
   previewImage,
   setCapturedImage,
-  setScreen,
+  navigateToScreen,
 }: PreviewScreenProps) => {
   const { t } = useTranslation()
   const [verifying, setVerifying] = useState(false)
@@ -30,13 +32,13 @@ const PreviewScreen = ({
 
   const handleBack = () => {
     if (verifying) { setShowCancelConfirm(true) }
-    else { setScreen('gallery' as Screen) }
+    else { navigateToScreen('gallery') }
   }
 
   const confirmCancel = () => {
     setShowCancelConfirm(false)
     setVerifying(false)
-    setScreen('gallery' as Screen)
+    navigateToScreen('gallery')
   }
 
   return (
@@ -54,7 +56,7 @@ const PreviewScreen = ({
       <div style={{ padding: '20px', paddingBottom: 'max(60px, env(safe-area-inset-bottom))' }}>
         {analysisError && <p style={{ color: '#f87171', fontSize: '14px', marginBottom: '8px', textAlign: 'center' }}>{analysisError}</p>}
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={() => setScreen('gallery' as Screen)} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '14px', cursor: 'pointer' }}>
+          <button onClick={() => navigateToScreen('gallery')} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'white', fontSize: '14px', cursor: 'pointer' }}>
             {t('capture.retry')}
           </button>
           <button onClick={handleVerify} disabled={verifying} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: verifying ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: '16px', fontWeight: '500', cursor: verifying ? 'default' : 'pointer' }}>

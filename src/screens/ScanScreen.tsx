@@ -4,6 +4,8 @@ import { Scanner } from '@yudiel/react-qr-scanner'
 import { API_BASE_URL } from '../api/client'
 import type { ScanScreenProps } from '../types/app.types'
 
+// Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen 교체
+
 const ScanScreen = ({
   safeGoHome,
   BackArrow,
@@ -14,7 +16,7 @@ const ScanScreen = ({
   setErrorCode,
   setDinaId,
   setScanResultInfo,
-  setScreen,
+  navigateToScreen,
   cameraError,
   setCameraError,
   scanContext,
@@ -25,7 +27,6 @@ const ScanScreen = ({
   const [scanning, setScanning] = useState(true)
   const scanLockRef = useRef(false)
 
-  // verify 컨텍스트: dina_id만 확보 후 카메라로 이동 (claim 발생 금지)
   const handleVerifyContext = async (dinaCode: string) => {
     setProcessing(true)
     setNetworkError(false)
@@ -40,11 +41,11 @@ const ScanScreen = ({
       if (!response.ok) {
         if (response.status === 404) {
           setScanResultInfo({ status: 'ERROR', message: t('error.dinaNotFound') })
-          setScreen('scanResult')
+          navigateToScreen('scanResult')
         } else {
           setNetworkError(true)
           setScanResultInfo({ status: 'ERROR', message: t('error.server') })
-          setScreen('scanResult')
+          navigateToScreen('scanResult')
         }
         setProcessing(false)
         return
@@ -55,19 +56,17 @@ const ScanScreen = ({
       setDinaId(resolvedDinaId)
       setProcessing(false)
       setScanning(false)
-      // verify 컨텍스트: claim 없이 카메라로 이동
-      setTimeout(() => { setScreen('camera') }, 300)
+      setTimeout(() => { navigateToScreen('camera') }, 300)
 
     } catch (err) {
       console.error('verify context status check error:', err)
       setNetworkError(true)
       setScanResultInfo({ status: 'ERROR', message: t('error.network') })
       setProcessing(false)
-      setScreen('scanResult')
+      navigateToScreen('scanResult')
     }
   }
 
-  // claim 컨텍스트: 기존 흐름 (소유권 이벤트, scanResult로 이동)
   const handleClaimContext = async (dinaCode: string) => {
     setProcessing(true)
     setNetworkError(false)
@@ -93,7 +92,7 @@ const ScanScreen = ({
           setScanResultInfo({ status: 'ERROR', message: t('error.network') })
         }
         setProcessing(false)
-        setScreen('scanResult')
+        navigateToScreen('scanResult')
         return
       }
 
@@ -110,14 +109,14 @@ const ScanScreen = ({
       setDinaId(result.dina_id || dinaCode)
       setProcessing(false)
       setScanning(false)
-      setTimeout(() => { setScreen('scanResult') }, 300)
+      setTimeout(() => { navigateToScreen('scanResult') }, 300)
 
     } catch (err) {
       console.error('status check error:', err)
       setNetworkError(true)
       setScanResultInfo({ status: 'ERROR', message: t('error.network') })
       setProcessing(false)
-      setScreen('scanResult')
+      navigateToScreen('scanResult')
     }
   }
 
@@ -136,7 +135,6 @@ const ScanScreen = ({
         const dinaCode = dinaMatch ? dinaMatch[1] : (/^[A-Z0-9]{8,16}$/.test(data.trim()) ? data.trim() : null)
 
         if (dinaCode) {
-          // 컨텍스트에 따라 분기
           if (scanContext === 'verify') {
             await handleVerifyContext(dinaCode)
           } else {

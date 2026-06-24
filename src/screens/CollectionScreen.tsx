@@ -1,7 +1,7 @@
-﻿// CollectionScreen.tsx
+// CollectionScreen.tsx
 // ARTION-ARCH-005 기준
 // 2026-06-19: MOCK 제거, GET /api/geocam/ownership/:ownerId 실제 연동
-// series_name → series_id 표시 / artist_name, agency_name → "-" (Option A)
+// Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen 교체
 
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -9,10 +9,6 @@ import { Device } from '@capacitor/device'
 import type { CollectionScreenProps } from '../types/app.types'
 
 const NEO_API_BASE = 'https://neo-api.artionchain.com/api/geocam'
-
-// ============================================
-// 타입 정의 — ownership_current API 응답 기준
-// ============================================
 
 interface OwnershipItem {
   asset_id: string
@@ -32,20 +28,14 @@ interface OwnershipResponse {
   items: OwnershipItem[]
 }
 
-// ============================================
-// CollectionScreen
-// ============================================
-
-const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: CollectionScreenProps) => {
+const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }: CollectionScreenProps) => {
   const { t } = useTranslation()
 
-  // 목록 상태
   const [items, setItems] = useState<OwnershipItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [ownerId, setOwnerId] = useState<string | null>(null)
 
-  // 상세/판매 상태
   const [selectedItem, setSelectedItem] = useState<OwnershipItem | null>(null)
   const [showMore, setShowMore] = useState(false)
   const [showSellModal, setShowSellModal] = useState(false)
@@ -55,9 +45,7 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
   const [sellError, setSellError] = useState<string | null>(null)
   const [sellSuccess, setSellSuccess] = useState(false)
 
-  // ============================================
-  // API 조회 — Device ID → ownership/:ownerId
-  // ============================================
+  void ownerId  // 미사용 경고 방지
 
   useEffect(() => {
     const fetchCollection = async () => {
@@ -89,10 +77,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
     fetchCollection()
   }, [])
 
-  // ============================================
-  // 헬퍼
-  // ============================================
-
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleDateString('ko-KR', {
       year: 'numeric',
@@ -101,15 +85,9 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
     })
   }
 
-  // Option A: series_id 표시, artist/agency "-"
   const getDisplayName = (item: OwnershipItem) => item.series_id || item.asset_id || '-'
   const getArtistName = () => '-'
   const getAgencyName = () => '-'
-
-  // ============================================
-  // 판매하기 (Marketplace 연결 준비 — Phase Next)
-  // ownership_id 기준으로 전달 구조만 준비
-  // ============================================
 
   const handleSell = async () => {
     if (!price || isNaN(Number(price)) || Number(price) <= 0) {
@@ -123,8 +101,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
     setSelling(true)
     setSellError(null)
     try {
-      // Phase Next: POST /api/market/listings — ownership_id 기준 전달
-      // 현재는 구조 준비만, 실제 Marketplace API 미구현
       const res = await fetch(`${NEO_API_BASE.replace('/geocam', '')}/market/listings`, {
         method: 'POST',
         headers: {
@@ -132,7 +108,7 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
           'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          ownership_id: selectedItem?.asset_id,  // ownership_id = asset_id (현재 Phase)
+          ownership_id: selectedItem?.asset_id,
           asset_id: selectedItem?.asset_id,
           price: Number(price),
           currency: 'KRW',
@@ -154,10 +130,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
 
   const labelStyle = { color: '#a78bfa', fontSize: '12px' }
   const valueStyle = { color: 'rgba(255,255,255,0.85)', fontSize: '14px' }
-
-  // ============================================
-  // 판매 모달
-  // ============================================
 
   if (showSellModal && selectedItem) {
     return (
@@ -243,10 +215,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
     )
   }
 
-  // ============================================
-  // 상세 화면
-  // ============================================
-
   if (selectedItem) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
@@ -318,7 +286,7 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
             <button
               onClick={() => {
                 if (!authToken) {
-                  setScreen('login')
+                  navigateToScreen('login')
                 } else {
                   setShowSellModal(true)
                 }
@@ -339,10 +307,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
     )
   }
 
-  // ============================================
-  // 목록 화면 — 로딩 / 에러 / 빈 상태 / 데이터
-  // ============================================
-
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
@@ -355,7 +319,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
         )}
       </div>
 
-      {/* 로딩 */}
       {loading && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
@@ -366,7 +329,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
         </div>
       )}
 
-      {/* 에러 */}
       {!loading && error && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
@@ -383,7 +345,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
         </div>
       )}
 
-      {/* 빈 상태 */}
       {!loading && !error && items.length === 0 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', padding: '0 20px' }}>
           <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
@@ -400,7 +361,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, setScreen }: Colle
         </div>
       )}
 
-      {/* 목록 */}
       {!loading && !error && items.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {items.map(item => (

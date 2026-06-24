@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import type { CameraScreenProps } from '../types/app.types'
 
-// CameraScreen v2.1 (2026-06-24)
-// Layer2 엔진 코어 연동 (실물 테스트용)
-// - GEO_API /api/geocode/detect-layer2 직접 호출
-// - candidate = 'C' 기본값 (size=20 s=6, 실물 테스트 1순위)
-// - NEO_API physical/verify는 유지 (병렬 호출)
-// - 테스트 완료 후 Option 2 (NEO_API 내부 호출)로 전환 예정
+// CameraScreen v2.0 (2026-06-23)
+// Phase 1.5 보안 계약 확정 반영
+// - 실험 코드 제거 (PHYS_TEST_DINA_IDS / shotIndex / runModeB)
+// - Physical Session Start API 연동
+// - GeoCode region crop → physical/verify 전송
+// - PHYSICAL VERIFIED / RETRY / INVALID 판정 처리
+// - PreviewScreen 기본 인증 플로우 제외 (LT-015)
 
 // LT-SPEC-002 v1.3 LOCK detection parameters
 const DETECT_INTERVAL_MS    = 150
@@ -30,12 +31,8 @@ const QC_MIN_BRIGHTNESS     = 40
 const QC_MAX_BRIGHTNESS     = 220
 const QC_MIN_BLUR_VARIANCE  = 80
 
-// API endpoints
+// Physical Verify API
 const NEO_API_BASE = 'https://neo-api.artionchain.com/api'
-const GEO_API_BASE = 'https://geo-api.artionchain.com/api'
-
-// 실물 테스트 후보 (테스트 완료 후 LOCK)
-const TEST_CANDIDATE = 'C' // size=20 s=6
 
 type DetectState = 'idle' | 'detecting' | 'stabilizing' | 'qc_fail_brightness' | 'qc_fail_blur' | 'qc_fail_angle'
 type PhysicalVerifyVerdict = 'PHYSICAL VERIFIED' | 'RETRY' | 'INVALID'
@@ -208,34 +205,6 @@ async function sha256Base64(dataUrl: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────
-// Layer2 detect-layer2 직접 호출 (테스트용)
-// ─────────────────────────────────────────────────────
-async function callDetectLayer2(
-  roiDataUrl: string,
-  dinaId: string,
-  candidate: string,
-): Promise<{ verdict: string; avg_score: number; pass_count: number; total_valid: number }> {
-  // base64 → Blob → FormData
-  const base64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  const blob = new Blob([bytes], { type: 'image/png' })
-
-  const formData = new FormData()
-  formData.append('image', blob, 'capture.png')
-  formData.append('dina_id', dinaId || 'UNKNOWN')
-  formData.append('candidate', candidate)
-
-  const res = await fetch(`${GEO_API_BASE}/geocode/detect-layer2`, {
-    method: 'POST',
-    body: formData,
-  })
-  if (!res.ok) throw new Error(`detect-layer2 error: ${res.status}`)
-  return res.json()
-}
-
-// ─────────────────────────────────────────────────────
 // CameraScreen
 // ─────────────────────────────────────────────────────
 
@@ -254,6 +223,7 @@ const CameraScreen = ({
   const lastCandidateRef = useRef<CardCandidate | null>(null)
   const failCountRef     = useRef(0)
 
+  // Physical Session 상태
   const physSessionRef = useRef<{ scan_session_id: string; nonce: string; expires_at: string } | null>(null)
 
   const [cameraReady, setCameraReady]             = useState(false)
@@ -265,6 +235,7 @@ const CameraScreen = ({
   const [stableProgress, setStableProgress]       = useState(0)
   const [guideBox, setGuideBox]                   = useState({ x: 0, y: 0, w: 280, h: 432, visible: false })
 
+  // geocode_token: QR-like 마커에서 추출 (현재는 dinaId 사용 — Phase 2에서 QR-like 탐지로 교체)
   const geocodeToken = dinaId || qrData || ''
 
   void sessionToken; void nonce
@@ -279,7 +250,7 @@ const CameraScreen = ({
       const res = await fetch(`${NEO_API_BASE}/geocam/physical/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '2.1.0' }),
+        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '2.0.0' }),
       })
       if (!res.ok) return false
       const data = await res.json()
@@ -289,93 +260,76 @@ const CameraScreen = ({
         nonce: data.nonce,
         expires_at: data.expires_at,
       }
+      console.log('[PhysicalSession] started:', data.scan_session_id.slice(0, 8))
       return true
     } catch {
       return false
     }
   }, [])
 
-  // ── Physical Verify (Layer2 엔진 코어 연동) ─────────
-  // v2.1: GEO_API detect-layer2 직접 호출 (테스트용)
-  // 이후: NEO_API 내부 호출로 전환 예정
+  // ── Physical Verify ─────────────────────────────────
+  // Phase 1.5 보안 계약:
+  // 앱은 geocode_token + geocode_region_image만 전송
+  // DINA ID, signal_score 직접 전송 금지
   const runPhysicalVerify = useCallback(async (roiDataUrl: string): Promise<void> => {
     setProcessing(true)
 
     try {
-      // ① Layer2 검출 (GEO_API 직접 호출 — 테스트용)
-      let layer2Verdict = 'FAIL'
-      let layer2Score   = 0
-      try {
-        const layer2Result = await callDetectLayer2(roiDataUrl, geocodeToken, TEST_CANDIDATE)
-        layer2Verdict = layer2Result.verdict
-        layer2Score   = layer2Result.avg_score
-        console.log('[Layer2]', layer2Verdict, 'score:', layer2Score,
-          'pass:', layer2Result.pass_count, '/', layer2Result.total_valid,
-          'candidate:', TEST_CANDIDATE)
-      } catch (e) {
-        console.error('[Layer2] detect error:', e)
-        layer2Verdict = 'FAIL'
-      }
-
-      // ② 세션 없으면 발급
+      // 세션 없으면 새로 발급
       if (!physSessionRef.current) {
-        await startPhysicalSession()
+        const ok = await startPhysicalSession()
+        if (!ok) {
+          setNetworkError(true)
+          setVerifyStatus('INSUFFICIENT_DATA')
+          navigateToScreen('result')
+          setProcessing(false)
+          return
+        }
       }
 
-      const session = physSessionRef.current
+      const session = physSessionRef.current!
       const timestamp = new Date().toISOString()
+
+      // hash 생성
       const geocodeRegionHash = await sha256Base64(roiDataUrl)
+
+      // geocode_region_image: base64만 추출 (data: prefix 제거)
       const geocodeRegionImage = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
 
-      // ③ NEO_API physical/verify 호출
-      let verdict: PhysicalVerifyVerdict = 'INVALID'
+      const res = await fetch(`${NEO_API_BASE}/geocam/physical/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scan_session_id:      session.scan_session_id,
+          nonce:                session.nonce,
+          timestamp,
+          geocode_token:        geocodeToken,
+          geocode_region_hash:  geocodeRegionHash,
+          geocode_region_image: geocodeRegionImage,
+        }),
+      })
 
-      if (session) {
-        const res = await fetch(`${NEO_API_BASE}/geocam/physical/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scan_session_id:      session.scan_session_id,
-            nonce:                session.nonce,
-            timestamp,
-            geocode_token:        geocodeToken,
-            geocode_region_hash:  geocodeRegionHash,
-            geocode_region_image: geocodeRegionImage,
-            // Layer2 결과 포함 (서버 참고용)
-            layer2_verdict:       layer2Verdict,
-            layer2_score:         layer2Score,
-            layer2_candidate:     TEST_CANDIDATE,
-          }),
-        })
-        physSessionRef.current = null
+      // 세션 사용 완료 처리
+      physSessionRef.current = null
 
-        if (res.ok) {
-          const result = await res.json()
-          verdict = result.verdict || 'INVALID'
-        } else {
-          // NEO_API 실패 시 Layer2 결과로 판정 (테스트용 폴백)
-          console.warn('[PhysicalVerify] NEO_API failed, using Layer2 result')
-          if (layer2Verdict === 'PASS' || layer2Verdict === 'TRACE') {
-            verdict = 'PHYSICAL VERIFIED'
-          } else {
-            verdict = 'INVALID'
-          }
-        }
-      } else {
-        // 세션 없으면 Layer2 단독 판정 (테스트용)
-        console.warn('[PhysicalVerify] no session, Layer2 only')
-        if (layer2Verdict === 'PASS' || layer2Verdict === 'TRACE') {
-          verdict = 'PHYSICAL VERIFIED'
-        } else if (layer2Verdict === 'INSUFFICIENT') {
-          verdict = 'RETRY'
-        } else {
-          verdict = 'INVALID'
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        const verdict = (errData.verdict as PhysicalVerifyVerdict) || 'INVALID'
+        console.warn('[PhysicalVerify] server error:', res.status, verdict)
+        setVerifyStatus(verdict === 'RETRY' ? 'INSUFFICIENT_DATA' : 'ABSENT')
+        navigateToScreen('result')
+        setProcessing(false)
+        return
       }
 
-      console.log('[PhysicalVerify] final verdict:', verdict)
+      const result = await res.json()
+      const verdict: PhysicalVerifyVerdict = result.verdict || 'INVALID'
+      console.log('[PhysicalVerify] verdict:', verdict, 'dina:', result.dina_id)
 
-      // ④ 판정 매핑
+      // 판정 매핑
+      // PHYSICAL VERIFIED → PRESENT
+      // RETRY             → INSUFFICIENT_DATA
+      // INVALID           → ABSENT
       if (verdict === 'PHYSICAL VERIFIED') {
         setVerifyStatus('PRESENT')
       } else if (verdict === 'RETRY') {
@@ -424,17 +378,24 @@ const CameraScreen = ({
     if (detectLoopRef.current) { clearInterval(detectLoopRef.current); detectLoopRef.current = null }
   }, [])
 
+  // ── 자동 캡처 → Physical Verify 직접 연결 (LT-015: PreviewScreen 제외) ──
   const autoCapture = useCallback(async (candidate: CardCandidate) => {
     if (!videoRef.current || !canvasRef.current) return
     stopDetectLoop(); setCapturing(true); setDetectState('idle')
     const video = videoRef.current; const canvas = canvasRef.current
+
+    // GeoCode region crop (서버로 전송할 이미지)
     const roiDataUrl = await cropROI(video, candidate)
+
+    // 전체 프레임 (UI 표시용만)
     canvas.width = video.videoWidth; canvas.height = video.videoHeight
     const ctx = canvas.getContext('2d')!
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     const fullDataUrl = await canvasToPngBase64(canvas)
     setCapturedImage(fullDataUrl)
     stopCamera()
+
+    // PreviewScreen 거치지 않고 즉시 Physical Verify 요청
     await runPhysicalVerify(roiDataUrl)
     setCapturing(false)
   }, [stopDetectLoop, stopCamera, setCapturedImage, runPhysicalVerify])
@@ -510,6 +471,7 @@ const CameraScreen = ({
     }, DETECT_INTERVAL_MS)
   }, [autoDetectEnabled, cameraReady, capturing, stopDetectLoop, autoCapture])
 
+  // 카메라 진입 시 Physical Session 미리 발급
   useEffect(() => {
     startCamera()
     startPhysicalSession()
@@ -518,6 +480,7 @@ const CameraScreen = ({
 
   useEffect(() => { if (cameraReady && autoDetectEnabled) startDetectLoop(); return () => stopDetectLoop() }, [cameraReady, autoDetectEnabled, startDetectLoop, stopDetectLoop])
 
+  // 수동 촬영도 Physical Verify로 연결
   const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !cameraReady) return
     stopDetectLoop(); setCapturing(true)
@@ -527,6 +490,7 @@ const CameraScreen = ({
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     const fullDataUrl = await canvasToPngBase64(canvas)
     stopCamera(); setCapturedImage(fullDataUrl)
+    // 수동 촬영: 전체 이미지를 GeoCode region으로 사용
     await runPhysicalVerify(fullDataUrl)
     setCapturing(false)
   }, [cameraReady, stopDetectLoop, stopCamera, setCapturedImage, runPhysicalVerify])

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import type { LoginScreenProps } from '../types/app.types'
 
 // Auth UX 리팩 v2.0 (2026-06-22)
-// 로그인 / 회원가입 공용 컴포넌트 (Screen 상태는 App.tsx에서 분리)
+// 카카오 로그인: redirect 방식 (2026-06-23 새 앱 1494187 적용)
+// Kakao.Auth.authorize() → redirect → code → 서버 /kakao/code
 //
 // 보안 기준 (제니팀장 지시 2026-06-22):
 // 1. isAuthenticated는 화면 분기용 — 실제 보안은 서버 API 토큰 검증
@@ -48,12 +49,9 @@ const LoginScreen = ({ mode, navigateToScreen, onLoginSuccess }: LoginScreenProp
 
   // ─────────────────────────────────────────────
   // 카카오 인가 코드 → 서버 토큰 교환
-  // 보안: 서버가 카카오 토큰 검증 후 서버 자체 accessToken 발급
-  // 클라이언트는 서버 발급 토큰만 사용
   // ─────────────────────────────────────────────
   const handleKakaoCallback = async (code: string) => {
     try {
-      // URL 정리 (code 파라미터 제거 — 재사용 방지)
       window.history.replaceState({}, document.title, window.location.pathname)
 
       const res = await fetch(API_BASE + '/user/auth/kakao/code', {
@@ -64,13 +62,11 @@ const LoginScreen = ({ mode, navigateToScreen, onLoginSuccess }: LoginScreenProp
       const data = await res.json()
 
       if (!data.success) {
-        // 보안: 카카오 실패 원인 상세 노출 금지
         setError('카카오 로그인에 실패했습니다. 다시 시도해주세요.')
         setSnsLoading(null)
         return
       }
 
-      // 서버 발급 토큰만 사용 (콘솔 출력 금지)
       onLoginSuccess(
         data.data.token,
         data.data.user_id,
@@ -84,7 +80,7 @@ const LoginScreen = ({ mode, navigateToScreen, onLoginSuccess }: LoginScreenProp
   }
 
   // ─────────────────────────────────────────────
-  // 카카오 리다이렉트 방식
+  // 카카오 redirect 방식 로그인
   // ─────────────────────────────────────────────
   const handleKakaoLogin = () => {
     if (!window.Kakao || !window.Kakao.isInitialized()) {
@@ -130,13 +126,10 @@ const LoginScreen = ({ mode, navigateToScreen, onLoginSuccess }: LoginScreenProp
       if (!data.success) {
         // 보안: 에러 메시지 통일 — 계정 존재 여부 노출 금지
         const safeErrMap: Record<string, string> = {
-          // 로그인 실패 — 계정 존재 여부 구분 금지
           INVALID_CREDENTIALS: '이메일 또는 비밀번호를 확인해주세요.',
           USER_NOT_FOUND:      '이메일 또는 비밀번호를 확인해주세요.',
           WRONG_PASSWORD:      '이메일 또는 비밀번호를 확인해주세요.',
-          // 회원가입 — 중복 이메일 (UX상 안내 허용, 완화 표현 사용)
           EMAIL_EXISTS:        '이미 가입된 이메일이거나 사용할 수 없는 이메일입니다.',
-          // 비밀번호 정책
           WEAK_PASSWORD:       '비밀번호는 8자 이상 영문/숫자 조합을 사용해주세요.',
         }
         setError(safeErrMap[data.error?.code] || '오류가 발생했습니다. 다시 시도해주세요.')
@@ -170,7 +163,7 @@ const LoginScreen = ({ mode, navigateToScreen, onLoginSuccess }: LoginScreenProp
   }
 
   // ─────────────────────────────────────────────
-  // 카카오 콜백 처리 중 로딩 화면
+  // 카카오 로딩 화면
   // ─────────────────────────────────────────────
   if (snsLoading === '카카오') {
     return (

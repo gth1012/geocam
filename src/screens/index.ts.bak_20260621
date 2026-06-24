@@ -1,7 +1,4 @@
-// Auth UX 리팩 v2.0 (2026-06-22)
-// - HomeScreen 제거 → AuthLandingScreen + MainMenuScreen 분리
-export { default as AuthLandingScreen } from './AuthLandingScreen'
-export { default as MainMenuScreen } from './MainMenuScreen'
+export { default as HomeScreen } from './HomeScreen'
 export { default as CameraScreen } from './CameraScreen'
 export { default as ScanScreen } from './ScanScreen'
 export { default as ScanResultScreen } from './ScanResultScreen'
@@ -16,5 +13,5 @@ export { default as CollectionScreen } from './CollectionScreen'
 export { default as LoginScreen } from './LoginScreen'
 export { default as RegisterPendingScreen } from './RegisterPendingScreen'
 export { default as DigitalVerifyScreen } from './DigitalVerifyScreen'
+
 export { default as ClaimScreen } from './ClaimScreen'
-export { default as ClaimBundleScreen } from './ClaimBundleScreen'

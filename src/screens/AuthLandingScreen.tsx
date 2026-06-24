@@ -1,0 +1,224 @@
+import type { AuthLandingScreenProps } from '../types/app.types'
+
+// Auth UX 리팩 v2.0 (2026-06-22)
+// 비로그인 사용자 전용 첫 화면
+// 로그인 = 퍼플 액센트 / 회원가입 = 골드 액센트
+// SNS = 미니 심볼 가로 배치 (고급 라인 스타일)
+
+const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
+
+  const handleKakaoStart = () => { navigateToScreen('login') }
+  const handleGoogleStart = () => { navigateToScreen('login') }
+  const handleNaverStart = () => { navigateToScreen('login') }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '0 32px',
+      paddingTop: 'max(64px, env(safe-area-inset-top))',
+      paddingBottom: 'max(40px, env(safe-area-inset-bottom))',
+      backgroundColor: '#0a0a0c',
+      boxSizing: 'border-box',
+    }}>
+
+      {/* ── 상단: 로고 + 문구 ── */}
+      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+
+        {/* 심볼 로고 */}
+        <div style={{ width: '72px', height: '72px' }}>
+          <svg viewBox="0 0 1024 1024" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <filter id="auth-glow">
+                <feGaussianBlur stdDeviation="6" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+              <filter id="auth-dotglow">
+                <feGaussianBlur stdDeviation="8" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+            <path
+              d="M 512 175 L 772 322 Q 802 338 802 372 L 802 652 Q 802 686 772 702 L 512 849 Q 482 865 452 849 L 192 702 Q 162 686 162 652 L 162 372 Q 162 338 192 322 L 452 175 Q 482 159 512 175 Z"
+              fill="none"
+              stroke="rgba(200,202,210,0.82)"
+              strokeWidth="9"
+              filter="url(#auth-glow)"
+            />
+            <circle
+              cx="512"
+              cy="512"
+              r="46"
+              fill="rgba(235,237,245,0.95)"
+              filter="url(#auth-dotglow)"
+            />
+          </svg>
+        </div>
+
+        <h1 style={{
+          fontSize: '1.85rem',
+          fontWeight: '200',
+          letterSpacing: '0.15em',
+          color: 'rgba(255,255,255,0.9)',
+          margin: '0',
+        }}>
+          Legit Tag
+        </h1>
+
+        <p style={{
+          color: 'rgba(255,255,255,0.55)',
+          fontSize: '14px',
+          fontWeight: '300',
+          letterSpacing: '0.02em',
+          lineHeight: '1.6',
+          margin: '0',
+        }}>
+          정품 인증과 컬렉션 관리를 시작하세요
+        </p>
+
+        <p style={{
+          color: 'rgba(255,255,255,0.2)',
+          fontSize: '11px',
+          fontWeight: '300',
+          lineHeight: '1.7',
+          margin: '0',
+          maxWidth: '260px',
+        }}>
+          로그인 후 Digital Verify, Camera, QR Scan,{'\n'}
+          Gallery, My Collection을 사용할 수 있습니다.
+        </p>
+      </div>
+
+      {/* ── 중앙: 메인 버튼 + SNS ── */}
+      <div style={{ width: '100%', maxWidth: '300px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+        {/* 로그인 — 퍼플 액센트 */}
+        <button
+          onClick={() => navigateToScreen('login')}
+          style={{
+            width: '100%',
+            padding: '15px',
+            borderRadius: '14px',
+            background: 'rgba(167,139,250,0.10)',
+            border: '1px solid rgba(167,139,250,0.30)',
+            color: '#a78bfa',
+            fontSize: '15px',
+            fontWeight: '400',
+            cursor: 'pointer',
+            letterSpacing: '0.05em',
+          }}
+        >
+          로그인
+        </button>
+
+        {/* 회원가입 — 골드 액센트 */}
+        <button
+          onClick={() => navigateToScreen('register')}
+          style={{
+            width: '100%',
+            padding: '15px',
+            borderRadius: '14px',
+            background: 'rgba(251,191,36,0.08)',
+            border: '1px solid rgba(251,191,36,0.25)',
+            color: '#fbbf24',
+            fontSize: '15px',
+            fontWeight: '400',
+            cursor: 'pointer',
+            letterSpacing: '0.05em',
+          }}
+        >
+          회원가입
+        </button>
+
+        {/* 구분선 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0' }}>
+          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
+          <span style={{ color: 'rgba(255,255,255,0.12)', fontSize: '10px', letterSpacing: '0.1em' }}>SNS</span>
+          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
+        </div>
+
+        {/* SNS 미니 심볼 — 라인 스타일 */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
+
+          {/* 카카오 */}
+          <button
+            onClick={handleKakaoStart}
+            style={{
+              width: '40px', height: '40px', borderRadius: '50%',
+              background: 'transparent',
+              border: '1px solid rgba(254,229,0,0.35)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+            aria-label="카카오로 시작하기"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24">
+              <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.7 1.7 5.1 4.3 6.5l-1.1 4 4.7-3.1c.7.1 1.4.2 2.1.2 5.523 0 10-3.477 10-7.8S17.523 3 12 3z" fill="rgba(254,229,0,0.7)"/>
+            </svg>
+          </button>
+
+          {/* 구글 */}
+          <button
+            onClick={handleGoogleStart}
+            style={{
+              width: '40px', height: '40px', borderRadius: '50%',
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+              opacity: 0.4,
+            }}
+            aria-label="구글로 시작하기 (준비중)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+          </button>
+
+          {/* 네이버 */}
+          <button
+            onClick={handleNaverStart}
+            style={{
+              width: '40px', height: '40px', borderRadius: '50%',
+              background: 'transparent',
+              border: '1px solid rgba(3,199,90,0.25)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+              opacity: 0.4,
+            }}
+            aria-label="네이버로 시작하기 (준비중)"
+          >
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none">
+              <path d="M13.5 10.5L6.2 0H0v20h6.5V9.5L13.8 20H20V0h-6.5v10.5z" fill="rgba(3,199,90,0.6)"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* ── 하단 ── */}
+      <p style={{
+        color: 'rgba(255,255,255,0.12)',
+        fontSize: '10px',
+        letterSpacing: '0.15em',
+        fontWeight: '300',
+        margin: '0',
+      }}>
+        Powered by Artion
+      </p>
+    </div>
+  )
+}
+
+export default AuthLandingScreen

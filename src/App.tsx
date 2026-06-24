@@ -5,7 +5,8 @@ import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { runEvidencePipeline } from './evidencePipeline'
 import ErrorBoundary from './components/ErrorBoundary'
 import {
-  HomeScreen,
+  AuthLandingScreen,
+  MainMenuScreen,
   CameraScreen,
   ScanScreen,
   ScanResultScreen,
@@ -21,23 +22,62 @@ import {
   RegisterPendingScreen,
   DigitalVerifyScreen,
   ClaimScreen,
+  ClaimBundleScreen,
 } from './screens'
 import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
 
-// W4 정정 (2026-04-27, P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
-// - runPipeline() verifyStatus 매핑: 4-state → 3-state
-//   * 정품 매핑 → 'PRESENT'
-//   * 불확실 매핑 → 'INSUFFICIENT_DATA'
-// - PipelineOutput.match_score 사용처 제거 (W2에서 필드 제거됨)
-// - matchScore state 자체는 유지 (CameraScreen에서 setMatchScore 호출)
-// 분리 LOCK: LoginScreen onLoginSuccess 시그니처 (line 189) = P0-5 무관, 별도 처리
-// LegCam-RPK-001 (2026-06-17): DigitalVerifyScreen 추가 (SS PRN 디지털 검증)
-// Phase 2 (2026-06-20): ClaimScreen 추가 (GeoCapsule Claim)
+// ─────────────────────────────────────────────
+// Auth UX 리팩 v2.0 (2026-06-22)
+// 제니팀장 설계서 + 중앙 Auth Gate 방식
+//
+// 변경 이력:
+//   - 중앙 navigateToScreen() Guard 추가
+//   - protectedScreens / authScreens 분리
+//   - HomeScreen → AuthLandingScreen 교체
+//   - 기능 메뉴 → MainMenuScreen 분리
+//   - 'home' → 'authLanding' / 'mainMenu'
+//   - 'scan' → 'qrScan'
+//   - 'collection' → 'myCollection'
+//   - 'register' Screen 상태 분리
+//   - setScreen 직접 호출 제거 → navigateToScreen 통일
+// LT-016 (2026-06-23):
+//   - safeGoCamera() QR 세션 상태 초기화 추가 (세션 충돌 방지)
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// 보호 화면 목록 (비로그인 접근 차단)
+// ─────────────────────────────────────────────
+const PROTECTED_SCREENS: Screen[] = [
+  'mainMenu',
+  'digitalVerify',
+  'camera',
+  'qrScan',
+  'gallery',
+  'myCollection',
+  'settings',
+  'scanResult',
+  'result',
+  'records',
+  'preview',
+  'otpInput',
+  'registerResult',
+  'claim',
+  'claimBundle',
+]
+
+// ─────────────────────────────────────────────
+// 인증 화면 목록 (로그인 상태에서 접근 시 mainMenu로 이동)
+// ─────────────────────────────────────────────
+const AUTH_SCREENS: Screen[] = [
+  'authLanding',
+  'login',
+  'register',
+]
 
 function App() {
-  const { t, i18n } = useTranslation();
-  const [screen, setScreen] = useState<Screen>('home')
+  const { i18n } = useTranslation();
+  const [screen, setScreen] = useState<Screen>('authLanding')
   const [scanMode, setScanMode] = useState<ScanMode>('camera')
   const [scanContext, setScanContext] = useState<ScanContext>('claim')
   const [, setQrDetected] = useState(false)
@@ -67,19 +107,66 @@ function App() {
   const [, setUserNickname] = useState<string | null>(null)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
   const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)
-  // Phase 2: GeoCapsule Claim token (URL 파싱)
   const [claimToken, setClaimToken] = useState<string | null>(null)
+  const [bundleClaimToken, setBundleClaimToken] = useState<string | null>(null)
 
-  // Phase 2: URL에서 /claim/:token 파싱 → ClaimScreen 자동 진입
-  useEffect(() => {
-    const hash = window.location.hash // e.g. #/claim/abc123...
-    const match = hash.match(/^#\/claim\/([a-f0-9]+)$/)
-    if (match && match[1]) {
-      setClaimToken(match[1])
-      setScreen('claim')
+  // ─────────────────────────────────────────────
+  // 중앙 Auth Gate — 모든 화면 이동은 여기를 통과
+  // ─────────────────────────────────────────────
+  const isAuthenticated = Boolean(authToken)
+
+  const navigateToScreen = useCallback((targetScreen: Screen) => {
+    const authenticated = Boolean(authToken)
+
+    // 보호 화면 → 비로그인 → authLanding 강제
+    if (PROTECTED_SCREENS.includes(targetScreen) && !authenticated) {
+      setScreen('authLanding')
+      return
     }
-  }, [])
 
+    // 인증 화면 → 로그인 상태 → mainMenu 강제
+    if (AUTH_SCREENS.includes(targetScreen) && authenticated) {
+      setScreen('mainMenu')
+      return
+    }
+
+    // 정상 이동
+    setScreen(targetScreen)
+  }, [authToken])
+
+  // ─────────────────────────────────────────────
+  // URL 파싱: Claim 토큰 + 카카오 콜백
+  // ─────────────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    const state = params.get('state')
+    if (code && state === 'kakao') {
+      navigateToScreen('login')
+      return
+    }
+
+    const hash = window.location.hash
+
+    const bundleMatch = hash.match(/^#\/claim\/bundle\/([a-f0-9]+)$/)
+    if (bundleMatch && bundleMatch[1]) {
+      setBundleClaimToken(bundleMatch[1])
+      navigateToScreen('claimBundle')
+      return
+    }
+
+    const individualMatch = hash.match(/^#\/claim\/([a-f0-9]+)$/)
+    if (individualMatch && individualMatch[1]) {
+      setClaimToken(individualMatch[1])
+      navigateToScreen('claim')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // 주의: 초기 마운트 시 1회만 실행. navigateToScreen은 authToken 초기값(null) 기준으로 동작.
+  // claim/claimBundle URL 접근 시 비로그인이면 authLanding으로 이동 후 로그인 완료 시 복귀.
+
+  // ─────────────────────────────────────────────
+  // 유틸
+  // ─────────────────────────────────────────────
   const getDeviceFingerprint = (): string => {
     const nav = navigator;
     const raw = `${nav.userAgent}-${nav.language}-${window.screen.width}x${window.screen.height}`;
@@ -92,65 +179,93 @@ function App() {
     </svg>
   )
 
+  // ─────────────────────────────────────────────
+  // 화면 이동 함수 — 전부 navigateToScreen 경유
+  // ─────────────────────────────────────────────
   const safeGoHome = useCallback(() => {
     try {
       setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null);
       setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false); setScanResultInfo(null);
       setVerifyStatus(null); setCameraError(null);
-      setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null); setConfidence(null); setMatchScore(null);
+      setSessionToken(null); setNonce(null); setDinaId(null); setSignatureVerified(null);
+      setConfidence(null); setMatchScore(null);
       setRegistering(false); setRegisterStatus(null); setRegisterError(null); setOtpInput('');
       setScanContext('claim');
       setClaimToken(null);
-      setScreen('home');
-    } catch (e) { console.error('error:', e); setScreen('home'); }
-  }, []);
+      setBundleClaimToken(null);
+      navigateToScreen('mainMenu')
+    } catch (e) { console.error('safeGoHome error:', e); navigateToScreen('mainMenu') }
+  }, [navigateToScreen]);
 
-  // Camera 탭 = Physical-only Mode (image only, dina_id 불필요)
   const safeGoCamera = useCallback(() => {
     try {
       setScanMode('camera'); setQrDetected(false); setQrData(null); setCapturedImage(null);
-      setRecordInfo(null); setError(null); setErrorCode(null); setProcessing(false); setNetworkError(false);
-      setVerifyStatus(null); setCameraError(null);
-      setScreen('camera');
-    } catch (e) { console.error('error:', e); setScreen('camera'); }
-  }, []);
+      setRecordInfo(null); setError(null); setErrorCode(null); setProcessing(false);
+      setNetworkError(false); setVerifyStatus(null); setCameraError(null);
+      // LT-016: Physical Verify 진입 시 QR 세션 상태 초기화 (세션 충돌 방지)
+      setSessionToken(null); setNonce(null); setDinaId(null);
+      setSignatureVerified(null); setScanResultInfo(null);
+      navigateToScreen('camera')
+    } catch (e) { console.error('safeGoCamera error:', e); navigateToScreen('camera') }
+  }, [navigateToScreen]);
 
-  // QR Scan 탭 = 소유권 이벤트 (claim 컨텍스트)
   const safeGoScan = useCallback(() => {
     try {
       setScanMode('scan'); setQrDetected(false); setQrData(null); setCapturedImage(null);
       setRecordInfo(null); setError(null); setProcessing(false); setNetworkError(false);
-      setScanResultInfo(null); setScanContext('claim'); setScreen('scan');
-    } catch (e) { console.error('error:', e); setScreen('scan'); }
-  }, []);
+      setScanResultInfo(null); setScanContext('claim');
+      navigateToScreen('qrScan')
+    } catch (e) { console.error('safeGoScan error:', e); navigateToScreen('qrScan') }
+  }, [navigateToScreen]);
 
   const onGoCollection = useCallback(() => {
-    if (!authToken) { setScreen('login') } else { setScreen('collection') }
-  }, [authToken]);
+    navigateToScreen('myCollection')
+  }, [navigateToScreen]);
 
+  // ─────────────────────────────────────────────
+  // 로그인 성공 처리
+  // ─────────────────────────────────────────────
   const onLoginSuccess = useCallback((token: string, uid: string, nickname: string, status: string) => {
     setAuthToken(token);
     setUserId(uid);
     setUserNickname(nickname);
+
     if (status === 'REGISTER_PENDING') {
-      setScreen('registerPending');
-    } else {
-      // 로그인 후 claimToken 있으면 Claim 화면으로 복귀
-      if (claimToken) {
-        setScreen('claim');
-      } else {
-        setScreen('home');
-      }
+      // registerPending은 인증 서브화면 — setScreen 직접 사용 (authToken 세팅 직후라 navigateToScreen guard가 아직 반영 안 됨)
+      setScreen('registerPending')
+      return
     }
-  }, [claimToken]);
+
+    // 로그인 후 대기 중인 Claim 복귀
+    if (bundleClaimToken) {
+      setScreen('claimBundle')
+    } else if (claimToken) {
+      setScreen('claim')
+    } else {
+      setScreen('mainMenu')
+    }
+  }, [claimToken, bundleClaimToken]);
 
   const onProfileComplete = useCallback((nickname: string) => {
     setUserNickname(nickname);
     setWelcomeNickname(nickname);
-    setScreen('home');
+    setScreen('mainMenu');
     setShowWelcomeModal(true);
   }, []);
 
+  // ─────────────────────────────────────────────
+  // 로그아웃 처리 — authToken/user 삭제 후 authLanding
+  // ─────────────────────────────────────────────
+  const onLogout = useCallback(() => {
+    setAuthToken(null);
+    setUserId(null);
+    setUserNickname(null);
+    setScreen('authLanding');
+  }, []);
+
+  // ─────────────────────────────────────────────
+  // 갤러리 + 파이프라인
+  // ─────────────────────────────────────────────
   const openGalleryPicker = useCallback(async () => {
     try {
       const image = await Camera.getPhoto({
@@ -182,66 +297,136 @@ function App() {
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
         setVerifyStatus(result.verify_status || 'PRESENT');
-        setScreen('result');
       } else {
         setError(result.error || 'PIPELINE_ERROR');
         setVerifyStatus(result.verify_status || 'INSUFFICIENT_DATA');
-        setScreen('result');
       }
+      // 파이프라인 결과 화면은 보호화면 — navigateToScreen 경유
+      navigateToScreen('result')
     } catch (err) {
       if (err instanceof Error && (err.message.includes('fetch') || err.message.includes('network'))) {
         setNetworkError(true);
       }
       setError(err instanceof Error ? err.message : 'PIPELINE_ERROR');
       setVerifyStatus('INSUFFICIENT_DATA');
-      setScreen('result');
+      navigateToScreen('result')
     }
     finally { setProcessing(false); }
   }
 
   const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow };
 
+  // ─────────────────────────────────────────────
+  // 렌더 — setScreen prop 하위 전달 금지
+  //        모든 화면 이동은 navigateToScreen 경유
+  // ─────────────────────────────────────────────
   return (
     <ErrorBoundary>
-      {screen === 'home' && <HomeScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} setScreen={setScreen} />}
-      {screen === 'digitalVerify' && <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} />}
-      {screen === 'claim' && <ClaimScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} claimToken={claimToken} authToken={authToken} userId={userId} />}
-      {screen === 'camera' && <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} />}
-      {screen === 'scan' && <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} setScreen={setScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />}
-      {screen === 'scanResult' && <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} setScreen={setScreen} />}
-      {screen === 'result' && <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} setScreen={setScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />}
-      {screen === 'records' && <RecordsScreen {...commonProps} />}
-      {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}
-      {screen === 'preview' && <PreviewScreen {...commonProps} previewImage={previewImage} setCapturedImage={setCapturedImage} setScreen={setScreen} />}
-      {screen === 'otpInput' && <OtpInputScreen {...commonProps} qrData={qrData} otpInput={otpInput} setOtpInput={setOtpInput} setQrData={setQrData} setScanMode={setScanMode} setQrDetected={setQrDetected} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setErrorCode={setErrorCode} setProcessing={setProcessing} setNetworkError={setNetworkError} setVerifyStatus={setVerifyStatus} setCameraError={setCameraError} setScreen={setScreen} />}
-      {screen === 'registerResult' && <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} onGoCollection={onGoCollection} />}
-      {screen === 'collection' && <CollectionScreen safeGoHome={safeGoHome} BackArrow={BackArrow} setScreen={setScreen} authToken={authToken} userId={userId} />}
-      {screen === 'login' && <LoginScreen safeGoHome={safeGoHome} onLoginSuccess={onLoginSuccess} />}
-      {screen === 'registerPending' && authToken && <RegisterPendingScreen authToken={authToken} onProfileComplete={onProfileComplete} />}
-      {screen === 'settings' && <SettingsScreen {...commonProps} i18n={i18n} />}
+      {/* ── 비로그인 허용 화면 ── */}
+      {screen === 'authLanding' && (
+        <AuthLandingScreen navigateToScreen={navigateToScreen} />
+      )}
+      {screen === 'login' && (
+        <LoginScreen
+          mode="login"
+          navigateToScreen={navigateToScreen}
+          onLoginSuccess={onLoginSuccess}
+        />
+      )}
+      {screen === 'register' && (
+        <LoginScreen
+          mode="register"
+          navigateToScreen={navigateToScreen}
+          onLoginSuccess={onLoginSuccess}
+        />
+      )}
+      {screen === 'registerPending' && authToken && (
+        <RegisterPendingScreen authToken={authToken} onProfileComplete={onProfileComplete} />
+      )}
 
+      {/* ── 보호 화면 (isAuthenticated=true 일 때만 렌더) ── */}
+      {isAuthenticated && (
+        <>
+          {screen === 'mainMenu' && (
+            <MainMenuScreen
+              safeGoHome={safeGoHome}
+              safeGoCamera={safeGoCamera}
+              safeGoScan={safeGoScan}
+              openGalleryPicker={openGalleryPicker}
+              BackArrow={BackArrow}
+              navigateToScreen={navigateToScreen}
+            />
+          )}
+          {screen === 'digitalVerify' && (
+            <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} />
+          )}
+          {screen === 'claim' && (
+            <ClaimScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} claimToken={claimToken} authToken={authToken} userId={userId} />
+          )}
+          {screen === 'claimBundle' && (
+            <ClaimBundleScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} bundleClaimToken={bundleClaimToken} authToken={authToken} userId={userId} />
+          )}
+          {screen === 'camera' && (
+            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} />
+          )}
+          {screen === 'qrScan' && (
+            <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />
+          )}
+          {screen === 'scanResult' && (
+            <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} navigateToScreen={navigateToScreen} />
+          )}
+          {screen === 'result' && (
+            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />
+          )}
+          {screen === 'records' && <RecordsScreen {...commonProps} />}
+          {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}
+          {screen === 'preview' && (
+            <PreviewScreen {...commonProps} previewImage={previewImage} setCapturedImage={setCapturedImage} navigateToScreen={navigateToScreen} />
+          )}
+          {screen === 'otpInput' && (
+            <OtpInputScreen {...commonProps} qrData={qrData} otpInput={otpInput} setOtpInput={setOtpInput} setQrData={setQrData} setScanMode={setScanMode} setQrDetected={setQrDetected} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setErrorCode={setErrorCode} setProcessing={setProcessing} setNetworkError={setNetworkError} setVerifyStatus={setVerifyStatus} setCameraError={setCameraError} navigateToScreen={navigateToScreen} />
+          )}
+          {screen === 'registerResult' && (
+            <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} onGoCollection={onGoCollection} />
+          )}
+          {screen === 'myCollection' && (
+            <CollectionScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} authToken={authToken} userId={userId} />
+          )}
+          {screen === 'settings' && (
+            <SettingsScreen {...commonProps} i18n={i18n} onLogout={onLogout} />
+          )}
+        </>
+      )}
+
+      {/* ── Welcome 모달 ── */}
       {showWelcomeModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}>
           <div style={{ width: '100%', maxWidth: '480px', backgroundColor: '#0a0a0c', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '24px 24px 0 0', padding: '32px 28px 28px' }}>
             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', letterSpacing: '0.15em', fontWeight: '300', marginBottom: '8px' }}>WELCOME</p>
             <h2 style={{ color: 'rgba(255,255,255,0.9)', fontSize: '22px', fontWeight: '200', letterSpacing: '0.05em', marginBottom: '4px' }}>
-              {welcomeNickname}{t('registerPending.subtitle') ? '' : ''}님, 환영합니다
+              {welcomeNickname}님, 환영합니다
             </h2>
             <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '13px', fontWeight: '300', marginBottom: '28px' }}>
-              LegitTag {t('register.successMessage')}
+              LegitTag에 오신 것을 환영합니다.
             </p>
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '20px 0', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                 <span style={{ color: 'rgba(167,139,250,0.8)', fontSize: '13px', marginTop: '1px' }}>✓</span>
-                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>{t('register.successTitle')}</p>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>회원가입이 완료되었습니다. 레그캠을 시작하세요.</p>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setShowWelcomeModal(false)} style={{ flex: 1, padding: '15px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '300', cursor: 'pointer', letterSpacing: '0.05em' }}>
-                {t('common.close')}
+              <button
+                onClick={() => setShowWelcomeModal(false)}
+                style={{ flex: 1, padding: '15px', borderRadius: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '300', cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                닫기
               </button>
-              <button onClick={() => { setShowWelcomeModal(false); alert(t('common.checking')); }} style={{ flex: 2, padding: '15px', borderRadius: '16px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: '14px', fontWeight: '400', cursor: 'pointer', letterSpacing: '0.05em' }}>
-                {t('registerPending.completeButton')}
+              <button
+                onClick={() => { setShowWelcomeModal(false); navigateToScreen('mainMenu') }}
+                style={{ flex: 2, padding: '15px', borderRadius: '16px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: '14px', fontWeight: '400', cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                시작하기
               </button>
             </div>
           </div>

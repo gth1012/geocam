@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import type { OtpInputScreenProps } from '../types/app.types'
 
+// Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen 교체
+
 const OtpInputScreen = ({
   safeGoScan,
   BackArrow,
@@ -18,7 +20,7 @@ const OtpInputScreen = ({
   setNetworkError,
   setVerifyStatus,
   setCameraError,
-  setScreen,
+  navigateToScreen,
 }: OtpInputScreenProps) => {
   const { t } = useTranslation()
 
@@ -36,7 +38,7 @@ const OtpInputScreen = ({
       setNetworkError(false);
       setVerifyStatus(null);
       setCameraError(null);
-      setScreen('camera');
+      navigateToScreen('camera');
     }
   };
 
