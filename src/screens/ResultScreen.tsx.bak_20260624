@@ -12,11 +12,6 @@ import type { ResultScreenProps } from '../types/app.types'
 // LT-016 (2026-06-23):
 // - scanMode === 'camera' (Physical Verify) 결과에서 QR Register 버튼 숨김
 // - Physical Verify와 QR Register 세션 충돌 차단
-// Layer2 실물 테스트 (2026-06-24):
-// - Camera 모드 전용 판정 표시 추가
-//   PRESENT           → PHYSICAL VERIFIED (초록)
-//   INSUFFICIENT_DATA → RETRY (노란, 재촬영 유도)
-//   ABSENT            → INVALID (빨간)
 
 const ResultScreen = ({
   safeGoHome,
@@ -74,52 +69,6 @@ const ResultScreen = ({
         )
       }
     }
-
-    // ── Camera 모드 전용 판정 (Layer2 실물 테스트용) ──────────────────────
-    if (isCamera) {
-      if (verifyStatus === 'PRESENT') {
-        return {
-          color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
-          title: 'PHYSICAL VERIFIED',
-          subtitle: 'GeoCode 신호가 확인됐습니다',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
-              <path d="M14 24l7 7 13-13" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )
-        }
-      }
-      if (verifyStatus === 'INSUFFICIENT_DATA') {
-        return {
-          color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
-          title: 'RETRY',
-          subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="22" stroke="#facc15" strokeWidth="2.5" />
-              <path d="M24 14v14" stroke="#facc15" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="24" cy="35" r="2.5" fill="#facc15" />
-            </svg>
-          )
-        }
-      }
-      if (verifyStatus === 'ABSENT') {
-        return {
-          color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
-          title: 'INVALID',
-          subtitle: 'GeoCode 신호가 감지되지 않았습니다',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
-              <path d="M16 16l16 16M32 16l-16 16" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
-            </svg>
-          )
-        }
-      }
-    }
-
-    // ── QR 모드 기존 판정 ─────────────────────────────────────────────────
     if (verifyStatus === 'PRESENT') {
       return {
         color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
@@ -249,7 +198,7 @@ const ResultScreen = ({
         )}
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={handleRetry} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '500', background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.9)', cursor: 'pointer' }}>
-            {isCamera ? '다시 촬영' : t('common.retakePhoto')}
+            {t('common.retakePhoto')}
           </button>
           <button onClick={safeGoHome} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '400', background: 'rgba(255,255,255,0.03)', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>
             {t('common.home')}
