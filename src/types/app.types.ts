@@ -2,18 +2,7 @@ import type { ReactElement } from 'react'
 
 // ─────────────────────────────────────────────
 // Screen 타입 (Auth UX 리팩 v2.0)
-//
-// 비로그인 허용 화면 (publicScreens):
-//   authLanding | login | register
-//
-// 보호 화면 (protectedScreens):
-//   mainMenu | digitalVerify | camera | qrScan | gallery | myCollection | settings
-//
-// 변경 이력:
-//   - 'home' 제거 → 'authLanding' + 'mainMenu' 로 분리
-//   - 'scan' → 'qrScan' 명칭 통일 (설계서 기준)
-//   - 'collection' → 'myCollection' 명칭 통일 (설계서 기준)
-//   - 'register' 신규 추가 (기존 LoginScreen mode 전환 → Screen 상태 분리)
+// UI/UX 리팩 v3.3 (2026-06-28) — certSelect 추가
 // ─────────────────────────────────────────────
 export type Screen =
   // 비로그인 허용
@@ -21,6 +10,8 @@ export type Screen =
   | 'login'
   | 'register'
   // 보호 화면
+  | 'sizeSelect'
+  | 'certSelect'
   | 'mainMenu'
   | 'digitalVerify'
   | 'camera'
@@ -40,6 +31,26 @@ export type Screen =
   // 인증 서브 화면 (비로그인 허용)
   | 'registerPending'
 
+
+// LC-CAM-001 v3.3: 카드 사이즈 프로파일
+export type CardProfileId = 'STANDARD' | 'GOODS' | 'LARGE' | 'MINI_POST'
+
+export interface CardProfile {
+  id: CardProfileId
+  name: string
+  widthMm: number
+  heightMm: number
+  aspectHOverW: number
+}
+
+export const CARD_PROFILES: CardProfile[] = [
+  { id: 'STANDARD',  name: '표준형',      widthMm: 54,  heightMm: 85,  aspectHOverW: 85  / 54  },
+  { id: 'GOODS',     name: '굿즈형',       widthMm: 55,  heightMm: 85,  aspectHOverW: 85  / 55  },
+  { id: 'LARGE',     name: '대형',         widthMm: 70,  heightMm: 100, aspectHOverW: 100 / 70  },
+  { id: 'MINI_POST', name: '미니포스터형', widthMm: 100, heightMm: 150, aspectHOverW: 150 / 100 },
+]
+
+export const DEFAULT_CARD_PROFILE = CARD_PROFILES.find(p => p.id === 'GOODS')!
 export type ScanMode = 'camera' | 'scan'
 
 export type ScanStatus =
@@ -50,15 +61,8 @@ export type ScanStatus =
   | 'EXPIRED'
   | 'ERROR'
 
-// W1 정정 (P0-5 LT-ENGINE v0.2 § 4 + AUDIT-001 v1.1 § 4 + 빅보스 결정 D2 LOCK):
-// VerifyStatus = 4-state → 3-state LOCK
-// 매핑: GENUINE → PRESENT / REPRODUCTION_TRACE → ABSENT / INSUFFICIENT → INSUFFICIENT_DATA
 export type VerifyStatus = 'PRESENT' | 'ABSENT' | 'INSUFFICIENT_DATA' | null
-
-// SS PRN 디지털 검증 결과 (LegCam-RPK-001)
 export type DigitalVerifyStatus = 'ORIGINAL' | 'MODIFIED' | 'INVALID' | 'TAMPERED' | 'ERROR' | null
-
-// QR 스캔 컨텍스트
 export type ScanContext = 'claim' | 'verify'
 
 // ─────────────────────────────────────────────
@@ -145,7 +149,6 @@ export interface ScreenProps {
   BackArrow: () => ReactElement
 }
 
-// AuthLandingScreen props
 export interface AuthLandingScreenProps {
   navigateToScreen: NavigateToScreen
 }
@@ -158,6 +161,15 @@ export interface MainMenuScreenProps {
   openGalleryPicker: () => Promise<void>
   BackArrow: () => ReactElement
   navigateToScreen: NavigateToScreen
+  onLogout: () => void
+}
+
+// CertSelectScreen props
+export interface CertSelectScreenProps {
+  safeGoHome: () => void
+  BackArrow: () => ReactElement
+  navigateToScreen: NavigateToScreen
+  openGalleryPicker: () => Promise<void>
 }
 
 // HomeScreen props (미사용 — 컴파일 호환용 유지)
@@ -176,7 +188,6 @@ export interface DigitalVerifyScreenProps {
   navigateToScreen: NavigateToScreen
 }
 
-// Phase 2: GeoCapsule Individual Claim
 export interface ClaimScreenProps {
   safeGoHome: () => void
   BackArrow: () => ReactElement
@@ -186,7 +197,6 @@ export interface ClaimScreenProps {
   userId: string | null
 }
 
-// Phase 2: GeoCapsule Bundle Claim
 export interface ClaimBundleScreenProps {
   safeGoHome: () => void
   BackArrow: () => ReactElement
@@ -196,7 +206,15 @@ export interface ClaimBundleScreenProps {
   userId: string | null
 }
 
+export interface SizeSelectScreenProps {
+  safeGoHome: () => void
+  BackArrow: () => ReactElement
+  navigateToScreen: NavigateToScreen
+  onProfileSelected: (profile: CardProfile) => void
+}
+
 export interface CameraScreenProps extends ScreenProps {
+  selectedCardProfile: CardProfile
   sessionToken: string | null
   nonce: string | null
   dinaId: string | null
@@ -302,12 +320,14 @@ export interface RegisterResultScreenProps extends ScreenProps {
   onGoCollection: () => void
 }
 
+// LC-003: setDinaId 추가 (Path B — CollectionScreen → Camera dinaId 전달)
 export interface CollectionScreenProps {
   safeGoHome: () => void
   BackArrow: () => ReactElement
   navigateToScreen: NavigateToScreen
   authToken: string | null
   userId: string | null
+  setDinaId: (id: string | null) => void
 }
 
 export interface LoginScreenProps {

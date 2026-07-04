@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Device } from '@capacitor/device'
 import { API_BASE_URL } from '../api/client'
 import type { ScanResultScreenProps } from '../types/app.types'
 
 const ScanResultScreen = ({
   safeGoHome,
   safeGoScan,
-  getDeviceFingerprint,
   processing,
   scanResultInfo,
   dinaId,
@@ -21,13 +21,16 @@ const ScanResultScreen = ({
     setClaiming(true)
 
     try {
+      const deviceInfo = await Device.getId()
+      const deviceId = deviceInfo.identifier
+
       const response = await fetch(`${API_BASE_URL}/geocam/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dina_id: dinaId,
           signature: 'qr-claim',
-          device_info: { fingerprint: getDeviceFingerprint() },
+          device_fingerprint: deviceId,
         })
       })
 
