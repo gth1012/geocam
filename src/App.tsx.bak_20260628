@@ -6,9 +6,7 @@ import { runEvidencePipeline } from './evidencePipeline'
 import ErrorBoundary from './components/ErrorBoundary'
 import {
   AuthLandingScreen,
-  SizeSelectScreen,
   MainMenuScreen,
-  CertSelectScreen,
   CameraScreen,
   ScanScreen,
   ScanResultScreen,
@@ -26,12 +24,11 @@ import {
   ClaimScreen,
   ClaimBundleScreen,
 } from './screens'
-import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus, CardProfile } from './types/app.types'
-import { DEFAULT_CARD_PROFILE } from './types/app.types'
+import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
 
 const PROTECTED_SCREENS: Screen[] = [
-  'mainMenu', 'certSelect', 'digitalVerify', 'sizeSelect', 'camera', 'qrScan', 'gallery', 'myCollection',
+  'mainMenu', 'digitalVerify', 'camera', 'qrScan', 'gallery', 'myCollection',
   'settings', 'scanResult', 'result', 'records', 'preview', 'otpInput',
   'registerResult', 'claim', 'claimBundle',
 ]
@@ -76,8 +73,7 @@ function App() {
   const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)
   const [claimToken, setClaimToken] = useState<string | null>(null)
   const [bundleClaimToken, setBundleClaimToken] = useState<string | null>(null)
-  const [, setLayer2Debug] = useState<any>(null)
-  const [selectedCardProfile, setSelectedCardProfile] = useState<CardProfile>(DEFAULT_CARD_PROFILE)
+  const [layer2Debug, setLayer2Debug] = useState<any>(null)
 
   const isAuthenticated = Boolean(authToken)
 
@@ -148,8 +144,8 @@ function App() {
       setNetworkError(false); setVerifyStatus(null); setCameraError(null);
       setSessionToken(null); setNonce(null); setDinaId(null);
       setSignatureVerified(null); setScanResultInfo(null);
-      navigateToScreen('sizeSelect')
-    } catch (e) { console.error('safeGoCamera error:', e); navigateToScreen('sizeSelect') }
+      navigateToScreen('camera')
+    } catch (e) { console.error('safeGoCamera error:', e); navigateToScreen('camera') }
   }, [navigateToScreen]);
 
   const safeGoScan = useCallback(() => {
@@ -160,11 +156,6 @@ function App() {
       navigateToScreen('qrScan')
     } catch (e) { console.error('safeGoScan error:', e); navigateToScreen('qrScan') }
   }, [navigateToScreen]);
-
-  const handleProfileSelected = useCallback((profile: CardProfile) => {
-    setSelectedCardProfile(profile)
-    navigateToScreen('camera')
-  }, [navigateToScreen])
 
   const onGoCollection = useCallback(() => {
     navigateToScreen('myCollection')
@@ -188,24 +179,43 @@ function App() {
     setScreen('authLanding');
   }, []);
 
+  // ─────────────────────────────────────────────
+  // 갤러리 물리검증 (detect-layer2 직접 호출)
+  // LT-019/LT-020: T2~T5 팩트 격리 테스트용 로그 보강
+  // ─────────────────────────────────────────────
   const runGalleryPhysicalVerify = useCallback(async (imageDataUrl: string) => {
     setProcessing(true)
     setScanMode('camera')
     setCapturedImage(imageDataUrl)
     try {
+      // T3: dataUrl → base64 추출
       const base64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
+      console.log('[T3] base64 length:', base64.length, '/ 역산 bytes:', Math.round(base64.length * 3 / 4))
+
       const binary = atob(base64)
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      console.log('[T3] Uint8Array bytes size:', bytes.length)
+
+      // T4: FormData 구성 직전 blob size 확인
       const blob = new Blob([bytes], { type: 'image/jpeg' })
+      console.log('[T4] FormData blob size:', blob.size, 'bytes /', Math.round(blob.size / 1024), 'KB')
+
       const formData = new FormData()
       formData.append('image', blob, 'gallery.jpg')
       formData.append('dina_id', TEST_DINA_ID)
       formData.append('candidate', TEST_CANDIDATE)
+
+      console.log('[T4→T5] 서버 업로드 시작...')
       const res = await fetch(`${GEO_API_BASE}/geocode/detect-layer2`, {
         method: 'POST', body: formData,
       })
       const result = await res.json()
+      console.log('[T5] 서버 응답 verdict:', result.verdict,
+        '/ avg_score:', result.avg_score,
+        '/ pass:', result.pass_count, '/', result.total_valid,
+        '/ engine_w:', result.engine_w, 'engine_h:', result.engine_h)
+
       if (result.verdict === 'PASS') {
         setVerifyStatus('PRESENT')
       } else if (result.verdict === 'INSUFFICIENT') {
@@ -222,21 +232,41 @@ function App() {
     navigateToScreen('result')
   }, [navigateToScreen])
 
+  // ─────────────────────────────────────────────
+  // 갤러리 선택 → Uri + fetch(webPath) → 원본 바이트 보존
+  // LT-019: T2 팩트 로그
+  // ─────────────────────────────────────────────
   const openGalleryPicker = useCallback(async () => {
     try {
       const image = await Camera.getPhoto({
         quality: 100, allowEditing: false,
         resultType: CameraResultType.Uri, source: CameraSource.Photos
       })
+
+      // T2: Camera.getPhoto 획득 직후 메타 로그
+      console.log('[T2] photo.webPath:', image.webPath)
+      console.log('[T2] photo.path:', image.path)
+      console.log('[T2] photo.format:', image.format)
+      console.log('[T2] photo.saved:', (image as any).saved)
+
       if (image.webPath) {
         setQrDetected(false); setQrData(null); setCapturedImage(null);
         setRecordInfo(null); setError(null); setProcessing(false);
         setNetworkError(false); setVerifyStatus(null); setCameraError(null);
+
+        // T2: fetch(webPath) → blob 획득
+        console.log('[T2] fetch(webPath) 시작...')
         const response = await fetch(image.webPath)
+        console.log('[T2] fetch response.status:', response.status, '/ content-type:', response.headers.get('content-type'))
         const blob = await response.blob()
+        console.log('[T2] blob.size:', blob.size, 'bytes /', Math.round(blob.size / 1024), 'KB', '/ blob.type:', blob.type)
+
+        // T3: blob → dataUrl 변환
         const reader = new FileReader()
         reader.onload = () => {
           const dataUrl = reader.result as string
+          console.log('[T3] FileReader dataUrl length:', dataUrl.length)
+          console.log('[T3] dataUrl prefix:', dataUrl.substring(0, 40))
           runGalleryPhysicalVerify(dataUrl)
         }
         reader.readAsDataURL(blob)
@@ -296,16 +326,10 @@ function App() {
       {isAuthenticated && (
         <>
           {screen === 'mainMenu' && (
-            <MainMenuScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} navigateToScreen={navigateToScreen} onLogout={onLogout} />
-          )}
-          {screen === 'certSelect' && (
-            <CertSelectScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} openGalleryPicker={openGalleryPicker} />
+            <MainMenuScreen safeGoHome={safeGoHome} safeGoCamera={safeGoCamera} safeGoScan={safeGoScan} openGalleryPicker={openGalleryPicker} BackArrow={BackArrow} navigateToScreen={navigateToScreen} />
           )}
           {screen === 'digitalVerify' && (
             <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} />
-          )}
-          {screen === 'sizeSelect' && (
-            <SizeSelectScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} onProfileSelected={handleProfileSelected} />
           )}
           {screen === 'claim' && (
             <ClaimScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} claimToken={claimToken} authToken={authToken} userId={userId} />
@@ -314,7 +338,7 @@ function App() {
             <ClaimBundleScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} bundleClaimToken={bundleClaimToken} authToken={authToken} userId={userId} />
           )}
           {screen === 'camera' && (
-            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} selectedCardProfile={selectedCardProfile} />
+            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} setLayer2Debug={setLayer2Debug} />
           )}
           {screen === 'qrScan' && (
             <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />
@@ -323,7 +347,7 @@ function App() {
             <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} navigateToScreen={navigateToScreen} />
           )}
           {screen === 'result' && (
-            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />
+            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} layer2Debug={layer2Debug} />
           )}
           {screen === 'records' && <RecordsScreen {...commonProps} />}
           {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}
@@ -337,7 +361,7 @@ function App() {
             <RegisterResultScreen {...commonProps} registerStatus={registerStatus} registerError={registerError} onGoCollection={onGoCollection} />
           )}
           {screen === 'myCollection' && (
-            <CollectionScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} authToken={authToken} userId={userId} setDinaId={setDinaId} />
+            <CollectionScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} authToken={authToken} userId={userId} />
           )}
           {screen === 'settings' && (
             <SettingsScreen {...commonProps} i18n={i18n} onLogout={onLogout} />

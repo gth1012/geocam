@@ -1,0 +1,226 @@
+import { useTranslation } from 'react-i18next'
+import type { MainMenuScreenProps } from '../types/app.types'
+
+// Auth UX 리팩 v2.0 (2026-06-22)
+// UI/UX 리팩 v3.3 (2026-06-28) — Apple 디자인 감성 (미니멀 / 여백 / 계층감)
+
+const MainMenuScreen = ({
+  safeGoHome,
+  safeGoCamera,
+  safeGoScan,
+  openGalleryPicker,
+  BackArrow,
+  navigateToScreen,
+}: MainMenuScreenProps) => {
+  const { t } = useTranslation()
+
+  const menuItems = [
+    {
+      label: '정품 인증하기',
+      sub: '굿즈 촬영으로 정품 여부를 확인하세요.',
+      onClick: () => navigateToScreen('qrScan'),
+      primary: true,
+      disabled: false,
+    },
+    {
+      label: '내 컬렉션',
+      sub: '정품 인증된 내 카드를 확인합니다.',
+      onClick: () => navigateToScreen('myCollection'),
+      primary: false,
+      disabled: false,
+    },
+    {
+      label: '판매등록',
+      sub: '인증 완료된 카드를 판매 등록합니다.',
+      onClick: () => {},
+      primary: false,
+      disabled: true,
+    },
+    {
+      label: '구매 인증 확인',
+      sub: '구매하려는 카드의 인증 상태를 확인합니다.',
+      onClick: () => navigateToScreen('qrScan'),
+      primary: false,
+      disabled: false,
+    },
+    {
+      label: '인증 기록',
+      sub: '내가 인증한 기록을 확인합니다.',
+      onClick: () => navigateToScreen('records'),
+      primary: false,
+      disabled: false,
+    },
+  ]
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      backgroundColor: '#0a0a0c',
+      position: 'relative',
+      boxSizing: 'border-box',
+      paddingTop: 'max(56px, env(safe-area-inset-top))',
+      paddingBottom: 'max(48px, env(safe-area-inset-bottom))',
+      paddingLeft: '20px',
+      paddingRight: '20px',
+    }}>
+
+      {/* 설정 아이콘 */}
+      <button
+        onClick={() => navigateToScreen('settings')}
+        style={{
+          position: 'absolute',
+          top: '18px',
+          right: '20px',
+          background: 'none',
+          border: 'none',
+          color: 'rgba(255,255,255,0.28)',
+          fontSize: '19px',
+          cursor: 'pointer',
+          padding: '8px',
+          lineHeight: 1,
+        }}
+        aria-label="설정"
+      >
+        ⚙
+      </button>
+
+      {/* 로고 영역 — 상단 1/3 차지 */}
+      <div style={{
+        flex: '0 0 auto',
+        paddingTop: '32px',
+        paddingBottom: '48px',
+        paddingLeft: '4px',
+      }}>
+        <p style={{
+          fontSize: '11px',
+          letterSpacing: '0.3em',
+          color: 'rgba(255,255,255,0.2)',
+          fontWeight: '400',
+          marginBottom: '10px',
+          textTransform: 'uppercase',
+        }}>
+          Legit Tag
+        </p>
+        <h1 style={{
+          fontSize: '2.8rem',
+          fontWeight: '200',
+          letterSpacing: '-0.01em',
+          color: '#a78bfa',
+          margin: '0 0 6px',
+          lineHeight: 1.05,
+        }}>
+          정품 인증
+        </h1>
+        <p style={{
+          fontSize: '15px',
+          color: 'rgba(255,255,255,0.35)',
+          fontWeight: '300',
+          margin: '0',
+          letterSpacing: '0.01em',
+          lineHeight: 1.5,
+        }}>
+          K-pop 포토카드 공식 인증 플랫폼
+        </p>
+      </div>
+
+      {/* 메뉴 버튼 리스트 */}
+      <div style={{
+        flex: '1 1 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+      }}>
+        {menuItems.map((item, idx) => (
+          <button
+            key={idx}
+            onClick={item.onClick}
+            disabled={item.disabled}
+            style={{
+              width: '100%',
+              padding: '18px 20px',
+              borderRadius: '14px',
+              background: item.primary
+                ? 'rgba(167,139,250,0.1)'
+                : item.disabled
+                  ? 'rgba(255,255,255,0.02)'
+                  : 'rgba(255,255,255,0.04)',
+              border: item.primary
+                ? '1px solid rgba(167,139,250,0.3)'
+                : item.disabled
+                  ? '1px solid rgba(255,255,255,0.04)'
+                  : '1px solid rgba(255,255,255,0.07)',
+              cursor: item.disabled ? 'default' : 'pointer',
+              textAlign: 'left',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}
+          >
+            {/* 텍스트 영역 */}
+            <div style={{ flex: 1 }}>
+              <div style={{
+                fontSize: '15px',
+                fontWeight: item.primary ? '500' : item.disabled ? '300' : '400',
+                letterSpacing: '-0.01em',
+                color: item.primary
+                  ? '#a78bfa'
+                  : item.disabled
+                    ? 'rgba(255,255,255,0.2)'
+                    : 'rgba(255,255,255,0.82)',
+                marginBottom: '3px',
+                lineHeight: 1.3,
+              }}>
+                {item.label}
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: item.primary
+                  ? 'rgba(167,139,250,0.55)'
+                  : item.disabled
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(255,255,255,0.32)',
+                fontWeight: '300',
+                letterSpacing: '0',
+                lineHeight: 1.4,
+              }}>
+                {item.sub}
+              </div>
+            </div>
+
+            {/* 화살표 */}
+            {!item.disabled && (
+              <span style={{
+                fontSize: '17px',
+                color: item.primary
+                  ? 'rgba(167,139,250,0.5)'
+                  : 'rgba(255,255,255,0.18)',
+                lineHeight: 1,
+                flexShrink: 0,
+              }}>
+                ›
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* 하단 Powered by */}
+      <p style={{
+        color: 'rgba(255,255,255,0.1)',
+        fontSize: '10px',
+        letterSpacing: '0.2em',
+        fontWeight: '300',
+        margin: '32px 0 0',
+        textAlign: 'center',
+        textTransform: 'uppercase',
+      }}>
+        Powered by Artion
+      </p>
+    </div>
+  )
+}
+
+export default MainMenuScreen

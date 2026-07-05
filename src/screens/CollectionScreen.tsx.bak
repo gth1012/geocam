@@ -2,9 +2,6 @@
 // ARTION-ARCH-005 기준
 // 2026-06-19: MOCK 제거, GET /api/geocam/ownership/:ownerId 실제 연동
 // Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen 교체
-// UI/UX 리팩 v3.1 (2026-06-28): 빈 상태 문구 수정 (LT-UI-001)
-// LC-003 (2026-07-01): Path B 구현 — setDinaId 추가, 정품인증 버튼
-// NS-ASSET-DISPLAY-001 (2026-07-05): display_image_key, series_name, artist_name, agency_name, status_label 반영
 
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -12,7 +9,6 @@ import { Device } from '@capacitor/device'
 import type { CollectionScreenProps } from '../types/app.types'
 
 const NEO_API_BASE = 'https://neo-api.artionchain.com/api/geocam'
-const R2_BASE_URL = 'https://cdn.artionchain.com'
 
 interface OwnershipItem {
   asset_id: string
@@ -23,11 +19,6 @@ interface OwnershipItem {
   dina_id: string | null
   series_id: string | null
   asset_public_id: string | null
-  display_image_key: string | null
-  series_name: string | null
-  artist_name: string | null
-  agency_name: string | null
-  status_label: string | null
 }
 
 interface OwnershipResponse {
@@ -37,7 +28,7 @@ interface OwnershipResponse {
   items: OwnershipItem[]
 }
 
-const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, setDinaId }: CollectionScreenProps) => {
+const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }: CollectionScreenProps) => {
   const { t } = useTranslation()
 
   const [items, setItems] = useState<OwnershipItem[]>([])
@@ -54,7 +45,7 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   const [sellError, setSellError] = useState<string | null>(null)
   const [sellSuccess, setSellSuccess] = useState(false)
 
-  void ownerId
+  void ownerId  // 미사용 경고 방지
 
   useEffect(() => {
     const fetchCollection = async () => {
@@ -94,23 +85,9 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
     })
   }
 
-  // display_image_key → 소비자 접근 가능한 URL 생성
-  // 현재 R2 직접 URL (추후 CDN 도메인으로 교체 가능)
-  const getDisplayImageUrl = (item: OwnershipItem): string | null => {
-    if (!item.display_image_key) return null
-    return `${R2_BASE_URL}/${item.display_image_key}`
-  }
-
-  const getSeriesName = (item: OwnershipItem) => item.series_name ?? '-'
-  const getArtistName = (item: OwnershipItem) => item.artist_name ?? '-'
-  const getAgencyName = (item: OwnershipItem) => item.agency_name ?? '-'
-  const getStatusLabel = (item: OwnershipItem) => item.status_label ?? item.ownership_status ?? '-'
-
-  const handlePhysicalVerify = (item: OwnershipItem) => {
-    if (!item.dina_id) return
-    setDinaId(item.dina_id)
-    navigateToScreen('sizeSelect')
-  }
+  const getDisplayName = (item: OwnershipItem) => item.series_id || item.asset_id || '-'
+  const getArtistName = () => '-'
+  const getAgencyName = () => '-'
 
   const handleSell = async () => {
     if (!price || isNaN(Number(price)) || Number(price) <= 0) {
@@ -154,30 +131,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   const labelStyle = { color: '#a78bfa', fontSize: '12px' }
   const valueStyle = { color: 'rgba(255,255,255,0.85)', fontSize: '14px' }
 
-  // 썸네일 컴포넌트 (목록용)
-  const CardThumbnail = ({ item, width, height }: { item: OwnershipItem; width: number; height: number }) => {
-    const displayImageUrl = getDisplayImageUrl(item)
-    if (displayImageUrl) {
-      return (
-        <img
-          src={displayImageUrl}
-          alt={getSeriesName(item)}
-          style={{ width: `${width}px`, height: `${height}px`, borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-        />
-      )
-    }
-    return (
-      <div style={{ width: `${width}px`, height: `${height}px`, borderRadius: '8px', background: 'rgba(255,255,255,0.05)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="3" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-          <circle cx="9" cy="10" r="2.5" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-          <path d="M3 17l5-4 4 3 3-2 6 3" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinejoin="round" />
-        </svg>
-      </div>
-    )
-  }
-
   if (showSellModal && selectedItem) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', boxSizing: 'border-box' }}>
@@ -204,9 +157,9 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
         ) : (
           <>
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '16px', marginBottom: '24px' }}>
-              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>{getAgencyName(selectedItem)}</p>
-              <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '15px', fontWeight: '500', marginBottom: '4px' }}>{getSeriesName(selectedItem)}</p>
-              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>{getArtistName(selectedItem)}</p>
+              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>{getAgencyName()}</p>
+              <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '15px', fontWeight: '500', marginBottom: '4px' }}>{getDisplayName(selectedItem)}</p>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>{getArtistName()}</p>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
@@ -263,7 +216,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   }
 
   if (selectedItem) {
-    const displayImageUrl = getDisplayImageUrl(selectedItem)
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
@@ -273,40 +225,30 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
           <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px', fontWeight: '500' }}>{t('collection.detailTitle')}</span>
         </div>
 
-        {/* 상세 이미지 영역 — display_image_url 있으면 실제 이미지, 없으면 SVG fallback */}
-        <div style={{ width: '100%', aspectRatio: '3/4', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-          {displayImageUrl ? (
-            <img
-              src={displayImageUrl}
-              alt={getSeriesName(selectedItem)}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '16px' }}
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
-          ) : (
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-              <rect x="3" y="3" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-              <circle cx="9" cy="10" r="2.5" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-              <path d="M3 17l5-4 4 3 3-2 6 3" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          )}
+        <div style={{ width: '100%', aspectRatio: '3/4', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+            <circle cx="9" cy="10" r="2.5" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+            <path d="M3 17l5-4 4 3 3-2 6 3" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinejoin="round" />
+          </svg>
         </div>
 
         <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={labelStyle}>{t('collection.agency')}</span>
-            <span style={valueStyle}>{getAgencyName(selectedItem)}</span>
+            <span style={valueStyle}>{getAgencyName()}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={labelStyle}>{t('collection.series')}</span>
-            <span style={valueStyle}>{getSeriesName(selectedItem)}</span>
+            <span style={valueStyle}>{getDisplayName(selectedItem)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={labelStyle}>{t('collection.artist')}</span>
-            <span style={valueStyle}>{getArtistName(selectedItem)}</span>
+            <span style={valueStyle}>{getArtistName()}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={labelStyle}>{t('collection.status')}</span>
-            <span style={{ color: '#4ade80', fontSize: '14px', fontWeight: '500' }}>{getStatusLabel(selectedItem)}</span>
+            <span style={{ color: '#4ade80', fontSize: '14px', fontWeight: '500' }}>{selectedItem.ownership_status}</span>
           </div>
         </div>
 
@@ -340,14 +282,6 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
         )}
 
         <div style={{ marginTop: 'auto', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {selectedItem.dina_id && (
-            <button
-              onClick={() => handlePhysicalVerify(selectedItem)}
-              style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', cursor: 'pointer', fontWeight: '500' }}
-            >
-              정품인증 (카메라)
-            </button>
-          )}
           {selectedItem.ownership_status === 'CLAIMED' && (
             <button
               onClick={() => {
@@ -418,20 +352,12 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
             <circle cx="9" cy="10" r="2.5" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
             <path d="M3 17l5-4 4 3 3-2 6 3" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" strokeLinejoin="round" />
           </svg>
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '14px', lineHeight: '1.6', marginBottom: '8px' }}>
-              아직 인증된 카드가 없습니다.
-            </p>
-            <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '12px', lineHeight: '1.6' }}>
-              정품 인증을 완료하면 내 컬렉션에 자동 저장됩니다.
-            </p>
-          </div>
-          <button
-            onClick={() => navigateToScreen('certSelect')}
-            style={{ marginTop: '8px', padding: '12px 24px', borderRadius: '14px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: '14px', fontWeight: '400', cursor: 'pointer', letterSpacing: '0.04em' }}
-          >
-            정품 인증하기
-          </button>
+          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '14px', textAlign: 'center', lineHeight: '1.6' }}>
+            아직 등록된 컬렉션이 없습니다.<br />
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)' }}>
+              GeoCapsule을 열고 ORIGINAL 검증을<br />완료하면 My Collection에 저장됩니다.
+            </span>
+          </p>
         </div>
       )}
 
@@ -443,15 +369,21 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
               onClick={() => setSelectedItem(item)}
               style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left' }}
             >
-              <CardThumbnail item={item} width={48} height={64} />
+              <div style={{ width: '48px', height: '64px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+                  <circle cx="9" cy="10" r="2.5" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+                  <path d="M3 17l5-4 4 3 3-2 6 3" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinejoin="round" />
+                </svg>
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '2px' }}>{getAgencyName(item)}</p>
+                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '2px' }}>{getAgencyName()}</p>
                 <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '14px', fontWeight: '500', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {getSeriesName(item)}
+                  {getDisplayName(item)}
                 </p>
-                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', marginBottom: '6px' }}>{getArtistName(item)}</p>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', marginBottom: '6px' }}>{getArtistName()}</p>
                 <span style={{ color: '#4ade80', fontSize: '11px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: '4px', padding: '2px 6px' }}>
-                  {getStatusLabel(item)}
+                  {item.ownership_status}
                 </span>
               </div>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>

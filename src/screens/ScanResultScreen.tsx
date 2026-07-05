@@ -1,182 +1,267 @@
-import { useState } from 'react'
+// ScanResultScreen.tsx
+// LC-UI-001 (2026-07-05): Unclaimed 한글화 + DINA → artist_name 표시 + 노란색 컬러
+
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Device } from '@capacitor/device'
-import { API_BASE_URL } from '../api/client'
 import type { ScanResultScreenProps } from '../types/app.types'
+
+const NEO_API_BASE = 'https://neo-api.artionchain.com/api/geocam'
 
 const ScanResultScreen = ({
   safeGoHome,
-  safeGoScan,
+  BackArrow,
   processing,
   scanResultInfo,
   dinaId,
   networkError,
   setScanResultInfo,
+  navigateToScreen,
 }: ScanResultScreenProps) => {
   const { t } = useTranslation()
   const [claiming, setClaiming] = useState(false)
+  const [artistName, setArtistName] = useState<string | null>(null)
+  const [seriesName, setSeriesName] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!dinaId) return
+    const fetchMeta = async () => {
+      try {
+        const res = await fetch(`${NEO_API_BASE}/scan/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dina_id: dinaId }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setArtistName(data.artist_name || null)
+          setSeriesName(data.series_name || null)
+        }
+      } catch {}
+    }
+    fetchMeta()
+  }, [dinaId])
 
   const handleClaim = async () => {
-    if (!dinaId || claiming) return
+    if (!dinaId) return
     setClaiming(true)
-
     try {
-      const deviceInfo = await Device.getId()
-      const deviceId = deviceInfo.identifier
-
-      const response = await fetch(`${API_BASE_URL}/geocam/register`, {
+      const response = await fetch(`${NEO_API_BASE}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dina_id: dinaId,
-          signature: 'qr-claim',
-          device_fingerprint: deviceId,
-        })
+        }),
       })
-
       const result = await response.json()
-
       if (response.ok && result.status === 'CLAIMED') {
         setScanResultInfo({ status: 'CLAIMED', message: undefined })
-      } else if (result.error === 'ALREADY_CLAIMED') {
-        setScanResultInfo({ status: 'ALREADY_CLAIMED', message: t('register.alreadyMessage') })
+      } else if (result.status === 'CLAIMED') {
+        setScanResultInfo({ status: 'ALREADY_CLAIMED', message: undefined })
       } else {
-        setScanResultInfo({ status: 'ERROR', message: result.message || t('error.claimFailed') })
+        setScanResultInfo({ status: 'ERROR', message: result.message || result.error })
       }
-    } catch (err) {
-      console.error('[CLAIM] Error:', err)
+    } catch {
       setScanResultInfo({ status: 'ERROR', message: t('error.network') })
     } finally {
       setClaiming(false)
     }
   }
 
-  if (processing || !scanResultInfo) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0c', padding: '20px' }}>
-        <div style={{ width: '120px', height: '120px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '32px' }}>
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none" style={{ animation: 'spin 1.2s linear infinite' }}>
-            <circle cx="28" cy="28" r="24" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-            <path d="M28 4 A24 24 0 0 1 52 28" stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-        </div>
-        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '16px', fontWeight: '400' }}>{t('common.checking')}</p>
-        {dinaId && (
-          <div style={{ marginTop: '32px', padding: '16px 24px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '6px', letterSpacing: '0.05em' }}>DINA</p>
-            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '15px', fontFamily: 'monospace', letterSpacing: '0.08em', margin: 0 }}>{dinaId}</p>
-          </div>
-        )}
-        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-      </div>
-    )
-  }
+  const displayName = artistName || seriesName || dinaId || '-'
 
   const getStatusConfig = () => {
-    const status = scanResultInfo.status
+    const status = scanResultInfo?.status
 
     if (status === 'UNCLAIMED') {
       return {
-        color: '#60a5fa', bgColor: 'rgba(96, 165, 250, 0.08)',
-        title: t('result.unclaimed'), subtitle: t('result.unclaimedDesc'), showClaimButton: true,
+        iconColor: '#fbbf24',
+        iconBg: 'rgba(251,191,36,0.15)',
+        borderColor: 'rgba(251,191,36,0.4)',
         icon: (
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-            <circle cx="32" cy="32" r="30" stroke="#60a5fa" strokeWidth="2.5" />
-            <path d="M32 20v12" stroke="#60a5fa" strokeWidth="3" strokeLinecap="round" />
-            <path d="M26 32l6 6 6-6" stroke="#60a5fa" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="32" cy="46" r="2" fill="#60a5fa" />
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="18" stroke="#fbbf24" strokeWidth="2.5" />
+            <path d="M24 14v12M24 32h.01" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
           </svg>
-        )
+        ),
+        title: '최초 인증 대기',
+        subtitle: '공식 발행 기록이 확인되었습니다.\n인증하기를 눌러 최초 인증을 완료하세요.',
+        titleColor: '#fbbf24',
+        showClaim: true,
       }
     }
 
     if (status === 'CLAIMED') {
       return {
-        color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
-        title: t('result.valid'), subtitle: t('result.validDescShort'), showClaimButton: false,
+        iconColor: '#4ade80',
+        iconBg: 'rgba(74,222,128,0.1)',
+        borderColor: 'rgba(74,222,128,0.3)',
         icon: (
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-            <circle cx="32" cy="32" r="30" stroke="#4ade80" strokeWidth="2.5" />
-            <path d="M20 32l8 8 16-16" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="18" stroke="#4ade80" strokeWidth="2.5" />
+            <path d="M15 24l6 6 12-12" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        )
+        ),
+        title: '인증완료',
+        subtitle: '최초 인증이 완료되었습니다.',
+        titleColor: '#4ade80',
+        showClaim: false,
       }
     }
 
     if (status === 'PENDING' || status === 'ALREADY_CLAIMED') {
       return {
-        color: '#fbbf24', bgColor: 'rgba(251, 191, 36, 0.08)',
-        title: status === 'ALREADY_CLAIMED' ? t('register.alreadyTitle') : t('result.cautionNeeded'),
-        subtitle: status === 'ALREADY_CLAIMED' ? t('register.alreadyMessage') : t('result.cautionNeededDesc'),
-        showClaimButton: false,
+        iconColor: '#a78bfa',
+        iconBg: 'rgba(167,139,250,0.1)',
+        borderColor: 'rgba(167,139,250,0.3)',
         icon: (
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-            <circle cx="32" cy="32" r="30" stroke="#fbbf24" strokeWidth="2.5" />
-            <path d="M32 20v16" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="32" cy="44" r="2.5" fill="#fbbf24" />
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="18" stroke="#a78bfa" strokeWidth="2.5" />
+            <path d="M15 24l6 6 12-12" stroke="#a78bfa" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        )
+        ),
+        title: status === 'ALREADY_CLAIMED' ? t('register.alreadyClaimed') : t('register.pending'),
+        subtitle: status === 'ALREADY_CLAIMED' ? t('register.alreadyClaimedDesc') : t('register.pendingDesc'),
+        titleColor: '#a78bfa',
+        showClaim: false,
       }
     }
 
+    if (status === 'ERROR') {
+      return {
+        iconColor: '#f87171',
+        iconBg: 'rgba(248,113,113,0.1)',
+        borderColor: 'rgba(248,113,113,0.3)',
+        icon: (
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="18" stroke="#f87171" strokeWidth="2.5" />
+            <path d="M16 16l16 16M32 16L16 32" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        ),
+        title: t('register.error'),
+        subtitle: scanResultInfo?.message || t('register.errorDesc'),
+        titleColor: '#f87171',
+        showClaim: false,
+      }
+    }
+
+    // 기본 (로딩 중 or null)
     return {
-      color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
-      title: networkError ? t('result.networkError') : t('result.verifyFailed'),
-      subtitle: networkError ? t('result.networkErrorDesc') : scanResultInfo.message || t('result.verifyFailedDesc'),
-      showClaimButton: false,
+      iconColor: '#fbbf24',
+      iconBg: 'rgba(251,191,36,0.15)',
+      borderColor: 'rgba(251,191,36,0.4)',
       icon: (
-        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-          <circle cx="32" cy="32" r="30" stroke="#f87171" strokeWidth="2.5" />
-          <path d="M22 22l20 20M42 22l-20 20" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <circle cx="24" cy="24" r="18" stroke="#fbbf24" strokeWidth="2.5" />
+          <path d="M24 14v14" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+          <circle cx="24" cy="34" r="2" fill="#fbbf24" />
         </svg>
-      )
+      ),
+      title: '최초 인증 대기',
+      subtitle: '공식 발행 기록이 확인되었습니다.\n인증하기를 눌러 최초 인증을 완료하세요.',
+      titleColor: '#fbbf24',
+      showClaim: true,
     }
   }
 
   const config = getStatusConfig()
 
+  if (processing) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0c', padding: '20px' }}>
+        <div style={{ width: '48px', height: '48px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#a78bfa', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px', marginTop: '16px' }}>확인 중...</p>
+      </div>
+    )
+  }
+
+  if (networkError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0c', padding: '20px', gap: '16px' }}>
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" stroke="rgba(248,113,113,0.4)" strokeWidth="1.5" />
+          <path d="M12 8v5M12 16h.01" stroke="#f87171" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px', textAlign: 'center' }}>{t('error.network')}</p>
+        <button onClick={safeGoHome} style={{ padding: '12px 24px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', fontSize: '14px', cursor: 'pointer' }}>
+          홈으로
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '24px', paddingTop: 'max(60px, env(safe-area-inset-top))' }}>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: '140px', height: '140px', borderRadius: '50%', background: config.bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '32px' }}>
-          {config.icon}
-        </div>
-        <h1 style={{ color: config.color, fontSize: '28px', fontWeight: '600', marginBottom: '12px', letterSpacing: '-0.02em' }}>
-          {config.title}
-        </h1>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '15px', textAlign: 'center', maxWidth: '280px', lineHeight: '1.6', marginBottom: '32px' }}>
-          {config.subtitle}
-        </p>
-        {dinaId && (
-          <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', marginBottom: '24px' }}>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', marginBottom: '6px', letterSpacing: '0.05em' }}>DINA</p>
-            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '15px', fontFamily: 'monospace', letterSpacing: '0.08em', margin: 0 }}>{dinaId}</p>
-          </div>
-        )}
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', padding: '20px', paddingTop: 'max(48px, env(safe-area-inset-top))', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', boxSizing: 'border-box' }}>
+
+      {/* 상단 뒤로가기 */}
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '32px' }}>
+        <button onClick={safeGoHome} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+          <BackArrow />
+        </button>
       </div>
 
-      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', textAlign: 'center', lineHeight: '1.5', marginBottom: '24px', padding: '0 16px' }}>
-        {t('common.disclaimer')}
-      </p>
+      {/* 중앙 콘텐츠 */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '24px' }}>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-        {config.showClaimButton && (
+        {/* 아이콘 */}
+        <div style={{ width: '120px', height: '120px', borderRadius: '50%', background: config.iconBg, border: `2px solid ${config.borderColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {config.icon}
+        </div>
+
+        {/* 타이틀 */}
+        <h1 style={{ color: config.titleColor, fontSize: '28px', fontWeight: '700', margin: 0, textAlign: 'center' }}>
+          {config.title}
+        </h1>
+
+        {/* 서브타이틀 */}
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', textAlign: 'center', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-line' }}>
+          {config.subtitle}
+        </p>
+
+        {/* 아티스트명 카드 */}
+        <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '16px 32px', textAlign: 'center', minWidth: '200px' }}>
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', letterSpacing: '0.1em', marginBottom: '6px' }}>
+            {artistName ? 'ARTIST' : seriesName ? 'SERIES' : 'DINA'}
+          </p>
+          <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '18px', fontWeight: '600', margin: 0 }}>
+            {displayName}
+          </p>
+        </div>
+
+      </div>
+
+      {/* 하단 버튼 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
+
+        {config.showClaim && (
           <button
             onClick={handleClaim}
             disabled={claiming}
-            style={{ width: '100%', padding: '18px', borderRadius: '14px', fontSize: '18px', fontWeight: '600', background: claiming ? 'rgba(96, 165, 250, 0.3)' : 'linear-gradient(135deg, #60a5fa, #3b82f6)', border: 'none', color: '#fff', cursor: claiming ? 'not-allowed' : 'pointer', transition: 'all 0.2s ease' }}
+            style={{ width: '100%', padding: '16px', borderRadius: '14px', background: claiming ? 'rgba(167,139,250,0.3)' : '#a78bfa', border: 'none', color: 'white', fontSize: '16px', fontWeight: '600', cursor: claiming ? 'not-allowed' : 'pointer' }}
           >
-            {claiming ? t('claim.processing') : t('claim.button')}
+            {claiming ? '인증 중...' : '인증하기'}
           </button>
         )}
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={safeGoScan} style={{ flex: 1, padding: '16px', borderRadius: '14px', fontSize: '16px', fontWeight: '500', background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.9)', cursor: 'pointer' }}>
-            {t('common.scanAgain')}
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={() => navigateToScreen('scanner')}
+            style={{ flex: 1, padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', fontSize: '15px', cursor: 'pointer' }}
+          >
+            다시 스캔
           </button>
-          <button onClick={safeGoHome} style={{ flex: 1, padding: '16px', borderRadius: '14px', fontSize: '16px', fontWeight: '400', background: 'rgba(255,255,255,0.03)', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>
-            {t('common.home')}
+          <button
+            onClick={safeGoHome}
+            style={{ flex: 1, padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', fontSize: '15px', cursor: 'pointer' }}
+          >
+            홈
           </button>
         </div>
+
+        <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px', textAlign: 'center', marginTop: '4px' }}>
+          LegitTag은 공식 발행 기록을 기반으로 검증 정보를 제공합니다.
+        </p>
+
       </div>
     </div>
   )

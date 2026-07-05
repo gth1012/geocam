@@ -1,9 +1,7 @@
 import type { AuthLandingScreenProps } from '../types/app.types'
 
 // Auth UX 리팩 v2.0 (2026-06-22)
-// 비로그인 사용자 전용 첫 화면
-// 로그인 = 퍼플 액센트 / 회원가입 = 골드 액센트
-// SNS = 미니 심볼 가로 배치 (고급 라인 스타일)
+// UI/UX 리팩 v3.4 (2026-06-28) — LT-LOGIN-002 액션 버튼 고급화
 
 const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
 
@@ -16,137 +14,140 @@ const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
       minHeight: '100vh',
       display: 'flex',
       flexDirection: 'column',
-      justifyContent: 'space-between',
+      justifyContent: 'center',
       alignItems: 'center',
       padding: '0 32px',
-      paddingTop: 'max(64px, env(safe-area-inset-top))',
+      paddingTop: 'max(48px, env(safe-area-inset-top))',
       paddingBottom: 'max(40px, env(safe-area-inset-bottom))',
       backgroundColor: '#0a0a0c',
       boxSizing: 'border-box',
     }}>
 
-      {/* ── 상단: 로고 + 문구 ── */}
-      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+      {/* 상단: 심볼 + 브랜드 텍스트 */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingBottom: '40px',
+      }}>
+        <svg width="85" height="95" viewBox="0 0 180 200" style={{ marginBottom: '20px' }}>
+          <defs>
+            <radialGradient id="bgGlow2" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#4c1d95" stopOpacity="0.5"/>
+              <stop offset="100%" stopColor="#0a0a0c" stopOpacity="0"/>
+            </radialGradient>
+            <radialGradient id="centerGlow2" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#c4b5fd" stopOpacity="0.8"/>
+              <stop offset="100%" stopColor="#7c3aed" stopOpacity="0"/>
+            </radialGradient>
+          </defs>
+          <ellipse cx="90" cy="95" rx="85" ry="85" fill="url(#bgGlow2)"/>
+          <polygon points="90,18 148,51 148,117 90,150 32,117 32,51"
+            fill="none" stroke="#3b0764" strokeWidth="16" strokeLinejoin="round"/>
+          <polygon points="90,18 148,51 148,117 90,150 32,117 32,51"
+            fill="none" stroke="#6d28d9" strokeWidth="8" strokeLinejoin="round" opacity="0.6"/>
+          <polygon points="90,18 148,51 148,117 90,150 32,117 32,51"
+            fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinejoin="round" opacity="0.95"/>
+          <polygon points="90,18 148,51 148,117 90,150 32,117 32,51"
+            fill="none" stroke="#e9d5ff" strokeWidth="0.8" strokeLinejoin="round" opacity="0.5"/>
+          <circle cx="90" cy="84" r="42" fill="url(#centerGlow2)" opacity="0.35"/>
+          <circle cx="90" cy="84" r="24" fill="#2e1065" opacity="0.9"/>
+          <circle cx="90" cy="84" r="16" fill="#5b21b6" opacity="0.7"/>
+          <circle cx="90" cy="84" r="10" fill="#a78bfa" opacity="0.95"/>
+          <circle cx="90" cy="84" r="5"  fill="#ddd6fe"/>
+          <circle cx="90" cy="84" r="2.5" fill="#ffffff"/>
+        </svg>
 
-        {/* 심볼 로고 */}
-        <div style={{ width: '72px', height: '72px' }}>
-          <svg viewBox="0 0 1024 1024" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <filter id="auth-glow">
-                <feGaussianBlur stdDeviation="6" result="blur"/>
-                <feMerge>
-                  <feMergeNode in="blur"/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
-              <filter id="auth-dotglow">
-                <feGaussianBlur stdDeviation="8" result="blur"/>
-                <feMerge>
-                  <feMergeNode in="blur"/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
-            </defs>
-            <path
-              d="M 512 175 L 772 322 Q 802 338 802 372 L 802 652 Q 802 686 772 702 L 512 849 Q 482 865 452 849 L 192 702 Q 162 686 162 652 L 162 372 Q 162 338 192 322 L 452 175 Q 482 159 512 175 Z"
-              fill="none"
-              stroke="rgba(200,202,210,0.82)"
-              strokeWidth="9"
-              filter="url(#auth-glow)"
-            />
-            <circle
-              cx="512"
-              cy="512"
-              r="46"
-              fill="rgba(235,237,245,0.95)"
-              filter="url(#auth-dotglow)"
-            />
-          </svg>
-        </div>
-
-        <h1 style={{
-          fontSize: '1.85rem',
-          fontWeight: '200',
-          letterSpacing: '0.15em',
-          color: 'rgba(255,255,255,0.9)',
-          margin: '0',
+        <p style={{
+          fontSize: '17px',
+          fontWeight: '300',
+          letterSpacing: '0.35em',
+          color: 'rgba(167,139,250,0.7)',
+          margin: '0 0 4px 0',
+          textTransform: 'uppercase',
         }}>
           Legit Tag
-        </h1>
-
-        <p style={{
-          color: 'rgba(255,255,255,0.55)',
-          fontSize: '14px',
-          fontWeight: '300',
-          letterSpacing: '0.02em',
-          lineHeight: '1.6',
-          margin: '0',
-        }}>
-          정품 인증과 컬렉션 관리를 시작하세요
         </p>
-
         <p style={{
-          color: 'rgba(255,255,255,0.2)',
-          fontSize: '11px',
+          fontSize: '9px',
           fontWeight: '300',
-          lineHeight: '1.7',
+          letterSpacing: '0.25em',
+          color: 'rgba(124,58,237,0.45)',
           margin: '0',
-          maxWidth: '260px',
+          textTransform: 'uppercase',
         }}>
-          로그인 후 Digital Verify, Camera, QR Scan,{'\n'}
-          Gallery, My Collection을 사용할 수 있습니다.
+          AUTHENTIC GOODS GATEWAY
         </p>
       </div>
 
-      {/* ── 중앙: 메인 버튼 + SNS ── */}
-      <div style={{ width: '100%', maxWidth: '300px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* 하단: 액션 영역 */}
+      <div style={{
+        width: '100%',
+        maxWidth: '300px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        paddingBottom: '16px',
+      }}>
 
-        {/* 로그인 — 퍼플 액센트 */}
+        {/* 로그인 버튼 — 메인 액션 */}
         <button
           onClick={() => navigateToScreen('login')}
           style={{
             width: '100%',
-            padding: '15px',
-            borderRadius: '14px',
-            background: 'rgba(167,139,250,0.10)',
-            border: '1px solid rgba(167,139,250,0.30)',
+            padding: '13px',
+            borderRadius: '12px',
+            background: 'rgba(167,139,250,0.08)',
+            border: '1px solid rgba(167,139,250,0.28)',
             color: '#a78bfa',
-            fontSize: '15px',
-            fontWeight: '400',
+            fontSize: '14px',
+            fontWeight: '300',
             cursor: 'pointer',
-            letterSpacing: '0.05em',
+            letterSpacing: '0.06em',
           }}
         >
           로그인
         </button>
 
-        {/* 회원가입 — 골드 액센트 */}
-        <button
-          onClick={() => navigateToScreen('register')}
-          style={{
-            width: '100%',
-            padding: '15px',
-            borderRadius: '14px',
-            background: 'rgba(251,191,36,0.08)',
-            border: '1px solid rgba(251,191,36,0.25)',
-            color: '#fbbf24',
-            fontSize: '15px',
-            fontWeight: '400',
-            cursor: 'pointer',
-            letterSpacing: '0.05em',
-          }}
-        >
-          회원가입
-        </button>
+        {/* 회원가입 텍스트 링크 */}
+        <div style={{ textAlign: 'center', padding: '4px 0' }}>
+          <span style={{
+            color: 'rgba(255,255,255,0.25)',
+            fontSize: '12px',
+            fontWeight: '300',
+            letterSpacing: '0.02em',
+          }}>
+            아직 계정이 없으신가요?{' '}
+          </span>
+          <button
+            onClick={() => navigateToScreen('register')}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '0',
+              color: 'rgba(251,191,36,0.75)',
+              fontSize: '12px',
+              fontWeight: '400',
+              cursor: 'pointer',
+              letterSpacing: '0.02em',
+            }}
+          >
+            회원가입
+          </button>
+        </div>
 
         {/* 구분선 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 0' }}>
           <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
-          <span style={{ color: 'rgba(255,255,255,0.12)', fontSize: '10px', letterSpacing: '0.1em' }}>SNS</span>
+          <span style={{ color: 'rgba(255,255,255,0.1)', fontSize: '10px', fontWeight: '300', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+            또는 SNS로 계속하기
+          </span>
           <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
         </div>
 
-        {/* SNS 미니 심볼 — 라인 스타일 */}
+        {/* SNS 아이콘 */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
 
           {/* 카카오 */}
@@ -155,14 +156,14 @@ const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
             style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: 'transparent',
-              border: '1px solid rgba(254,229,0,0.35)',
+              border: '1px solid rgba(254,229,0,0.22)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer',
             }}
             aria-label="카카오로 시작하기"
           >
             <svg width="16" height="16" viewBox="0 0 24 24">
-              <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.7 1.7 5.1 4.3 6.5l-1.1 4 4.7-3.1c.7.1 1.4.2 2.1.2 5.523 0 10-3.477 10-7.8S17.523 3 12 3z" fill="rgba(254,229,0,0.7)"/>
+              <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.7 1.7 5.1 4.3 6.5l-1.1 4 4.7-3.1c.7.1 1.4.2 2.1.2 5.523 0 10-3.477 10-7.8S17.523 3 12 3z" fill="rgba(254,229,0,0.55)"/>
             </svg>
           </button>
 
@@ -172,10 +173,10 @@ const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
             style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.12)',
+              border: '1px solid rgba(255,255,255,0.08)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer',
-              opacity: 0.4,
+              opacity: 0.35,
             }}
             aria-label="구글로 시작하기 (준비중)"
           >
@@ -193,10 +194,10 @@ const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
             style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: 'transparent',
-              border: '1px solid rgba(3,199,90,0.25)',
+              border: '1px solid rgba(3,199,90,0.15)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer',
-              opacity: 0.4,
+              opacity: 0.35,
             }}
             aria-label="네이버로 시작하기 (준비중)"
           >
@@ -207,11 +208,11 @@ const AuthLandingScreen = ({ navigateToScreen }: AuthLandingScreenProps) => {
         </div>
       </div>
 
-      {/* ── 하단 ── */}
+      {/* 하단 */}
       <p style={{
-        color: 'rgba(255,255,255,0.12)',
-        fontSize: '10px',
-        letterSpacing: '0.15em',
+        color: 'rgba(255,255,255,0.08)',
+        fontSize: '9px',
+        letterSpacing: '0.2em',
         fontWeight: '300',
         margin: '0',
       }}>

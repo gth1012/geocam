@@ -1,0 +1,45 @@
+[33mcommit 684c9774f88567cb4de297556333216c7e099a46[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: GeoCam <geocam@local.dev>
+Date:   Thu Jun 25 00:16:48 2026 +0700
+
+    feat: layer2Debug 데이터 수집 + ResultScreen 디버그 표시
+
+[1mdiff --git a/src/App.tsx b/src/App.tsx[m
+[1mindex 162e030..47f8829 100644[m
+[1m--- a/src/App.tsx[m
+[1m+++ b/src/App.tsx[m
+[36m@@ -109,6 +109,7 @@[m [mfunction App() {[m
+   const [welcomeNickname, setWelcomeNickname] = useState<string | null>(null)[m
+   const [claimToken, setClaimToken] = useState<string | null>(null)[m
+   const [bundleClaimToken, setBundleClaimToken] = useState<string | null>(null)[m
+[32m+[m[32m  const [layer2Debug, setLayer2Debug] = useState<any>(null)[m
+ [m
+   // ─────────────────────────────────────────────[m
+   // 중앙 Auth Gate — 모든 화면 이동은 여기를 통과[m
+[36m@@ -367,7 +368,7 @@[m [mfunction App() {[m
+             <ClaimBundleScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} bundleClaimToken={bundleClaimToken} authToken={authToken} userId={userId} />[m
+           )}[m
+           {screen === 'camera' && ([m
+[31m-            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} />[m
+[32m+[m[32m            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} setLayer2Debug={setLayer2Debug} />[m
+           )}[m
+           {screen === 'qrScan' && ([m
+             <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />[m
+[36m@@ -376,7 +377,7 @@[m [mfunction App() {[m
+             <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} navigateToScreen={navigateToScreen} />[m
+           )}[m
+           {screen === 'result' && ([m
+[31m-            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />[m
+[32m+[m[32m            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} layer2Debug={layer2Debug} />[m
+           )}[m
+           {screen === 'records' && <RecordsScreen {...commonProps} />}[m
+           {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}[m
+[36m@@ -436,4 +437,6 @@[m [mfunction App() {[m
+   )[m
+ }[m
+ [m
+[31m-export default App[m
+\ No newline at end of file[m
+[32m+[m[32mexport default App[m
+[41m+[m
+[41m+[m

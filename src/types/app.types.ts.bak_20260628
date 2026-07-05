@@ -14,7 +14,6 @@ import type { ReactElement } from 'react'
 //   - 'scan' → 'qrScan' 명칭 통일 (설계서 기준)
 //   - 'collection' → 'myCollection' 명칭 통일 (설계서 기준)
 //   - 'register' 신규 추가 (기존 LoginScreen mode 전환 → Screen 상태 분리)
-//   - MainMenuScreenProps에 onLogout 추가 (2026-06-28)
 // ─────────────────────────────────────────────
 export type Screen =
   // 비로그인 허용
@@ -22,7 +21,6 @@ export type Screen =
   | 'login'
   | 'register'
   // 보호 화면
-  | 'sizeSelect'
   | 'mainMenu'
   | 'digitalVerify'
   | 'camera'
@@ -42,26 +40,6 @@ export type Screen =
   // 인증 서브 화면 (비로그인 허용)
   | 'registerPending'
 
-
-// LC-CAM-001 v3.3: 카드 사이즈 프로파일
-export type CardProfileId = 'STANDARD' | 'GOODS' | 'LARGE' | 'MINI_POST'
-
-export interface CardProfile {
-  id: CardProfileId
-  name: string
-  widthMm: number
-  heightMm: number
-  aspectHOverW: number
-}
-
-export const CARD_PROFILES: CardProfile[] = [
-  { id: 'STANDARD',  name: '표준형',      widthMm: 54,  heightMm: 85,  aspectHOverW: 85  / 54  },
-  { id: 'GOODS',     name: '굿즈형',       widthMm: 55,  heightMm: 85,  aspectHOverW: 85  / 55  },
-  { id: 'LARGE',     name: '대형',         widthMm: 70,  heightMm: 100, aspectHOverW: 100 / 70  },
-  { id: 'MINI_POST', name: '미니포스터형', widthMm: 100, heightMm: 150, aspectHOverW: 150 / 100 },
-]
-
-export const DEFAULT_CARD_PROFILE = CARD_PROFILES.find(p => p.id === 'GOODS')!
 export type ScanMode = 'camera' | 'scan'
 
 export type ScanStatus =
@@ -180,7 +158,6 @@ export interface MainMenuScreenProps {
   openGalleryPicker: () => Promise<void>
   BackArrow: () => ReactElement
   navigateToScreen: NavigateToScreen
-  onLogout: () => void
 }
 
 // HomeScreen props (미사용 — 컴파일 호환용 유지)
@@ -219,15 +196,7 @@ export interface ClaimBundleScreenProps {
   userId: string | null
 }
 
-export interface SizeSelectScreenProps {
-  safeGoHome: () => void
-  BackArrow: () => ReactElement
-  navigateToScreen: NavigateToScreen
-  onProfileSelected: (profile: CardProfile) => void
-}
-
 export interface CameraScreenProps extends ScreenProps {
-  selectedCardProfile: CardProfile
   sessionToken: string | null
   nonce: string | null
   dinaId: string | null

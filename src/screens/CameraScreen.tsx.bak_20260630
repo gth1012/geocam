@@ -1,10 +1,9 @@
-// CameraScreen.tsx v3.1
+// CameraScreen.tsx v3.0
 // LC-CAM-001 v3.3 LOCK
-// v3.1 변경: callDetectLayer2 → callDetectHybridV3 교체 (LC-CAM-HYBRID-001)
 // 변경: 엣지 기반 탐지 제거 → 가이드박스 고정 crop
-// 작성: 짱아 / 2026-06-30
+// 작성: 짱아 / 2026-06-28
 //
-// 금지: runPhysicalVerify/callDetectHybridV3/API엔드포인트/ENGINE좌표/threshold/strength 변경 금지
+// 금지: runPhysicalVerify/callDetectLayer2/API엔드포인트/ENGINE좌표/threshold/strength 변경 금지
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -39,7 +38,7 @@ const DEBUG_CROP_LOG          = true
 // API
 const GEO_API_BASE  = 'https://geo-api.artionchain.com/api'
 const NEO_API_BASE  = 'https://neo-api.artionchain.com/api'
-// const TEST_CANDIDATE = 'C'  // detect-layer2 전용 (deprecated)
+const TEST_CANDIDATE = 'C'
 
 type QualityState =
   | 'IDLE'
@@ -121,29 +120,11 @@ async function sha256Base64(dataUrl: string): Promise<string> {
   return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-// ─── callDetectHybridV3 (LC-CAM-HYBRID-001: detect-layer2 → detect-hybrid-v3) ──
-
-async function callDetectHybridV3(
+async function callDetectLayer2(
   roiDataUrl: string,
   dinaId: string,
-): Promise<{
-  verdict: 'PASS' | 'UNCERTAIN' | 'FAIL'
-  reason_code: string
-  scores: {
-    reference_delta_score: number | null
-    geocode_signal_score: number | null
-    pass_count: number | null
-    avg_score: number | null
-  }
-  alignment: {
-    angle_used: number | null
-    stage_used: number | null
-  }
-  debug?: {
-    elapsed_ms: number
-  }
-  message: string
-}> {
+  candidate: string,
+): Promise<{ verdict: string; avg_score: number; pass_count: number; total_valid: number }> {
   const base64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
@@ -152,15 +133,16 @@ async function callDetectHybridV3(
   const formData = new FormData()
   formData.append('image', blob, 'capture.png')
   formData.append('dina_id', dinaId || 'UNKNOWN')
-  const res = await fetch(`${GEO_API_BASE}/geocode/detect-hybrid-v3`, {
+  formData.append('candidate', candidate)
+  const res = await fetch(`${GEO_API_BASE}/geocode/detect-layer2`, {
     method: 'POST',
     body: formData,
   })
-  if (!res.ok) throw new Error(`detect-hybrid-v3 error: ${res.status}`)
+  if (!res.ok) throw new Error(`detect-layer2 error: ${res.status}`)
   return res.json()
 }
 
-// ─── CameraScreen v3.1 ────────────────────────────────────────────────────────
+// ─── CameraScreen v3.0 ────────────────────────────────────────────────────────
 
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData,
@@ -178,7 +160,6 @@ const CameraScreen = ({
   const captureLockedRef       = useRef(false)   // 중복 캡처 방지 (v3.3 LOCK)
   const qualityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stableCountRef         = useRef(0)
-  // physSessionRef — LC-004 NeoStudio 연결 시 재활성화 예정
   const physSessionRef         = useRef<{ scan_session_id: string; nonce: string; expires_at: string } | null>(null)
   const cameraViewRef          = useRef<HTMLDivElement>(null)
 
@@ -428,7 +409,6 @@ const CameraScreen = ({
   }, [cameraReady, capturing, guideBox]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Physical Verify ───────────────────────────────────────────────────────
-  // physSessionRef — LC-004 NeoStudio 연결 시 재활성화 예정
   const startPhysicalSession = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch(`${NEO_API_BASE}/geocam/physical/session/start`, {
@@ -453,33 +433,62 @@ const CameraScreen = ({
   const runPhysicalVerify = useCallback(async (roiDataUrl: string): Promise<void> => {
     setProcessing(true)
     try {
-      let verdict: PhysicalVerifyVerdict = 'INVALID'
-
+      let layer2Verdict = 'FAIL'
+      let layer2Score   = 0
       try {
-        // LC-CAM-HYBRID-001: detect-hybrid-v3 직접 판정
-        const hybridResult = await callDetectHybridV3(roiDataUrl, geocodeToken)
-
-        console.log('[HybridV3]',
-          hybridResult.verdict,
-          'reason:', hybridResult.reason_code,
-          'delta:', hybridResult.scores.reference_delta_score,
-          'signal:', hybridResult.scores.geocode_signal_score,
-          'pass:', hybridResult.scores.pass_count,
-          'angle:', hybridResult.alignment.angle_used,
-          'stage:', hybridResult.alignment.stage_used,
-          'elapsed:', hybridResult.debug?.elapsed_ms,
-        )
-
-        if (hybridResult.verdict === 'PASS')           verdict = 'PHYSICAL VERIFIED'
-        else if (hybridResult.verdict === 'UNCERTAIN') verdict = 'RETRY'
-        else                                            verdict = 'INVALID'
-
+        const layer2Result = await callDetectLayer2(roiDataUrl, geocodeToken, TEST_CANDIDATE)
+        layer2Verdict = layer2Result.verdict
+        layer2Score   = layer2Result.avg_score
+        console.log('[Layer2]', layer2Verdict, 'score:', layer2Score,
+          'pass:', layer2Result.pass_count, '/', layer2Result.total_valid)
       } catch (e) {
-        console.error('[HybridV3] detect error:', e)
-        verdict = 'INVALID'
+        console.error('[Layer2] detect error:', e)
+        layer2Verdict = 'FAIL'
       }
 
-      // NEO_API physical/verify — LC-004 NeoStudio 연결 시 재활성화 예정
+      if (!physSessionRef.current) {
+        await startPhysicalSession()
+      }
+
+      const session   = physSessionRef.current
+      const timestamp = new Date().toISOString()
+      const geocodeRegionHash  = await sha256Base64(roiDataUrl)
+      const geocodeRegionImage = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
+
+      let verdict: PhysicalVerifyVerdict = 'INVALID'
+
+      if (session) {
+        const res = await fetch(`${NEO_API_BASE}/geocam/physical/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scan_session_id:      session.scan_session_id,
+            nonce:                session.nonce,
+            timestamp,
+            geocode_token:        geocodeToken,
+            geocode_region_hash:  geocodeRegionHash,
+            geocode_region_image: geocodeRegionImage,
+            layer2_verdict:       layer2Verdict,
+            layer2_score:         layer2Score,
+            layer2_candidate:     TEST_CANDIDATE,
+          }),
+        })
+        physSessionRef.current = null
+
+        if (res.ok) {
+          const result = await res.json()
+          verdict = result.verdict || 'INVALID'
+        } else {
+          console.warn('[PhysicalVerify] NEO_API failed, using Layer2 result')
+          if (layer2Verdict === 'PASS' || layer2Verdict === 'TRACE') verdict = 'PHYSICAL VERIFIED'
+          else verdict = 'INVALID'
+        }
+      } else {
+        console.warn('[PhysicalVerify] no session, Layer2 only')
+        if (layer2Verdict === 'PASS' || layer2Verdict === 'TRACE')  verdict = 'PHYSICAL VERIFIED'
+        else if (layer2Verdict === 'INSUFFICIENT')                   verdict = 'RETRY'
+        else                                                          verdict = 'INVALID'
+      }
 
       console.log('[PhysicalVerify] final verdict:', verdict)
 
@@ -496,7 +505,7 @@ const CameraScreen = ({
       navigateToScreen('result')
     }
     setProcessing(false)
-  }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken])
+  }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken, startPhysicalSession])
 
   // ─── 수동 촬영 (항상 메인) ──────────────────────────────────────────────────
   const capturePhoto = useCallback(async () => {
@@ -769,3 +778,4 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+

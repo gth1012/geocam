@@ -1,0 +1,91 @@
+[1mdiff --git a/src/screens/CollectionScreen.tsx b/src/screens/CollectionScreen.tsx[m
+[1mindex 716d8e2..b343d8a 100644[m
+[1m--- a/src/screens/CollectionScreen.tsx[m
+[1m+++ b/src/screens/CollectionScreen.tsx[m
+[36m@@ -2,6 +2,8 @@[m
+ // ARTION-ARCH-005 기준[m
+ // 2026-06-19: MOCK 제거, GET /api/geocam/ownership/:ownerId 실제 연동[m
+ // Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen 교체[m
+[32m+[m[32m// UI/UX 리팩 v3.1 (2026-06-28): 빈 상태 문구 수정 (LT-UI-001)[m
+[32m+[m[32m// LC-003 (2026-07-01): Path B 구현 — setDinaId 추가, 정품인증 버튼[m
+ [m
+ import { useState, useEffect } from 'react'[m
+ import { useTranslation } from 'react-i18next'[m
+[36m@@ -28,7 +30,7 @@[m [minterface OwnershipResponse {[m
+   items: OwnershipItem[][m
+ }[m
+ [m
+[31m-const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }: CollectionScreenProps) => {[m
+[32m+[m[32mconst CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, setDinaId }: CollectionScreenProps) => {[m
+   const { t } = useTranslation()[m
+ [m
+   const [items, setItems] = useState<OwnershipItem[]>([])[m
+[36m@@ -45,7 +47,7 @@[m [mconst CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }[m
+   const [sellError, setSellError] = useState<string | null>(null)[m
+   const [sellSuccess, setSellSuccess] = useState(false)[m
+ [m
+[31m-  void ownerId  // 미사용 경고 방지[m
+[32m+[m[32m  void ownerId[m
+ [m
+   useEffect(() => {[m
+     const fetchCollection = async () => {[m
+[36m@@ -85,10 +87,16 @@[m [mconst CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }[m
+     })[m
+   }[m
+ [m
+[31m-  const getDisplayName = (item: OwnershipItem) => item.series_id || item.asset_id || '-'[m
+[32m+[m[32m  const getDisplayName = (item: OwnershipItem) => (item.dina_id ?? item.series_id ?? item.asset_id) ?? '-'[m
+   const getArtistName = () => '-'[m
+   const getAgencyName = () => '-'[m
+ [m
+[32m+[m[32m  const handlePhysicalVerify = (item: OwnershipItem) => {[m
+[32m+[m[32m    if (!item.dina_id) return[m
+[32m+[m[32m    setDinaId(item.dina_id)[m
+[32m+[m[32m    navigateToScreen('camera')[m
+[32m+[m[32m  }[m
+[32m+[m
+   const handleSell = async () => {[m
+     if (!price || isNaN(Number(price)) || Number(price) <= 0) {[m
+       setSellError(t('collection.errorInvalidPrice'))[m
+[36m@@ -282,6 +290,14 @@[m [mconst CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }[m
+         )}[m
+ [m
+         <div style={{ marginTop: 'auto', paddingBottom: 'max(60px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '10px' }}>[m
+[32m+[m[32m          {selectedItem.dina_id && ([m
+[32m+[m[32m            <button[m
+[32m+[m[32m              onClick={() => handlePhysicalVerify(selectedItem)}[m
+[32m+[m[32m              style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '15px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', cursor: 'pointer', fontWeight: '500' }}[m
+[32m+[m[32m            >[m
+[32m+[m[32m              정품인증 (카메라)[m
+[32m+[m[32m            </button>[m
+[32m+[m[32m          )}[m
+           {selectedItem.ownership_status === 'CLAIMED' && ([m
+             <button[m
+               onClick={() => {[m
+[36m@@ -352,12 +368,20 @@[m [mconst CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen }[m
+             <circle cx="9" cy="10" r="2.5" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />[m
+             <path d="M3 17l5-4 4 3 3-2 6 3" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" strokeLinejoin="round" />[m
+           </svg>[m
+[31m-          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '14px', textAlign: 'center', lineHeight: '1.6' }}>[m
+[31m-            아직 등록된 컬렉션이 없습니다.<br />[m
+[31m-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)' }}>[m
+[31m-              GeoCapsule을 열고 ORIGINAL 검증을<br />완료하면 My Collection에 저장됩니다.[m
+[31m-            </span>[m
+[31m-          </p>[m
+[32m+[m[32m          <div style={{ textAlign: 'center' }}>[m
+[32m+[m[32m            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '14px', lineHeight: '1.6', marginBottom: '8px' }}>[m
+[32m+[m[32m              아직 인증된 카드가 없습니다.[m
+[32m+[m[32m            </p>[m
+[32m+[m[32m            <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '12px', lineHeight: '1.6' }}>[m
+[32m+[m[32m              정품 인증을 완료하면 내 컬렉션에 자동 저장됩니다.[m
+[32m+[m[32m            </p>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <button[m
+[32m+[m[32m            onClick={() => navigateToScreen('certSelect')}[m
+[32m+[m[32m            style={{ marginTop: '8px', padding: '12px 24px', borderRadius: '14px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: '14px', fontWeight: '400', cursor: 'pointer', letterSpacing: '0.04em' }}[m
+[32m+[m[32m          >[m
+[32m+[m[32m            정품 인증하기[m
+[32m+[m[32m          </button>[m
+         </div>[m
+       )}[m
+ [m

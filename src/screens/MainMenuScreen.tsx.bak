@@ -1,0 +1,224 @@
+import { useTranslation } from 'react-i18next'
+import type { MainMenuScreenProps } from '../types/app.types'
+
+// Auth UX 리팩 v2.0 (2026-06-22)
+// UI/UX 리팩 v3.3 (2026-06-28) — 정품 인증하기 → certSelect 연결
+
+const MainMenuScreen = ({
+  safeGoHome,
+  safeGoCamera,
+  safeGoScan,
+  openGalleryPicker,
+  BackArrow,
+  navigateToScreen,
+  onLogout,
+}: MainMenuScreenProps) => {
+  const { t } = useTranslation()
+
+  const menuItems = [
+    {
+      label: '정품 인증하기',
+      sub: '굿즈 촬영으로 정품 여부를 확인하세요.',
+      onClick: () => navigateToScreen('certSelect'),
+      primary: true,
+      disabled: false,
+    },
+    {
+      label: '내 컬렉션',
+      sub: '정품 인증된 내 카드를 확인합니다.',
+      onClick: () => navigateToScreen('myCollection'),
+      primary: false,
+      disabled: false,
+    },
+    {
+      label: '판매등록',
+      sub: '인증 완료된 카드를 판매 등록합니다.',
+      onClick: () => {},
+      primary: false,
+      disabled: true,
+    },
+    {
+      label: '구매 인증 확인',
+      sub: '구매하려는 카드의 인증 상태를 확인합니다.',
+      onClick: () => navigateToScreen('qrScan'),
+      primary: false,
+      disabled: false,
+    },
+    {
+      label: '인증 기록',
+      sub: '내가 인증한 기록을 확인합니다.',
+      onClick: () => navigateToScreen('records'),
+      primary: false,
+      disabled: false,
+    },
+  ]
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      padding: '0 24px',
+      paddingTop: 'max(60px, env(safe-area-inset-top))',
+      paddingBottom: 'max(48px, env(safe-area-inset-bottom))',
+      backgroundColor: '#0a0a0c',
+      position: 'relative',
+      boxSizing: 'border-box',
+    }}>
+
+      {/* 설정 아이콘 */}
+      <button
+        onClick={() => navigateToScreen('settings')}
+        style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          background: 'none',
+          border: 'none',
+          color: 'rgba(255,255,255,0.3)',
+          fontSize: '20px',
+          cursor: 'pointer',
+          padding: '8px',
+          lineHeight: 1,
+        }}
+        aria-label="설정"
+      >
+        ⚙
+      </button>
+
+      {/* 로고 영역 */}
+      <div style={{ textAlign: 'center', marginBottom: '48px' }}>
+        <p style={{
+          fontSize: '9px',
+          letterSpacing: '0.45em',
+          color: 'rgba(255,255,255,0.18)',
+          fontWeight: '300',
+          marginBottom: '14px',
+          textTransform: 'uppercase',
+        }}>
+          K-pop Photocard Authentication
+        </p>
+        <h1 style={{
+          fontSize: '2.6rem',
+          fontWeight: '200',
+          letterSpacing: '0.2em',
+          color: '#a78bfa',
+          margin: '0',
+          lineHeight: 1,
+        }}>
+          Legit Tag
+        </h1>
+        <div style={{
+          width: '36px',
+          height: '1px',
+          background: 'linear-gradient(90deg, transparent, rgba(167,139,250,0.3), transparent)',
+          margin: '16px auto 0',
+        }} />
+      </div>
+
+      {/* 메뉴 버튼 리스트 */}
+      <div style={{
+        width: '100%',
+        maxWidth: '340px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+      }}>
+        {menuItems.map((item, idx) => (
+          <button
+            key={idx}
+            onClick={item.onClick}
+            disabled={item.disabled}
+            style={{
+              width: '100%',
+              padding: item.primary ? '20px 24px' : '16px 24px',
+              borderRadius: '18px',
+              background: item.primary
+                ? 'rgba(167,139,250,0.08)'
+                : item.disabled
+                  ? 'rgba(255,255,255,0.02)'
+                  : 'rgba(255,255,255,0.03)',
+              border: item.primary
+                ? '1px solid rgba(167,139,250,0.35)'
+                : item.disabled
+                  ? '1px solid rgba(255,255,255,0.04)'
+                  : '1px solid rgba(255,255,255,0.08)',
+              cursor: item.disabled ? 'default' : 'pointer',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px',
+              boxShadow: item.primary
+                ? '0 0 32px rgba(167,139,250,0.08), inset 0 1px 0 rgba(167,139,250,0.1)'
+                : 'none',
+            }}
+          >
+            <div style={{
+              fontSize: item.primary ? '15px' : '14px',
+              fontWeight: item.primary ? '400' : '300',
+              letterSpacing: '0.06em',
+              color: item.primary
+                ? '#a78bfa'
+                : item.disabled
+                  ? 'rgba(255,255,255,0.2)'
+                  : 'rgba(255,255,255,0.75)',
+              lineHeight: 1.3,
+            }}>
+              {item.label}
+            </div>
+            <div style={{
+              fontSize: '11px',
+              color: item.primary
+                ? 'rgba(167,139,250,0.5)'
+                : item.disabled
+                  ? 'rgba(255,255,255,0.12)'
+                  : 'rgba(255,255,255,0.3)',
+              fontWeight: '300',
+              letterSpacing: '0.01em',
+              lineHeight: 1.4,
+            }}>
+              {item.sub}
+            </div>
+          </button>
+        ))}
+
+        {/* 로그아웃 */}
+        <button
+          onClick={onLogout}
+          style={{
+            width: '100%',
+            padding: '14px 24px',
+            borderRadius: '18px',
+            background: 'rgba(239,68,68,0.05)',
+            border: '1px solid rgba(239,68,68,0.15)',
+            color: 'rgba(239,68,68,0.6)',
+            fontSize: '13px',
+            fontWeight: '300',
+            letterSpacing: '0.04em',
+            cursor: 'pointer',
+            marginTop: '4px',
+          }}
+        >
+          로그아웃
+        </button>
+      </div>
+
+      {/* 하단 Powered by */}
+      <p style={{
+        color: 'rgba(255,255,255,0.12)',
+        fontSize: '9px',
+        letterSpacing: '0.25em',
+        fontWeight: '300',
+        margin: '32px 0 0',
+        textTransform: 'uppercase',
+      }}>
+        Powered by Artion
+      </p>
+    </div>
+  )
+}
+
+export default MainMenuScreen

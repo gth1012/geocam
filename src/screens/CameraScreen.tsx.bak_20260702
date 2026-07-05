@@ -1,45 +1,58 @@
-// CameraScreen.tsx v3.1
-// LC-CAM-001 v3.3 LOCK
-// v3.1 변경: callDetectLayer2 → callDetectHybridV3 교체 (LC-CAM-HYBRID-001)
-// 변경: 엣지 기반 탐지 제거 → 가이드박스 고정 crop
+// CameraScreen.tsx v4.3
+// LC-CAM-001 v4.0 LOCK 기준 + v4.2 CardGate 재설계 + v4.3 CapacitorHttp 명시전환
 // 작성: 짱아 / 2026-06-30
 //
-// 금지: runPhysicalVerify/callDetectHybridV3/API엔드포인트/ENGINE좌표/threshold/strength 변경 금지
+// v4.0: AUTO_CAPTURE_ENABLED=false 복원, HybridVerifyResult 타입, resetCaptureLock()
+// v4.1: NeoStudio /physical/verify 경유로 전환
+// v4.2: RectGate 폐기 → CardGate 재설계 (LT-ARCH-001 §14.4)
+// v4.3 (2026-06-30, 빅보스 승인): startPhysicalSession/callPhysicalVerify를
+//   전역 fetch 대신 CapacitorHttp 플러그인 직접 호출로 전환.
+//   원인: capacitor.config.ts CapacitorHttp.enabled를 false로 내려서 QR 스캐너
+//   WASM 로딩을 살리는 대신, 이 두 호출은 명시적으로 네이티브 HTTP를 타도록 함.
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CapacitorHttp } from '@capacitor/core'
 import { API_BASE_URL } from '../api/client'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import type { CameraScreenProps } from '../types/app.types'
 
-// ─── 상수 (LC-CAM-001 v3.3 LOCK) ─────────────────────────────────────────────
+// ─── 상수 (LC-CAM-001 v4.0 LOCK §10) ─────────────────────────────────────────
 
-// 가이드박스 (자스팀장 AF 데이터 반영: 65% → 55%)
 const GUIDE_H_RATIO         = 0.55
 const GUIDE_W_MAX_RATIO     = 0.88
+const GUIDE_SAFE_AREA_RATIO = 0.94
 
-// 품질 체크
 const LIGHT_CHECK_INTERVAL_MS = 250
 const BRIGHTNESS_MIN          = 60
 const BRIGHTNESS_MAX          = 210
-const BLUR_MIN                = 25    // 실기 테스트 후 조정 가능
+const BLUR_MIN                = 25
 const GLARE_PIXEL_THRESHOLD   = 245
-const GLARE_MAX_RATIO         = 0.07  // 유광 포카 정상 2~4% + 여유 3%
+const GLARE_MAX_RATIO         = 0.07
 
-// 안정 프레임
-const STABLE_REQUIRED         = 5     // 250ms x 5 = 1.25초
+const STABLE_REQUIRED         = 4
 
-// 자동 캡처 (1차 실카 테스트: false 유지 — 수동 촬영으로 crop 정확도 먼저 검증)
-const AUTO_CAPTURE_ENABLED    = false
+const CARDGATE_PAD_RATIO            = 0.18
+const CARDGATE_SAMPLE_W             = 200
+const CARDGATE_EDGE_DELTA_MIN       = 14
+const CARDGATE_LINE_CONSISTENCY_MIN = 0.55
+const CARDGATE_ASPECT_TOLERANCE     = 0.18
+const CARDGATE_SIZE_MIN_RATIO       = 0.55
+const CARDGATE_SIZE_MAX_RATIO       = 1.35
+const CARDGATE_CENTER_TOLERANCE     = 0.20
+const CARDGATE_MIN_EDGES_FOUND      = 3
+const SKIN_BAND_RATIO_REJECT        = 0.55
+
+const AUTO_CAPTURE_ENABLED    = true
 const AUTO_CAPTURE_DELAY_MS   = 300
 
-// 디버그 (운영 빌드 시 false)
 const DEBUG_CROP_LOG          = true
 
-// API
 const GEO_API_BASE  = 'https://geo-api.artionchain.com/api'
 const NEO_API_BASE  = 'https://neo-api.artionchain.com/api'
-// const TEST_CANDIDATE = 'C'  // detect-layer2 전용 (deprecated)
+
+void GEO_API_BASE
+void AUTO_CAPTURE_DELAY_MS
 
 type QualityState =
   | 'IDLE'
@@ -50,6 +63,22 @@ type QualityState =
   | 'WARNING_GLARE'
   | 'WARNING_TOO_CLOSE'
   | 'WARNING_TOO_FAR'
+  | 'WARNING_CROPPED'
+
+interface PhysicalVerifyApiResult {
+  success: boolean
+  verdict: 'PHYSICAL VERIFIED' | 'RETRY' | 'INVALID'
+  hybrid_verdict?: 'PASS' | 'UNCERTAIN' | 'FAIL'
+  reason_code?: string
+  dina_id?: string
+  asset_public_id?: string
+  series_id?: string
+  verifyEventId?: string | null
+  canSaveToMyCollection?: boolean
+  canCreateListing?: boolean
+  message?: string
+  error?: string
+}
 
 type PhysicalVerifyVerdict = 'PHYSICAL VERIFIED' | 'RETRY' | 'INVALID'
 
@@ -102,6 +131,133 @@ function calcGlareRatio(imageData: ImageData): number {
   return glareCount / total
 }
 
+function isSkinPixel(r: number, g: number, b: number): boolean {
+  const y  =  0.299 * r + 0.587 * g + 0.114 * b
+  const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b
+  const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b
+  return cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173 && y > 60
+}
+
+interface CardGateResult {
+  ok: boolean
+  aspectOk: boolean
+  sizeOk: boolean
+  centerOk: boolean
+  skinReject: boolean
+  edgeFoundCount: number
+}
+
+function detectCardGate(
+  imageData: ImageData,
+  guideBoxInSample: { x: number; y: number; w: number; h: number },
+  searchRadiusPx: number,
+  expectedAspectHOverW: number,
+): CardGateResult {
+  const { width, height, data } = imageData
+
+  const gray = (x: number, y: number): number => {
+    const xi = Math.min(width - 1, Math.max(0, Math.round(x)))
+    const yi = Math.min(height - 1, Math.max(0, Math.round(y)))
+    const idx = (yi * width + xi) * 4
+    return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+  }
+
+  function searchEdge(
+    alongRange: [number, number],
+    expectedCross: number,
+    sampleAt: (cross: number, along: number) => number,
+  ): { pos: number; found: boolean } {
+    const ALONG_SAMPLES = 7
+    const candidates: number[] = []
+    const [alongFrom, alongTo] = alongRange
+
+    for (let s = 0; s < ALONG_SAMPLES; s++) {
+      const along = alongFrom + (alongTo - alongFrom) * (s + 0.5) / ALONG_SAMPLES
+      let bestDelta = 0
+      let bestPos = -1
+      const from = expectedCross - searchRadiusPx
+      const to   = expectedCross + searchRadiusPx
+      for (let c = from; c < to; c += 1) {
+        const v1 = sampleAt(c - 1.5, along)
+        const v2 = sampleAt(c + 1.5, along)
+        const delta = Math.abs(v2 - v1)
+        if (delta > bestDelta) {
+          bestDelta = delta
+          bestPos = c
+        }
+      }
+      if (bestDelta > CARDGATE_EDGE_DELTA_MIN) candidates.push(bestPos)
+    }
+
+    if (candidates.length < Math.ceil(ALONG_SAMPLES * 0.5)) {
+      return { pos: expectedCross, found: false }
+    }
+
+    const sorted = [...candidates].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    const closeCount = candidates.filter(p => Math.abs(p - median) <= searchRadiusPx * 0.3).length
+    const consistency = closeCount / ALONG_SAMPLES
+
+    return { pos: median, found: consistency >= CARDGATE_LINE_CONSISTENCY_MIN }
+  }
+
+  const { x: bx, y: by, w: bw, h: bh } = guideBoxInSample
+
+  const top    = searchEdge([bx, bx + bw], by,      (c, a) => gray(a, c))
+  const bottom = searchEdge([bx, bx + bw], by + bh,  (c, a) => gray(a, c))
+  const left   = searchEdge([by, by + bh], bx,       (c, a) => gray(c, a))
+  const right  = searchEdge([by, by + bh], bx + bw,  (c, a) => gray(c, a))
+
+  const edgeFoundCount = [top, bottom, left, right].filter(e => e.found).length
+
+  let aspectOk = false
+  let sizeOk = false
+  let centerOk = false
+
+  if (edgeFoundCount >= CARDGATE_MIN_EDGES_FOUND) {
+    const dTop    = top.found    ? top.pos    : by
+    const dBottom = bottom.found ? bottom.pos : by + bh
+    const dLeft   = left.found   ? left.pos   : bx
+    const dRight  = right.found  ? right.pos  : bx + bw
+
+    const dW = Math.max(1, dRight - dLeft)
+    const dH = Math.max(1, dBottom - dTop)
+
+    const aspect = dH / dW
+    aspectOk = Math.abs(aspect - expectedAspectHOverW) / expectedAspectHOverW <= CARDGATE_ASPECT_TOLERANCE
+
+    const sizeRatio = (dW * dH) / (bw * bh)
+    sizeOk = sizeRatio >= CARDGATE_SIZE_MIN_RATIO && sizeRatio <= CARDGATE_SIZE_MAX_RATIO
+
+    const cx = (dLeft + dRight) / 2
+    const cy = (dTop + dBottom) / 2
+    const boxCx = bx + bw / 2
+    const boxCy = by + bh / 2
+    const centerOffset = Math.hypot(cx - boxCx, cy - boxCy)
+    centerOk = centerOffset <= Math.max(bw, bh) * CARDGATE_CENTER_TOLERANCE
+  }
+
+  let skinCount = 0
+  let totalCount = 0
+  const stepX = Math.max(1, Math.floor((bw * 0.8) / 24))
+  const stepY = Math.max(1, Math.floor((bh * 0.8) / 24))
+  for (let y = by + bh * 0.1; y < by + bh * 0.9; y += stepY) {
+    for (let x = bx + bw * 0.1; x < bx + bw * 0.9; x += stepX) {
+      const xi = Math.min(width - 1, Math.round(x))
+      const yi = Math.min(height - 1, Math.round(y))
+      const idx = (yi * width + xi) * 4
+      if (isSkinPixel(data[idx], data[idx + 1], data[idx + 2])) skinCount++
+      totalCount++
+    }
+  }
+  const skinRatio = totalCount > 0 ? skinCount / totalCount : 0
+  const skinReject = skinRatio >= SKIN_BAND_RATIO_REJECT
+
+  const ok = edgeFoundCount >= CARDGATE_MIN_EDGES_FOUND && aspectOk && sizeOk && centerOk && !skinReject
+
+  return { ok, aspectOk, sizeOk, centerOk, skinReject, edgeFoundCount }
+}
+
 async function canvasToPngBase64(canvas: HTMLCanvasElement): Promise<string> {
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
@@ -121,46 +277,44 @@ async function sha256Base64(dataUrl: string): Promise<string> {
   return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-// ─── callDetectHybridV3 (LC-CAM-HYBRID-001: detect-layer2 → detect-hybrid-v3) ──
+// ─── callPhysicalVerify (v4.3: CapacitorHttp 플러그인 직접 호출) ─────────────
+// CapacitorHttp.enabled가 v4.3에서 false로 내려갔으므로, 전역 fetch는 더 이상
+// 가로채지지 않음(QR WASM 정상화). 이 호출만 명시적으로 네이티브 HTTP를 탄다.
+async function callPhysicalVerify(params: {
+  scanSessionId: string
+  nonce: string
+  geocodeToken: string
+  roiDataUrl: string
+  cardProfileId: string
+}): Promise<PhysicalVerifyApiResult> {
+  const { scanSessionId, nonce, geocodeToken, roiDataUrl, cardProfileId } = params
 
-async function callDetectHybridV3(
-  roiDataUrl: string,
-  dinaId: string,
-): Promise<{
-  verdict: 'PASS' | 'UNCERTAIN' | 'FAIL'
-  reason_code: string
-  scores: {
-    reference_delta_score: number | null
-    geocode_signal_score: number | null
-    pass_count: number | null
-    avg_score: number | null
-  }
-  alignment: {
-    angle_used: number | null
-    stage_used: number | null
-  }
-  debug?: {
-    elapsed_ms: number
-  }
-  message: string
-}> {
-  const base64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  const blob = new Blob([bytes], { type: 'image/png' })
-  const formData = new FormData()
-  formData.append('image', blob, 'capture.png')
-  formData.append('dina_id', dinaId || 'UNKNOWN')
-  const res = await fetch(`${GEO_API_BASE}/geocode/detect-hybrid-v3`, {
-    method: 'POST',
-    body: formData,
+  const roiHash = await sha256Base64(roiDataUrl)
+  const regionImage = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
+
+  const response = await CapacitorHttp.post({
+    url: `${NEO_API_BASE}/geocam/physical/verify`,
+    headers: { 'Content-Type': 'application/json' },
+    data: {
+      scan_session_id:      scanSessionId,
+      nonce,
+      timestamp:             new Date().toISOString(),
+      geocode_token:         geocodeToken,
+      geocode_region_hash:   roiHash,
+      geocode_region_image:  regionImage,
+      cardProfileId,
+    },
   })
-  if (!res.ok) throw new Error(`detect-hybrid-v3 error: ${res.status}`)
-  return res.json()
+
+  if (response.status < 200 || response.status >= 300) {
+    const errBody = response.data || {}
+    throw new Error(`physical/verify error: ${response.status} ${errBody?.error || ''}`)
+  }
+
+  return response.data
 }
 
-// ─── CameraScreen v3.1 ────────────────────────────────────────────────────────
+// ─── CameraScreen v4.3 ────────────────────────────────────────────────────────
 
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData,
@@ -170,19 +324,19 @@ const CameraScreen = ({
 }: CameraScreenProps) => {
   const { t } = useTranslation()
 
-  // ─── refs ──────────────────────────────────────────────────────────────────
   const videoRef               = useRef<HTMLVideoElement>(null)
   const canvasRef              = useRef<HTMLCanvasElement>(null)
   const qualityCanvasRef       = useRef<HTMLCanvasElement>(null)
+  const cardGateCanvasRef      = useRef<HTMLCanvasElement>(null)
   const streamRef              = useRef<MediaStream | null>(null)
-  const captureLockedRef       = useRef(false)   // 중복 캡처 방지 (v3.3 LOCK)
+  const captureLockedRef       = useRef(false)
   const qualityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stableCountRef         = useRef(0)
-  // physSessionRef — LC-004 NeoStudio 연결 시 재활성화 예정
-  const physSessionRef         = useRef<{ scan_session_id: string; nonce: string; expires_at: string } | null>(null)
+  const cardGateHistoryRef     = useRef<boolean[]>([])
+  const capturePhotoRef        = useRef<((source?: 'auto' | 'manual') => Promise<void>) | null>(null)
+  const physSessionRef = useRef<{ scan_session_id: string; nonce: string; expires_at: string } | null>(null)
   const cameraViewRef          = useRef<HTMLDivElement>(null)
 
-  // ─── state ─────────────────────────────────────────────────────────────────
   const [cameraReady, setCameraReady]           = useState(false)
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [capturing, setCapturing]               = useState(false)
@@ -195,15 +349,19 @@ const CameraScreen = ({
   void sessionToken; void nonce; void runPipeline; void API_BASE_URL
   void setConfidence; void setMatchScore; void setRecordInfo; void setErrorCode
 
-  // ─── captureLockedRef 초기화 (CameraScreen 재진입 시) ──────────────────────
-  useEffect(() => {
+  const resetCaptureLock = useCallback((reason: string) => {
     captureLockedRef.current = false
-    return () => {
-      captureLockedRef.current = true  // unmount 시 잠금 유지
-    }
+    cardGateHistoryRef.current = []
+    if (DEBUG_CROP_LOG) console.log('[captureLock] reset:', reason)
   }, [])
 
-  // ─── cameraView 크기 측정 ──────────────────────────────────────────────────
+  useEffect(() => {
+    resetCaptureLock('mount')
+    return () => {
+      captureLockedRef.current = true
+    }
+  }, [resetCaptureLock])
+
   useEffect(() => {
     const el = cameraViewRef.current
     if (!el) return
@@ -217,7 +375,6 @@ const CameraScreen = ({
     return () => observer.disconnect()
   }, [])
 
-  // ─── 고정 가이드박스 계산 (useMemo, cameraView 기준) ──────────────────────
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
     if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
@@ -228,7 +385,6 @@ const CameraScreen = ({
     let guideH = maxGuideH
     let guideW = guideH / selectedCardProfile.aspectHOverW
 
-    // width clamp (화면 폭 초과 방지)
     if (guideW > maxGuideW) {
       guideW = maxGuideW
       guideH = guideW * selectedCardProfile.aspectHOverW
@@ -242,7 +398,18 @@ const CameraScreen = ({
     }
   }, [selectedCardProfile, cameraViewSize])
 
-  // ─── qualityState UI 매핑 ──────────────────────────────────────────────────
+  const safeAreaBox = useMemo(() => {
+    if (!guideBox.w || !guideBox.h) return { x: 0, y: 0, w: 0, h: 0 }
+    const safeW = guideBox.w * GUIDE_SAFE_AREA_RATIO
+    const safeH = guideBox.h * GUIDE_SAFE_AREA_RATIO
+    return {
+      x: guideBox.x + (guideBox.w - safeW) / 2,
+      y: guideBox.y + (guideBox.h - safeH) / 2,
+      w: safeW,
+      h: safeH,
+    }
+  }, [guideBox])
+
   const getBannerText = () => {
     switch (qualityState) {
       case 'READY':                  return '잠시 고정하세요...'
@@ -252,6 +419,7 @@ const CameraScreen = ({
       case 'WARNING_GLARE':          return '기기를 살짝 기울여 반사광을 피해주세요'
       case 'WARNING_TOO_CLOSE':      return '조금 멀리서 촬영하세요 (20~25cm)'
       case 'WARNING_TOO_FAR':        return '카드를 가이드 박스에 가까이 해주세요'
+      case 'WARNING_CROPPED':        return '카드를 박스 안에 정확히 맞춰주세요'
       default:                       return '카드를 박스 안에 맞추고 촬영하세요'
     }
   }
@@ -268,7 +436,6 @@ const CameraScreen = ({
     return { bg: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }
   }
 
-  // ─── cropGuideBox (v3.3 LOCK: cover offset + null 방어 + size 방어) ────────
   const cropGuideBox = useCallback(async (): Promise<string> => {
     const video = videoRef.current
     if (!video) throw new Error('cropGuideBox: video not ready')
@@ -278,12 +445,10 @@ const CameraScreen = ({
     const previewW = cameraViewSize.w
     const previewH = cameraViewSize.h
 
-    // dimensions 0 방어
     if (!videoW || !videoH || !previewW || !previewH) {
       throw new Error(`cropGuideBox: invalid dimensions video=${videoW}x${videoH} preview=${previewW}x${previewH}`)
     }
 
-    // object-fit: cover offset 보정 (필수)
     const scale      = Math.max(previewW / videoW, previewH / videoH)
     const displayedW = videoW * scale
     const displayedH = videoH * scale
@@ -295,7 +460,6 @@ const CameraScreen = ({
     const videoCropW = Math.min(guideBox.w / scale, videoW - videoCropX)
     const videoCropH = Math.min(guideBox.h / scale, videoH - videoCropY)
 
-    // canvas 크기 0 방어
     const cropW = Math.round(videoCropW)
     const cropH = Math.round(videoCropH)
     if (cropW <= 0 || cropH <= 0) {
@@ -316,14 +480,15 @@ const CameraScreen = ({
     const canvas = document.createElement('canvas')
     canvas.width  = cropW
     canvas.height = cropH
-    canvas.getContext('2d')!.drawImage(
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('cropGuideBox: canvas context failed')
+    ctx.drawImage(
       video,
       Math.round(videoCropX), Math.round(videoCropY),
       cropW, cropH,
       0, 0, cropW, cropH,
     )
 
-    // toBlob null 방어 + FileReader.onerror
     return new Promise<string>((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (!blob) {
@@ -338,7 +503,6 @@ const CameraScreen = ({
     })
   }, [guideBox, cameraViewSize, selectedCardProfile])
 
-  // ─── 품질 체크 루프 (250ms, setInterval + cleanup) ────────────────────────
   useEffect(() => {
     if (!cameraReady || capturing) return
 
@@ -352,20 +516,41 @@ const CameraScreen = ({
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
       if (!ctx) return
 
-      // 가이드박스 영역 축소 샘플 (160x120 기준)
       const sampleW = 160
       const sampleH = Math.round(sampleW * (guideBox.h / guideBox.w))
       canvas.width  = sampleW
       canvas.height = sampleH
 
+      const videoW2   = video.videoWidth
+      const videoH2   = video.videoHeight
+      const previewW2 = cameraViewSize.w
+      const previewH2 = cameraViewSize.h
+
+      if (!videoW2 || !videoH2 || !previewW2 || !previewH2) return
+
+      const qScale      = Math.max(previewW2 / videoW2, previewH2 / videoH2)
+      const qDisplayedW = videoW2 * qScale
+      const qDisplayedH = videoH2 * qScale
+      const qOffsetX     = (qDisplayedW - previewW2) / 2
+      const qOffsetY     = (qDisplayedH - previewH2) / 2
+
+      const qVideoCropX = Math.max(0, (guideBox.x + qOffsetX) / qScale)
+      const qVideoCropY = Math.max(0, (guideBox.y + qOffsetY) / qScale)
+      const qVideoCropW = Math.min(guideBox.w / qScale, videoW2 - qVideoCropX)
+      const qVideoCropH = Math.min(guideBox.h / qScale, videoH2 - qVideoCropY)
+
+      console.log(`[GuideBox] visual x=${guideBox.x} y=${guideBox.y} w=${guideBox.w} h=${guideBox.h}`)
+      console.log(`[CropROI] videoCrop x=${qVideoCropX.toFixed(1)} y=${qVideoCropY.toFixed(1)} w=${qVideoCropW.toFixed(1)} h=${qVideoCropH.toFixed(1)} (scale=${qScale.toFixed(3)} videoSize=${videoW2}x${videoH2} previewSize=${previewW2}x${previewH2})`)
+
+      if (qVideoCropW <= 0 || qVideoCropH <= 0) return
+
       ctx.drawImage(
         video,
-        guideBox.x, guideBox.y, guideBox.w, guideBox.h,
+        qVideoCropX, qVideoCropY, qVideoCropW, qVideoCropH,
         0, 0, sampleW, sampleH,
       )
       const imageData = ctx.getImageData(0, 0, sampleW, sampleH)
 
-      // [1] 밝기 체크
       const brightness = calcBrightness(imageData)
       if (brightness < BRIGHTNESS_MIN) {
         stableCountRef.current = 0
@@ -378,7 +563,6 @@ const CameraScreen = ({
         return
       }
 
-      // [2] blur 체크
       const blurVariance = calcLaplacianVariance(imageData)
       if (blurVariance < BLUR_MIN) {
         stableCountRef.current = 0
@@ -386,7 +570,6 @@ const CameraScreen = ({
         return
       }
 
-      // [3] 반사광 체크 (포카 코팅 특성 반영)
       const glareRatio = calcGlareRatio(imageData)
       if (glareRatio > GLARE_MAX_RATIO) {
         stableCountRef.current = 0
@@ -394,20 +577,101 @@ const CameraScreen = ({
         return
       }
 
-      // [4] 모두 통과 → stableCount 누적
+      let cardReady = false
+
+      const cgCanvas = cardGateCanvasRef.current
+      if (cgCanvas) {
+        const padPxPreviewX = guideBox.w * CARDGATE_PAD_RATIO
+        const padPxPreviewY = guideBox.h * CARDGATE_PAD_RATIO
+        const paddedX = guideBox.x - padPxPreviewX
+        const paddedY = guideBox.y - padPxPreviewY
+        const paddedW = guideBox.w + 2 * padPxPreviewX
+        const paddedH = guideBox.h + 2 * padPxPreviewY
+
+        const cgVideoCropX = Math.max(0, (paddedX + qOffsetX) / qScale)
+        const cgVideoCropY = Math.max(0, (paddedY + qOffsetY) / qScale)
+        const cgVideoCropW = Math.min(paddedW / qScale, videoW2 - cgVideoCropX)
+        const cgVideoCropH = Math.min(paddedH / qScale, videoH2 - cgVideoCropY)
+
+        if (cgVideoCropW > 0 && cgVideoCropH > 0) {
+          const cgSampleW = CARDGATE_SAMPLE_W
+          const cgSampleH = Math.round(cgSampleW * (cgVideoCropH / cgVideoCropW))
+          cgCanvas.width  = cgSampleW
+          cgCanvas.height = cgSampleH
+          const cgCtx = cgCanvas.getContext('2d', { willReadFrequently: true })
+
+          if (cgCtx) {
+            cgCtx.drawImage(
+              video,
+              cgVideoCropX, cgVideoCropY, cgVideoCropW, cgVideoCropH,
+              0, 0, cgSampleW, cgSampleH,
+            )
+            const cgImageData = cgCtx.getImageData(0, 0, cgSampleW, cgSampleH)
+
+            const guideBoxInSample = {
+              x: cgSampleW * (padPxPreviewX / paddedW),
+              y: cgSampleH * (padPxPreviewY / paddedH),
+              w: cgSampleW * (guideBox.w / paddedW),
+              h: cgSampleH * (guideBox.h / paddedH),
+            }
+            const searchRadiusPx = Math.min(
+              cgSampleW * (padPxPreviewX / paddedW),
+              cgSampleH * (padPxPreviewY / paddedH),
+            )
+
+            const cardGate = detectCardGate(
+              cgImageData,
+              guideBoxInSample,
+              searchRadiusPx,
+              selectedCardProfile.aspectHOverW,
+            )
+
+            console.log(
+              `[CardGate] aspectOk=${cardGate.aspectOk} sizeOk=${cardGate.sizeOk} ` +
+              `centerOk=${cardGate.centerOk} skinReject=${cardGate.skinReject} ` +
+              `edgeFound=${cardGate.edgeFoundCount}/4 ok=${cardGate.ok}`
+            )
+
+            cardGateHistoryRef.current.push(cardGate.ok)
+            if (cardGateHistoryRef.current.length > 4) cardGateHistoryRef.current.shift()
+            const recentPassCount = cardGateHistoryRef.current.filter(Boolean).length
+            cardReady = recentPassCount >= 2
+          }
+        } else {
+          console.warn('[CardGate] invalid padded crop, skip this tick')
+        }
+      }
+
+      const qualityReady = true
+      console.log(`[AutoGate] qualityReady=${qualityReady} cardReady=${cardReady} autoCaptureLocked=${captureLockedRef.current} stableCount=${stableCountRef.current}/${STABLE_REQUIRED}`)
+
+      if (!cardReady) {
+        stableCountRef.current = Math.max(0, stableCountRef.current - 1)
+        setQualityState('WARNING_CROPPED')
+        return
+      }
+
       stableCountRef.current++
 
-      // [5] 자동 캡처 트리거
-      if (
-        AUTO_CAPTURE_ENABLED &&
+      const shouldAutoCapture =
+        AUTO_CAPTURE_ENABLED === true &&
+        qualityReady === true &&
+        cardReady === true &&
         stableCountRef.current >= STABLE_REQUIRED &&
-        !captureLockedRef.current
-      ) {
+        captureLockedRef.current !== true
+
+      console.log(
+        `[AutoDecision] shouldAutoCapture=${shouldAutoCapture} ` +
+        `AUTO_CAPTURE_ENABLED=${AUTO_CAPTURE_ENABLED} ` +
+        `qualityReady=${qualityReady} cardReady=${cardReady} ` +
+        `stableCount=${stableCountRef.current}/${STABLE_REQUIRED} ` +
+        `locked=${captureLockedRef.current}`
+      )
+
+      if (shouldAutoCapture) {
+        console.log('[AutoCapture] TRIGGER')
         setQualityState('READY')
-        captureLockedRef.current = true
-        setTimeout(() => {
-          capturePhoto()
-        }, AUTO_CAPTURE_DELAY_MS)
+        void capturePhotoRef.current?.('auto')
         return
       }
 
@@ -425,27 +689,28 @@ const CameraScreen = ({
         qualityCheckIntervalRef.current = null
       }
     }
-  }, [cameraReady, capturing, guideBox]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameraReady, capturing, guideBox, selectedCardProfile]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Physical Verify ───────────────────────────────────────────────────────
-  // physSessionRef — LC-004 NeoStudio 연결 시 재활성화 예정
+  // ─── startPhysicalSession (v4.3: CapacitorHttp 플러그인 직접 호출) ─────────
   const startPhysicalSession = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`${NEO_API_BASE}/geocam/physical/session/start`, {
-        method: 'POST',
+      const response = await CapacitorHttp.post({
+        url: `${NEO_API_BASE}/geocam/physical/session/start`,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '3.0.0' }),
+        data: { device_id: navigator.userAgent.slice(0, 64), app_version: '4.3.0' },
       })
-      if (!res.ok) return false
-      const data = await res.json()
+      if (response.status < 200 || response.status >= 300) return false
+      const data = response.data
       if (!data.success) return false
       physSessionRef.current = {
         scan_session_id: data.scan_session_id,
         nonce: data.nonce,
         expires_at: data.expires_at,
       }
+      console.log('[PhysicalSession] started:', data.scan_session_id?.slice(0, 8))
       return true
-    } catch {
+    } catch (e) {
+      console.warn('[PhysicalSession] start failed:', e)
       return false
     }
   }, [])
@@ -453,89 +718,94 @@ const CameraScreen = ({
   const runPhysicalVerify = useCallback(async (roiDataUrl: string): Promise<void> => {
     setProcessing(true)
     try {
-      let verdict: PhysicalVerifyVerdict = 'INVALID'
-
-      try {
-        // LC-CAM-HYBRID-001: detect-hybrid-v3 직접 판정
-        const hybridResult = await callDetectHybridV3(roiDataUrl, geocodeToken)
-
-        console.log('[HybridV3]',
-          hybridResult.verdict,
-          'reason:', hybridResult.reason_code,
-          'delta:', hybridResult.scores.reference_delta_score,
-          'signal:', hybridResult.scores.geocode_signal_score,
-          'pass:', hybridResult.scores.pass_count,
-          'angle:', hybridResult.alignment.angle_used,
-          'stage:', hybridResult.alignment.stage_used,
-          'elapsed:', hybridResult.debug?.elapsed_ms,
-        )
-
-        if (hybridResult.verdict === 'PASS')           verdict = 'PHYSICAL VERIFIED'
-        else if (hybridResult.verdict === 'UNCERTAIN') verdict = 'RETRY'
-        else                                            verdict = 'INVALID'
-
-      } catch (e) {
-        console.error('[HybridV3] detect error:', e)
-        verdict = 'INVALID'
+      if (!physSessionRef.current) {
+        const ok = await startPhysicalSession()
+        if (!ok) throw new Error('physical session unavailable')
       }
 
-      // NEO_API physical/verify — LC-004 NeoStudio 연결 시 재활성화 예정
+      const session = physSessionRef.current!
 
-      console.log('[PhysicalVerify] final verdict:', verdict)
+      const result = await callPhysicalVerify({
+        scanSessionId: session.scan_session_id,
+        nonce:         session.nonce,
+        geocodeToken:  geocodeToken,
+        roiDataUrl,
+        cardProfileId: selectedCardProfile.id,
+      })
+
+      physSessionRef.current = null
+      startPhysicalSession()
+
+      console.log('[PhysicalVerify]',
+        result.verdict,
+        'hybrid:', result.hybrid_verdict,
+        'reason:', result.reason_code,
+        'verifyEventId:', result.verifyEventId,
+        'canSave:', result.canSaveToMyCollection,
+      )
+
+      const verdict: PhysicalVerifyVerdict = result.verdict
 
       if (verdict === 'PHYSICAL VERIFIED') setVerifyStatus('PRESENT')
       else if (verdict === 'RETRY')        setVerifyStatus('INSUFFICIENT_DATA')
-      else                                 setVerifyStatus('ABSENT')
+      else                                  setVerifyStatus('ABSENT')
 
       navigateToScreen('result')
-      // captureLockedRef = false 복원 금지 (결과 화면 이동 시 locked 유지)
 
-    } catch {
+    } catch (e) {
+      console.error('[PhysicalVerify] error:', e)
       setNetworkError(true)
       setVerifyStatus('INSUFFICIENT_DATA')
       navigateToScreen('result')
     }
     setProcessing(false)
-  }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken])
+  }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken, selectedCardProfile, startPhysicalSession])
 
-  // ─── 수동 촬영 (항상 메인) ──────────────────────────────────────────────────
-  const capturePhoto = useCallback(async () => {
+  const capturePhoto = useCallback(async (source: 'auto' | 'manual' = 'manual') => {
+    console.log(`[AutoCapture] ENTER source=${source}`)
+
+    if (captureLockedRef.current) {
+      console.log(`[AutoCapture] SKIP_ALREADY_LOCKED source=${source}`)
+      return
+    }
+
     const video  = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas || !cameraReady) return
+    if (!video || !canvas || !cameraReady) {
+      console.error(`[AutoCapture] ERROR guard failed source=${source} video=${!!video} canvas=${!!canvas} cameraReady=${cameraReady}`)
+      captureLockedRef.current = false
+      return
+    }
 
-    // 중복 방지
-    if (captureLockedRef.current) return
     captureLockedRef.current = true
+    console.log(`[AutoCapture] LOCKED source=${source}`)
 
     setCapturing(true)
 
     try {
-      // 가이드박스 기준 정확 crop
       const roiDataUrl = await cropGuideBox()
 
-      // 전체 화면 저장용 캔버스
       canvas.width  = video.videoWidth
       canvas.height = video.videoHeight
-      canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const ctx2d = canvas.getContext('2d')
+      if (!ctx2d) throw new Error('capturePhoto: canvas context failed')
+      ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
       const fullDataUrl = await canvasToPngBase64(canvas)
       setCapturedImage(fullDataUrl)
 
-      // 갤러리 자동 저장 (기존 흐름 유지)
       try {
         const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
-        const fileName   = `legittag_${Date.now()}.png`
+        const fileName   = `legicam_${Date.now()}.png`
         await Filesystem.writeFile({
           path: fileName,
           data: base64Data,
           directory: Directory.Documents,
         })
-        console.log('[AutoCapture] 갤러리 저장 완료:', fileName)
+        console.log('[Capture] 갤러리 저장 완료:', fileName)
       } catch (e) {
-        console.warn('[AutoCapture] 갤러리 저장 실패:', e)
+        console.warn('[Capture] 갤러리 저장 실패:', e)
       }
 
-      // 카메라 정지
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
         streamRef.current = null
@@ -547,13 +817,16 @@ const CameraScreen = ({
 
     } catch (e) {
       console.error('[capturePhoto] error:', e)
-      captureLockedRef.current = false  // 예외/실패 시만 복원
+      resetCaptureLock('capture_failed')
     }
 
     setCapturing(false)
-  }, [cameraReady, cropGuideBox, setCapturedImage, runPhysicalVerify])
+  }, [cameraReady, cropGuideBox, setCapturedImage, runPhysicalVerify, resetCaptureLock])
 
-  // ─── 카메라 시작/종료 ──────────────────────────────────────────────────────
+  useEffect(() => {
+    capturePhotoRef.current = capturePhoto
+  }, [capturePhoto])
+
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) {
@@ -567,11 +840,22 @@ const CameraScreen = ({
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play()
-          setCameraReady(true)
-          setCameraError(null)
+        let cameraReadyFired = false
+        const handleLoaded = () => {
+          if (cameraReadyFired) return
+          cameraReadyFired = true
+          videoRef.current?.play().then(() => {
+            setCameraReady(true)
+            setCameraError(null)
+            console.log('[Camera] ready: stream loaded and playing')
+          }).catch((e: unknown) => {
+            console.error('[Camera] play error:', e)
+            setCameraReady(true)
+            setCameraError(null)
+          })
         }
+        videoRef.current.addEventListener('loadedmetadata', handleLoaded, { once: true })
+        videoRef.current.addEventListener('canplay', handleLoaded, { once: true })
       }
     } catch (err) {
       if (err instanceof Error) {
@@ -605,9 +889,11 @@ const CameraScreen = ({
     navigateToScreen('sizeSelect')
   }, [stopCamera, navigateToScreen])
 
-  const handleGuideConfirm = useCallback(() => setShowGuideOverlay(false), [])
+  const handleGuideConfirm = useCallback(() => {
+    setShowGuideOverlay(false)
+    resetCaptureLock('guide_confirm')
+  }, [resetCaptureLock])
 
-  // ─── 가이드박스 색상 ────────────────────────────────────────────────────────
   const guideColor  = getGuideColor()
   const bannerText  = getBannerText()
   const bannerStyle = getBannerStyle()
@@ -619,7 +905,6 @@ const CameraScreen = ({
     ...pos,
   })
 
-  // ─── 에러 화면 ──────────────────────────────────────────────────────────────
   if (permissionDenied || cameraError) {
     return (
       <div style={{ position: 'fixed', inset: 0, backgroundColor: '#0a0a0c', display: 'flex', flexDirection: 'column' }}>
@@ -640,19 +925,17 @@ const CameraScreen = ({
     )
   }
 
-  // ─── 촬영 안내 오버레이 ──────────────────────────────────────────────────────
   const guides = [
     { num: '01', title: '카드를 평평한 곳에 놓으세요', desc: '손으로 들지 말고 테이블 위에 올려주세요.' },
-    { num: '02', title: '카드 가장자리를 가이드 박스에 맞춰주세요', desc: '카드 전체가 가이드 박스 안에 들어와야 합니다.' },
+    { num: '02', title: '카드 전체가 박스 안에 살짝 여유 있게 들어오게 맞춰주세요', desc: '카드 모서리가 박스 선에 닿거나 잘리지 않아야 합니다.' },
     { num: '03', title: '기기를 살짝 기울여 반사광을 피해주세요', desc: '조명이 카드에 직접 반사되지 않도록 각도를 조절하세요.' },
     { num: '04', title: '20~25cm 거리에서 촬영하세요', desc: '너무 가까우면 초점이 흐려집니다.' },
-    { num: '05', title: '흔들리지 않게 촬영하세요', desc: '자동촬영이 되지않으면 촬영버튼을 누르세요.' },
+    { num: '05', title: '흔들리지 않게 촬영하세요', desc: '촬영 버튼을 누를 때 스마트폰을 고정하세요.' },
   ]
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
 
-      {/* 헤더 */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, padding: '16px', paddingTop: 'max(48px, env(safe-area-inset-top))', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button onClick={handleBack} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <BackArrow />
@@ -670,18 +953,15 @@ const CameraScreen = ({
         </button>
       </div>
 
-      {/* 카메라 영역 */}
       <div ref={cameraViewRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <video ref={videoRef} autoPlay playsInline muted style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
 
-        {/* 로딩 */}
         {!cameraReady && !cameraError && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)' }}>
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', letterSpacing: '0.05em' }}>{t('camera.loading')}</p>
           </div>
         )}
 
-        {/* 배너 */}
         {cameraReady && (
           <div style={{ position: 'absolute', top: 'max(90px, calc(env(safe-area-inset-top) + 74px))', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 15, pointerEvents: 'none' }}>
             <div style={{ background: bannerStyle.bg, border: bannerStyle.border, borderRadius: '20px', padding: '5px 16px', transition: 'all 0.3s ease' }}>
@@ -692,16 +972,26 @@ const CameraScreen = ({
           </div>
         )}
 
-        {/* 고정 가이드박스 */}
         {cameraReady && guideBox.w > 0 && (
           <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
-            {/* 모서리 4개 */}
             <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ top: 0, right: 0 }), borderTop: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderTopRightRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, left: 0 }), borderBottom: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderBottomLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, right: 0 }), borderBottom: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderBottomRightRadius: '8px' }} />
 
-            {/* 가이드 라벨 */}
+            {safeAreaBox.w > 0 && (
+              <div style={{
+                position: 'absolute',
+                left: `${safeAreaBox.x - guideBox.x}px`,
+                top: `${safeAreaBox.y - guideBox.y}px`,
+                width: `${safeAreaBox.w}px`,
+                height: `${safeAreaBox.h}px`,
+                border: '1px dashed rgba(255,255,255,0.18)',
+                borderRadius: '4px',
+                pointerEvents: 'none',
+              }} />
+            )}
+
             <div style={{ position: 'absolute', top: '-22px', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}>
               <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px', letterSpacing: '0.08em' }}>
                 {selectedCardProfile.widthMm}×{selectedCardProfile.heightMm}mm
@@ -711,13 +1001,12 @@ const CameraScreen = ({
         )}
       </div>
 
-      {/* 하단 촬영 버튼 */}
       <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
           {capturing ? '처리 중...' : '카드를 박스에 맞춘 후 촬영'}
         </p>
         <button
-          onClick={capturePhoto}
+          onClick={() => capturePhoto('manual')}
           disabled={!cameraReady || capturing}
           style={{ width: '72px', height: '72px', borderRadius: '50%', background: cameraReady && !capturing ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.2)', border: '3px solid rgba(255,255,255,0.2)', cursor: cameraReady && !capturing ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.1s' }}
         >
@@ -728,7 +1017,6 @@ const CameraScreen = ({
         </button>
       </div>
 
-      {/* 촬영 안내 오버레이 */}
       {showGuideOverlay && (
         <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 30, padding: '0' }}>
           <div style={{ width: '100%', maxWidth: '480px', padding: '32px 24px', paddingBottom: 'max(32px, env(safe-area-inset-bottom))', overflowY: 'auto', maxHeight: '100vh' }}>
@@ -763,6 +1051,7 @@ const CameraScreen = ({
 
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       <canvas ref={qualityCanvasRef} style={{ display: 'none' }} />
+      <canvas ref={cardGateCanvasRef} style={{ display: 'none' }} />
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )

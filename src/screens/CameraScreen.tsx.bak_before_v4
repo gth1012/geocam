@@ -1,10 +1,14 @@
-// CameraScreen.tsx v3.1
+﻿// CameraScreen.tsx v3.1
 // LC-CAM-001 v3.3 LOCK
-// v3.1 변경: callDetectLayer2 → callDetectHybridV3 교체 (LC-CAM-HYBRID-001)
 // 변경: 엣지 기반 탐지 제거 → 가이드박스 고정 crop
-// 작성: 짱아 / 2026-06-30
+// 작성: 짱아 / 2026-06-28
+// v3.1 (2026-06-29):
+//   - AUTO_CAPTURE_ENABLED = true (자동촬영 활성화)
+//   - callDetectLayer2() → callDetectHybridV3() 교체
+//   - runPhysicalVerify() NEO_API 제거 (LC-004에서 재활성화 예정)
+//   - LC-CAM-HYBRID-001 기준
 //
-// 금지: runPhysicalVerify/callDetectHybridV3/API엔드포인트/ENGINE좌표/threshold/strength 변경 금지
+// 금지: cropGuideBox/가이드박스파라미터/카메라시작종료/APP.tsx/app.types.ts 변경 금지
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -22,15 +26,15 @@ const GUIDE_W_MAX_RATIO     = 0.88
 const LIGHT_CHECK_INTERVAL_MS = 250
 const BRIGHTNESS_MIN          = 60
 const BRIGHTNESS_MAX          = 210
-const BLUR_MIN                = 25    // 실기 테스트 후 조정 가능
+const BLUR_MIN                = 25
 const GLARE_PIXEL_THRESHOLD   = 245
-const GLARE_MAX_RATIO         = 0.07  // 유광 포카 정상 2~4% + 여유 3%
+const GLARE_MAX_RATIO         = 0.07
 
 // 안정 프레임
 const STABLE_REQUIRED         = 5     // 250ms x 5 = 1.25초
 
-// 자동 캡처 (1차 실카 테스트: false 유지 — 수동 촬영으로 crop 정확도 먼저 검증)
-const AUTO_CAPTURE_ENABLED    = false
+// 자동 캡처 (v3.1: true로 활성화 — 안내문구와 일치)
+const AUTO_CAPTURE_ENABLED    = true
 const AUTO_CAPTURE_DELAY_MS   = 300
 
 // 디버그 (운영 빌드 시 false)
@@ -39,7 +43,9 @@ const DEBUG_CROP_LOG          = true
 // API
 const GEO_API_BASE  = 'https://geo-api.artionchain.com/api'
 const NEO_API_BASE  = 'https://neo-api.artionchain.com/api'
-// const TEST_CANDIDATE = 'C'  // detect-layer2 전용 (deprecated)
+// const TEST_CANDIDATE = 'C'  // detect-layer2 전용 (deprecated — LC-CAM-HYBRID-001)
+
+void NEO_API_BASE
 
 type QualityState =
   | 'IDLE'
@@ -51,7 +57,25 @@ type QualityState =
   | 'WARNING_TOO_CLOSE'
   | 'WARNING_TOO_FAR'
 
-type PhysicalVerifyVerdict = 'PHYSICAL VERIFIED' | 'RETRY' | 'INVALID'
+// ─── detect-hybrid-v3 응답 타입 ──────────────────────────────────────────────
+interface HybridV3Response {
+  verdict: 'PASS' | 'UNCERTAIN' | 'FAIL'
+  reason_code: string
+  scores: {
+    reference_delta_score: number | null
+    geocode_signal_score: number | null
+    pass_count: number | null
+    avg_score: number | null
+  }
+  alignment: {
+    angle_used: number | null
+    stage_used: number | null
+  }
+  debug?: {
+    elapsed_ms: number
+  }
+  message: string
+}
 
 // ─── 유틸 함수 ────────────────────────────────────────────────────────────────
 
@@ -121,29 +145,16 @@ async function sha256Base64(dataUrl: string): Promise<string> {
   return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-// ─── callDetectHybridV3 (LC-CAM-HYBRID-001: detect-layer2 → detect-hybrid-v3) ──
+void sha256Base64
 
+// ─── callDetectHybridV3 (LC-CAM-HYBRID-001) ──────────────────────────────────
+// detect-layer2 → detect-hybrid-v3 교체
+// candidate 파라미터 없음
+// 응답: verdict PASS/UNCERTAIN/FAIL
 async function callDetectHybridV3(
   roiDataUrl: string,
   dinaId: string,
-): Promise<{
-  verdict: 'PASS' | 'UNCERTAIN' | 'FAIL'
-  reason_code: string
-  scores: {
-    reference_delta_score: number | null
-    geocode_signal_score: number | null
-    pass_count: number | null
-    avg_score: number | null
-  }
-  alignment: {
-    angle_used: number | null
-    stage_used: number | null
-  }
-  debug?: {
-    elapsed_ms: number
-  }
-  message: string
-}> {
+): Promise<HybridV3Response> {
   const base64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
@@ -175,11 +186,11 @@ const CameraScreen = ({
   const canvasRef              = useRef<HTMLCanvasElement>(null)
   const qualityCanvasRef       = useRef<HTMLCanvasElement>(null)
   const streamRef              = useRef<MediaStream | null>(null)
-  const captureLockedRef       = useRef(false)   // 중복 캡처 방지 (v3.3 LOCK)
+  const captureLockedRef       = useRef(false)
   const qualityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stableCountRef         = useRef(0)
   // physSessionRef — LC-004 NeoStudio 연결 시 재활성화 예정
-  const physSessionRef         = useRef<{ scan_session_id: string; nonce: string; expires_at: string } | null>(null)
+  // const physSessionRef = useRef<{ scan_session_id: string; nonce: string; expires_at: string } | null>(null)
   const cameraViewRef          = useRef<HTMLDivElement>(null)
 
   // ─── state ─────────────────────────────────────────────────────────────────
@@ -195,11 +206,11 @@ const CameraScreen = ({
   void sessionToken; void nonce; void runPipeline; void API_BASE_URL
   void setConfidence; void setMatchScore; void setRecordInfo; void setErrorCode
 
-  // ─── captureLockedRef 초기화 (CameraScreen 재진입 시) ──────────────────────
+  // ─── captureLockedRef 초기화 ───────────────────────────────────────────────
   useEffect(() => {
     captureLockedRef.current = false
     return () => {
-      captureLockedRef.current = true  // unmount 시 잠금 유지
+      captureLockedRef.current = true
     }
   }, [])
 
@@ -217,7 +228,7 @@ const CameraScreen = ({
     return () => observer.disconnect()
   }, [])
 
-  // ─── 고정 가이드박스 계산 (useMemo, cameraView 기준) ──────────────────────
+  // ─── 고정 가이드박스 계산 ─────────────────────────────────────────────────
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
     if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
@@ -228,7 +239,6 @@ const CameraScreen = ({
     let guideH = maxGuideH
     let guideW = guideH / selectedCardProfile.aspectHOverW
 
-    // width clamp (화면 폭 초과 방지)
     if (guideW > maxGuideW) {
       guideW = maxGuideW
       guideH = guideW * selectedCardProfile.aspectHOverW
@@ -268,7 +278,7 @@ const CameraScreen = ({
     return { bg: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }
   }
 
-  // ─── cropGuideBox (v3.3 LOCK: cover offset + null 방어 + size 방어) ────────
+  // ─── cropGuideBox (v3.3 LOCK) ─────────────────────────────────────────────
   const cropGuideBox = useCallback(async (): Promise<string> => {
     const video = videoRef.current
     if (!video) throw new Error('cropGuideBox: video not ready')
@@ -278,12 +288,10 @@ const CameraScreen = ({
     const previewW = cameraViewSize.w
     const previewH = cameraViewSize.h
 
-    // dimensions 0 방어
     if (!videoW || !videoH || !previewW || !previewH) {
       throw new Error(`cropGuideBox: invalid dimensions video=${videoW}x${videoH} preview=${previewW}x${previewH}`)
     }
 
-    // object-fit: cover offset 보정 (필수)
     const scale      = Math.max(previewW / videoW, previewH / videoH)
     const displayedW = videoW * scale
     const displayedH = videoH * scale
@@ -295,7 +303,6 @@ const CameraScreen = ({
     const videoCropW = Math.min(guideBox.w / scale, videoW - videoCropX)
     const videoCropH = Math.min(guideBox.h / scale, videoH - videoCropY)
 
-    // canvas 크기 0 방어
     const cropW = Math.round(videoCropW)
     const cropH = Math.round(videoCropH)
     if (cropW <= 0 || cropH <= 0) {
@@ -323,7 +330,6 @@ const CameraScreen = ({
       0, 0, cropW, cropH,
     )
 
-    // toBlob null 방어 + FileReader.onerror
     return new Promise<string>((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (!blob) {
@@ -338,7 +344,7 @@ const CameraScreen = ({
     })
   }, [guideBox, cameraViewSize, selectedCardProfile])
 
-  // ─── 품질 체크 루프 (250ms, setInterval + cleanup) ────────────────────────
+  // ─── 품질 체크 루프 ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!cameraReady || capturing) return
 
@@ -352,7 +358,6 @@ const CameraScreen = ({
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
       if (!ctx) return
 
-      // 가이드박스 영역 축소 샘플 (160x120 기준)
       const sampleW = 160
       const sampleH = Math.round(sampleW * (guideBox.h / guideBox.w))
       canvas.width  = sampleW
@@ -365,7 +370,6 @@ const CameraScreen = ({
       )
       const imageData = ctx.getImageData(0, 0, sampleW, sampleH)
 
-      // [1] 밝기 체크
       const brightness = calcBrightness(imageData)
       if (brightness < BRIGHTNESS_MIN) {
         stableCountRef.current = 0
@@ -378,7 +382,6 @@ const CameraScreen = ({
         return
       }
 
-      // [2] blur 체크
       const blurVariance = calcLaplacianVariance(imageData)
       if (blurVariance < BLUR_MIN) {
         stableCountRef.current = 0
@@ -386,7 +389,6 @@ const CameraScreen = ({
         return
       }
 
-      // [3] 반사광 체크 (포카 코팅 특성 반영)
       const glareRatio = calcGlareRatio(imageData)
       if (glareRatio > GLARE_MAX_RATIO) {
         stableCountRef.current = 0
@@ -394,17 +396,15 @@ const CameraScreen = ({
         return
       }
 
-      // [4] 모두 통과 → stableCount 누적
       stableCountRef.current++
+      console.log(`[Quality] OK brightness=${brightness.toFixed(0)} blur=${blurVariance.toFixed(1)} glare=${(glareRatio*100).toFixed(1)}% stable=${stableCountRef.current}/${STABLE_REQUIRED}`)
 
-      // [5] 자동 캡처 트리거
       if (
         AUTO_CAPTURE_ENABLED &&
         stableCountRef.current >= STABLE_REQUIRED &&
         !captureLockedRef.current
       ) {
         setQualityState('READY')
-        captureLockedRef.current = true
         setTimeout(() => {
           capturePhoto()
         }, AUTO_CAPTURE_DELAY_MS)
@@ -427,70 +427,43 @@ const CameraScreen = ({
     }
   }, [cameraReady, capturing, guideBox]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Physical Verify ───────────────────────────────────────────────────────
-  // physSessionRef — LC-004 NeoStudio 연결 시 재활성화 예정
-  const startPhysicalSession = useCallback(async (): Promise<boolean> => {
-    try {
-      const res = await fetch(`${NEO_API_BASE}/geocam/physical/session/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '3.0.0' }),
-      })
-      if (!res.ok) return false
-      const data = await res.json()
-      if (!data.success) return false
-      physSessionRef.current = {
-        scan_session_id: data.scan_session_id,
-        nonce: data.nonce,
-        expires_at: data.expires_at,
-      }
-      return true
-    } catch {
-      return false
-    }
-  }, [])
-
+  // ─── runPhysicalVerify (LC-CAM-HYBRID-001) ────────────────────────────────
+  // detect-layer2 → detect-hybrid-v3 교체
+  // NEO_API physical/verify 제거 → LC-004에서 재활성화 예정
+  //
+  // 판정 매핑:
+  //   PASS      → setVerifyStatus('PRESENT')           → ResultScreen: PHYSICAL VERIFIED
+  //   UNCERTAIN → setVerifyStatus('INSUFFICIENT_DATA') → ResultScreen: RETRY
+  //   FAIL      → setVerifyStatus('ABSENT')            → ResultScreen: INVALID
   const runPhysicalVerify = useCallback(async (roiDataUrl: string): Promise<void> => {
     setProcessing(true)
     try {
-      let verdict: PhysicalVerifyVerdict = 'INVALID'
+      const hybridResult = await callDetectHybridV3(roiDataUrl, geocodeToken)
 
-      try {
-        // LC-CAM-HYBRID-001: detect-hybrid-v3 직접 판정
-        const hybridResult = await callDetectHybridV3(roiDataUrl, geocodeToken)
+      console.log('[HybridV3]',
+        hybridResult.verdict,
+        'reason:', hybridResult.reason_code,
+        'delta:', hybridResult.scores.reference_delta_score,
+        'signal:', hybridResult.scores.geocode_signal_score,
+        'pass:', hybridResult.scores.pass_count,
+        'avg:', hybridResult.scores.avg_score,
+        'angle:', hybridResult.alignment.angle_used,
+        'stage:', hybridResult.alignment.stage_used,
+        'elapsed:', hybridResult.debug?.elapsed_ms,
+      )
 
-        console.log('[HybridV3]',
-          hybridResult.verdict,
-          'reason:', hybridResult.reason_code,
-          'delta:', hybridResult.scores.reference_delta_score,
-          'signal:', hybridResult.scores.geocode_signal_score,
-          'pass:', hybridResult.scores.pass_count,
-          'angle:', hybridResult.alignment.angle_used,
-          'stage:', hybridResult.alignment.stage_used,
-          'elapsed:', hybridResult.debug?.elapsed_ms,
-        )
-
-        if (hybridResult.verdict === 'PASS')           verdict = 'PHYSICAL VERIFIED'
-        else if (hybridResult.verdict === 'UNCERTAIN') verdict = 'RETRY'
-        else                                            verdict = 'INVALID'
-
-      } catch (e) {
-        console.error('[HybridV3] detect error:', e)
-        verdict = 'INVALID'
+      if (hybridResult.verdict === 'PASS') {
+        setVerifyStatus('PRESENT')
+      } else if (hybridResult.verdict === 'UNCERTAIN') {
+        setVerifyStatus('INSUFFICIENT_DATA')
+      } else {
+        setVerifyStatus('ABSENT')
       }
 
-      // NEO_API physical/verify — LC-004 NeoStudio 연결 시 재활성화 예정
-
-      console.log('[PhysicalVerify] final verdict:', verdict)
-
-      if (verdict === 'PHYSICAL VERIFIED') setVerifyStatus('PRESENT')
-      else if (verdict === 'RETRY')        setVerifyStatus('INSUFFICIENT_DATA')
-      else                                 setVerifyStatus('ABSENT')
-
       navigateToScreen('result')
-      // captureLockedRef = false 복원 금지 (결과 화면 이동 시 locked 유지)
 
-    } catch {
+    } catch (e) {
+      console.error('[HybridV3] error:', e)
       setNetworkError(true)
       setVerifyStatus('INSUFFICIENT_DATA')
       navigateToScreen('result')
@@ -498,30 +471,26 @@ const CameraScreen = ({
     setProcessing(false)
   }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken])
 
-  // ─── 수동 촬영 (항상 메인) ──────────────────────────────────────────────────
+  // ─── 수동 촬영 (fallback) ─────────────────────────────────────────────────
   const capturePhoto = useCallback(async () => {
     const video  = videoRef.current
     const canvas = canvasRef.current
     if (!video || !canvas || !cameraReady) return
 
-    // 중복 방지
     if (captureLockedRef.current) return
     captureLockedRef.current = true
 
     setCapturing(true)
 
     try {
-      // 가이드박스 기준 정확 crop
       const roiDataUrl = await cropGuideBox()
 
-      // 전체 화면 저장용 캔버스
       canvas.width  = video.videoWidth
       canvas.height = video.videoHeight
       canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height)
       const fullDataUrl = await canvasToPngBase64(canvas)
       setCapturedImage(fullDataUrl)
 
-      // 갤러리 자동 저장 (기존 흐름 유지)
       try {
         const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
         const fileName   = `legittag_${Date.now()}.png`
@@ -535,7 +504,6 @@ const CameraScreen = ({
         console.warn('[AutoCapture] 갤러리 저장 실패:', e)
       }
 
-      // 카메라 정지
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
         streamRef.current = null
@@ -547,7 +515,7 @@ const CameraScreen = ({
 
     } catch (e) {
       console.error('[capturePhoto] error:', e)
-      captureLockedRef.current = false  // 예외/실패 시만 복원
+      captureLockedRef.current = false
     }
 
     setCapturing(false)
@@ -567,11 +535,22 @@ const CameraScreen = ({
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play()
-          setCameraReady(true)
-          setCameraError(null)
+        let cameraReadyFired = false
+        const handleLoaded = () => {
+          if (cameraReadyFired) return
+          cameraReadyFired = true
+          videoRef.current?.play().then(() => {
+            setCameraReady(true)
+            setCameraError(null)
+            console.log('[Camera] ready: stream loaded and playing')
+          }).catch((e: unknown) => {
+            console.error('[Camera] play error:', e)
+            setCameraReady(true)
+            setCameraError(null)
+          })
         }
+        videoRef.current.addEventListener('loadedmetadata', handleLoaded, { once: true })
+        videoRef.current.addEventListener('canplay', handleLoaded, { once: true })
       }
     } catch (err) {
       if (err instanceof Error) {
@@ -596,9 +575,9 @@ const CameraScreen = ({
 
   useEffect(() => {
     startCamera()
-    startPhysicalSession()
+    // startPhysicalSession() — LC-004 NeoStudio 연결 시 재활성화 예정
     return () => { stopCamera() }
-  }, [startCamera, stopCamera, startPhysicalSession])
+  }, [startCamera, stopCamera])
 
   const handleBack = useCallback(() => {
     stopCamera()
@@ -607,7 +586,6 @@ const CameraScreen = ({
 
   const handleGuideConfirm = useCallback(() => setShowGuideOverlay(false), [])
 
-  // ─── 가이드박스 색상 ────────────────────────────────────────────────────────
   const guideColor  = getGuideColor()
   const bannerText  = getBannerText()
   const bannerStyle = getBannerStyle()
@@ -695,13 +673,10 @@ const CameraScreen = ({
         {/* 고정 가이드박스 */}
         {cameraReady && guideBox.w > 0 && (
           <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
-            {/* 모서리 4개 */}
             <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ top: 0, right: 0 }), borderTop: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderTopRightRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, left: 0 }), borderBottom: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderBottomLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, right: 0 }), borderBottom: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderBottomRightRadius: '8px' }} />
-
-            {/* 가이드 라벨 */}
             <div style={{ position: 'absolute', top: '-22px', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}>
               <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px', letterSpacing: '0.08em' }}>
                 {selectedCardProfile.widthMm}×{selectedCardProfile.heightMm}mm
