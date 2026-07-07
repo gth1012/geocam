@@ -693,6 +693,33 @@ const CameraScreen = ({
     setCapturing(true)
     try {
       const roiDataUrl = await cropGuideBox()
+      // [STEP 2-A 재검증] PNG 원본 입력 — 2026-07-07
+      ;(async () => {
+        try {
+          const pngBase64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
+          const img = new Image()
+          img.src = roiDataUrl
+          await new Promise(r => { img.onload = r })
+          console.log('[CardBoundary-2A-Input] source=cropGuideBox width=' + img.width + ' height=' + img.height)
+          const nativeResult = await (YuvCamera as any).detectCardBoundaryFromPng({
+            pngBase64,
+            targetWidthMm:   selectedCardProfile.widthMm,
+            targetHeightMm:  selectedCardProfile.heightMm,
+            aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
+          })
+          console.log('[CardBoundary-2A-Result] step=' + nativeResult.step
+            + ' width=' + nativeResult.width + ' height=' + nativeResult.height
+            + ' edgePixelCount=' + nativeResult.edgePixelCount
+            + ' edgeRatio=' + nativeResult.edgeRatio?.toFixed(4)
+            + ' contourCount=' + nativeResult.contourCount
+            + ' quadCount=' + nativeResult.quadCount
+            + ' cardDetected=' + nativeResult.cardDetected
+            + ' aspectRatioScore=' + nativeResult.aspectRatioScore?.toFixed(3)
+            + ' coverageScore=' + nativeResult.coverageScore?.toFixed(3))
+        } catch (e) {
+          console.warn('[CardBoundary-2A-Result] error:', e)
+        }
+      })()
       canvas.width  = video.videoWidth
       canvas.height = video.videoHeight
       const ctx2d = canvas.getContext('2d')

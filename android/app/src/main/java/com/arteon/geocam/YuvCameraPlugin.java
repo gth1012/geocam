@@ -309,15 +309,69 @@ public class YuvCameraPlugin extends Plugin {
                 + " highT=" + String.format("%.1f", highT)
                 + " lowT="  + String.format("%.1f", lowT));
 
+            // ── STEP 2-B: Contour → Quad → orderCorners ──────────────
+            java.util.List<int[]> contours = traceContours(edgeMap, width, height);
+            java.util.List<int[][]> quads  = findQuadrilateralCandidates(contours, width, height);
+
+            boolean cardDetected   = false;
+            int[][] orderedCorners = null;
+            double  bestArea       = 0;
+
+            for (int[][] quad : quads) {
+                double area = 0;
+                for (int i = 0; i < 4; i++) {
+                    int j = (i + 1) % 4;
+                    area += quad[i][0] * quad[j][1];
+                    area -= quad[j][0] * quad[i][1];
+                }
+                area = Math.abs(area) / 2.0;
+                if (area > bestArea) {
+                    bestArea       = area;
+                    orderedCorners = orderCorners(quad);
+                    cardDetected   = true;
+                }
+            }
+
+            double aspectRatioScore = 0;
+            double coverageScore    = 0;
+            double targetRatio      = targetWidthMm / targetHeightMm;
+
+            if (cardDetected && orderedCorners != null) {
+                int[] tl = orderedCorners[0], tr = orderedCorners[1];
+                int[] br = orderedCorners[2], bl = orderedCorners[3];
+                double w = (dist(tl, tr) + dist(bl, br)) / 2.0;
+                double h = (dist(tl, bl) + dist(tr, br)) / 2.0;
+                double measuredRatio = h > 0 ? w / h : 0;
+                aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio - targetRatio) / aspectTolerance);
+                coverageScore    = Math.min(1.0, bestArea / (width * height * 0.5));
+                Log.d(TAG, "[CardBoundary2B] w=" + String.format("%.1f", w)
+                    + " h=" + String.format("%.1f", h)
+                    + " ratio=" + String.format("%.3f", measuredRatio)
+                    + " aspectScore=" + String.format("%.3f", aspectRatioScore)
+                    + " coverageScore=" + String.format("%.3f", coverageScore));
+            }
+
             JSObject result = new JSObject();
-            result.put("step",           "2A");
-            result.put("edgePixelCount", edgePixelCount);
-            result.put("edgeRatio",      edgeRatio);
-            result.put("width",          width);
-            result.put("height",         height);
-            result.put("highThreshold",  highT);
-            result.put("lowThreshold",   lowT);
-            result.put("debugInfo",      "gaussianBlur→sobelGradient→NMS→doubleThreshold→hysteresis OK");
+            result.put("step",             "2B");
+            result.put("edgePixelCount",   edgePixelCount);
+            result.put("edgeRatio",        edgeRatio);
+            result.put("contourCount",     contours.size());
+            result.put("quadCount",        quads.size());
+            result.put("cardDetected",     cardDetected);
+            result.put("aspectRatioScore", aspectRatioScore);
+            result.put("coverageScore",    coverageScore);
+            result.put("width",            width);
+            result.put("height",           height);
+            result.put("highThreshold",    highT);
+            result.put("lowThreshold",     lowT);
+            if (cardDetected && orderedCorners != null) {
+                JSObject corners = new JSObject();
+                corners.put("tlX", orderedCorners[0][0]); corners.put("tlY", orderedCorners[0][1]);
+                corners.put("trX", orderedCorners[1][0]); corners.put("trY", orderedCorners[1][1]);
+                corners.put("brX", orderedCorners[2][0]); corners.put("brY", orderedCorners[2][1]);
+                corners.put("blX", orderedCorners[3][0]); corners.put("blY", orderedCorners[3][1]);
+                result.put("corners", corners);
+            }
             call.resolve(result);
 
         } catch (Exception e) {
@@ -498,7 +552,386 @@ public class YuvCameraPlugin extends Plugin {
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
         return bitmap;
     }
+// ============================================================
+    // STEP 2-B: Contour 추적 + Douglas-Peucker + Quadrilateral
+    // ============================================================
 
+    /**
+     * traceContours: binary edge map에서 외곽선 추적
+     * 반환: contour 목록 (각 contour = int[] {x0,y0, x1,y1, ...})
+     */
+    private java.util.List<int[]> traceContours(byte[] edgeMap, int width, int height) {
+        java.util.List<int[]> contours = new java.util.ArrayList<>();
+        boolean[] visited = new boolean[width * height];
+
+        for (int row = 1; row < height - 1; row++) {
+            for (int col = 1; col < width - 1; col++) {
+                int idx = row * width + col;
+                if (edgeMap[idx] == 2 && !visited[idx]) {
+                    // BFS로 연결된 edge 픽셀 추적
+                    java.util.List<int[]> points = new java.util.ArrayList<>();
+                    java.util.Queue<int[]> queue = new java.util.LinkedList<>();
+                    queue.add(new int[]{col, row});
+                    visited[idx] = true;
+
+                    while (!queue.isEmpty()) {
+                        int[] p = queue.poll();
+                        points.add(p);
+                        int px = p[0], py = p[1];
+                        // 8-연결 탐색
+                        for (int dr = -1; dr <= 1; dr++) {
+                            for (int dc = -1; dc <= 1; dc++) {
+                                if (dr == 0 && dc == 0) continue;
+                                int nr = py + dr, nc = px + dc;
+                                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                                int nIdx = nr * width + nc;
+                                if (edgeMap[nIdx] == 2 && !visited[nIdx]) {
+                                    visited[nIdx] = true;
+                                    queue.add(new int[]{nc, nr});
+                                }
+                            }
+                        }
+                    }
+
+                    // 최소 픽셀 수 이상인 contour만 저장 (노이즈 제거)
+                    if (points.size() >= 20) {
+                        int[] flat = new int[points.size() * 2];
+                        for (int i = 0; i < points.size(); i++) {
+                            flat[i * 2]     = points.get(i)[0];
+                            flat[i * 2 + 1] = points.get(i)[1];
+                        }
+                        contours.add(flat);
+                    }
+                }
+            }
+        }
+        Log.d(TAG, "[Contour] total=" + contours.size());
+        return contours;
+    }
+
+    /**
+     * approximatePolygonDouglasPeucker: Douglas-Peucker 알고리즘으로 다각형 근사
+     */
+    private java.util.List<int[]> approximatePolygonDouglasPeucker(int[] points, double epsilon) {
+        if (points.length < 4) return new java.util.ArrayList<>();
+        int n = points.length / 2;
+
+        // 재귀적 Douglas-Peucker
+        boolean[] keep = new boolean[n];
+        keep[0] = true;
+        keep[n - 1] = true;
+        dpRecursive(points, 0, n - 1, epsilon, keep);
+
+        java.util.List<int[]> result = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            if (keep[i]) result.add(new int[]{points[i * 2], points[i * 2 + 1]});
+        }
+        return result;
+    }
+
+    private void dpRecursive(int[] points, int start, int end, double epsilon, boolean[] keep) {
+        if (end <= start + 1) return;
+        int x1 = points[start * 2], y1 = points[start * 2 + 1];
+        int x2 = points[end   * 2], y2 = points[end   * 2 + 1];
+        double lineLen = Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+
+        double maxDist = 0;
+        int maxIdx = start;
+        for (int i = start + 1; i < end; i++) {
+            int px = points[i * 2], py = points[i * 2 + 1];
+            double dist;
+            if (lineLen < 1e-6) {
+                dist = Math.sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+            } else {
+                dist = Math.abs((y2-y1)*px - (x2-x1)*py + x2*y1 - y2*x1) / lineLen;
+            }
+            if (dist > maxDist) { maxDist = dist; maxIdx = i; }
+        }
+
+        if (maxDist > epsilon) {
+            keep[maxIdx] = true;
+            dpRecursive(points, start, maxIdx, epsilon, keep);
+            dpRecursive(points, maxIdx, end, epsilon, keep);
+        }
+    }
+
+    /**
+     * findQuadrilateralCandidates: contour 목록에서 4각형 후보 찾기
+     */
+    private java.util.List<int[][]> findQuadrilateralCandidates(
+    java.util.List<int[]> contours, int width, int height) {
+        java.util.List<int[][]> quads = new java.util.ArrayList<>();
+        double EPSILON_RATIO = 0.04;
+        double frameArea = (double) width * height;
+        double minAreaRatio = 0.05;
+        double minArea = frameArea * minAreaRatio;
+
+        // 면적 상위 contour 정렬 (진단용)
+        java.util.List<int[]> sorted = new java.util.ArrayList<>(contours);
+        sorted.sort((a, b) -> {
+            double areaA = 0, areaB = 0;
+            for (int i = 0; i < a.length/2; i++) {
+                int j = (i+1) % (a.length/2);
+                areaA += Math.abs(a[i*2]*(double)a[j*2+1] - a[j*2]*(double)a[i*2+1]);
+            }
+            for (int i = 0; i < b.length/2; i++) {
+                int j = (i+1) % (b.length/2);
+                areaB += Math.abs(b[i*2]*(double)b[j*2+1] - b[j*2]*(double)b[i*2+1]);
+            }
+            return Double.compare(areaB/2, areaA/2);
+        });
+
+        int diagLimit = Math.min(10, sorted.size());
+        for (int idx = 0; idx < sorted.size(); idx++) {
+            int[] contour = sorted.get(idx);
+            int n = contour.length / 2;
+
+            // 둘레 계산
+            double perimeter = 0;
+            for (int i = 0; i < n; i++) {
+                int next = (i + 1) % n;
+                int dx = contour[next*2] - contour[i*2];
+                int dy = contour[next*2+1] - contour[i*2+1];
+                perimeter += Math.sqrt(dx*dx + dy*dy);
+            }
+
+            // 면적 계산 (Shoelace)
+            double area = 0;
+            for (int i = 0; i < n; i++) {
+                int j = (i + 1) % n;
+                area += contour[i*2] * (double)contour[j*2+1];
+                area -= contour[j*2] * (double)contour[i*2+1];
+            }
+            area = Math.abs(area) / 2.0;
+            double areaRatio = area / frameArea;
+
+            double epsilon = EPSILON_RATIO * perimeter;
+            java.util.List<int[]> approx = approximatePolygonDouglasPeucker(contour, epsilon);
+
+            // 진단 로그 (상위 10개만)
+            if (idx < diagLimit) {
+                Log.d(TAG, "[CardBoundary-2B-Contour] index=" + idx
+                    + " pointCount=" + n
+                    + " area=" + (int)area
+                    + " areaRatio=" + String.format("%.4f", areaRatio)
+                    + " perimeter=" + (int)perimeter
+                    + " epsilonRatio=" + EPSILON_RATIO
+                    + " epsilon=" + String.format("%.1f", epsilon)
+                    + " approxVertexCount=" + approx.size());
+            }
+
+            // 탈락 사유 로그
+            String rejectReason = null;
+            if (area < minArea) {
+                rejectReason = "AREA_TOO_SMALL(area=" + (int)area + " min=" + (int)minArea + ")";
+            } else if (approx.size() < 4) {
+                rejectReason = "APPROX_VERTEX_LT4(approxSize=" + approx.size() + ")";
+            } else if (approx.size() > 4) {
+                rejectReason = "APPROX_VERTEX_GT4(approxSize=" + approx.size() + ")";
+            }
+
+            if (rejectReason != null) {
+                if (idx < diagLimit) {
+                    Log.d(TAG, "[CardBoundary-2B-Reject] index=" + idx
+                        + " reason=" + rejectReason);
+                }
+                continue;
+            }
+
+            // approx.size() == 4 && area >= minArea
+            int[][] quad = new int[4][2];
+            for (int i = 0; i < 4; i++) {
+                quad[i][0] = approx.get(i)[0];
+                quad[i][1] = approx.get(i)[1];
+            }
+            quads.add(quad);
+            Log.d(TAG, "[Quad] found area=" + (int)area
+                + " perimeter=" + (int)perimeter
+                + " areaRatio=" + String.format("%.4f", areaRatio));
+        }
+        Log.d(TAG, "[Quad] candidates=" + quads.size());
+        return quads;
+    }
+
+    /**
+     * orderCorners: TL/TR/BR/BL 순서로 corner 정렬
+     * TL: x+y 최소 / BR: x+y 최대 / TR: y-x 최소 / BL: y-x 최대
+     */
+    private int[][] orderCorners(int[][] quad) {
+        int[][] ordered = new int[4][2];
+        int[] sumArr  = new int[4];
+        int[] diffArr = new int[4];
+        for (int i = 0; i < 4; i++) {
+            sumArr[i]  = quad[i][0] + quad[i][1];
+            diffArr[i] = quad[i][1] - quad[i][0];
+        }
+        // TL: sum 최소
+        int tlIdx = 0;
+        for (int i = 1; i < 4; i++) if (sumArr[i] < sumArr[tlIdx]) tlIdx = i;
+        ordered[0] = quad[tlIdx];
+        // BR: sum 최대
+        int brIdx = 0;
+        for (int i = 1; i < 4; i++) if (sumArr[i] > sumArr[brIdx]) brIdx = i;
+        ordered[2] = quad[brIdx];
+        // TR: diff 최소 (y-x 최소)
+        int trIdx = 0;
+        for (int i = 1; i < 4; i++) if (diffArr[i] < diffArr[trIdx]) trIdx = i;
+        ordered[1] = quad[trIdx];
+        // BL: diff 최대 (y-x 최대)
+        int blIdx = 0;
+        for (int i = 1; i < 4; i++) if (diffArr[i] > diffArr[blIdx]) blIdx = i;
+        ordered[3] = quad[blIdx];
+        return ordered;
+    }
+    /**
+     * dist: 두 점 사이 거리
+     */
+    private double dist(int[] a, int[] b) {
+        int dx = a[0] - b[0];
+        int dy = a[1] - b[1];
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    // ============================================================
+    // detectCardBoundaryFromPng: PNG Base64 입력 전용
+    // 기존 detectCardBoundary() Y-plane 계약 변경 없음
+    // ============================================================
+
+    @PluginMethod
+    public void detectCardBoundaryFromPng(PluginCall call) {
+        double targetWidthMm   = call.getDouble("targetWidthMm",  55.0);
+        double targetHeightMm  = call.getDouble("targetHeightMm", 85.0);
+        double aspectTolerance = call.getDouble("aspectTolerance", 0.15);
+
+        String pngBase64 = call.getString("pngBase64");
+        if (pngBase64 == null || pngBase64.isEmpty()) {
+            call.reject("pngBase64 is required");
+            return;
+        }
+
+        try {
+            // PNG Base64 → Bitmap
+            byte[] pngBytes = Base64.decode(pngBase64, Base64.NO_WRAP);
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory
+                .decodeByteArray(pngBytes, 0, pngBytes.length);
+            if (bitmap == null) {
+                call.reject("BitmapFactory decode failed");
+                return;
+            }
+
+            int width  = bitmap.getWidth();
+            int height = bitmap.getHeight();
+
+            Log.d(TAG, "[CardBoundaryPng] input width=" + width + " height=" + height);
+
+            // Bitmap → grayscale Y-plane bytes
+            byte[] yBytes = new byte[width * height];
+            int[] pixels  = new int[width * height];
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+            for (int i = 0; i < pixels.length; i++) {
+                int r = (pixels[i] >> 16) & 0xFF;
+                int g = (pixels[i] >>  8) & 0xFF;
+                int b = (pixels[i]      ) & 0xFF;
+                yBytes[i] = (byte)(0.299 * r + 0.587 * g + 0.114 * b);
+            }
+            bitmap.recycle();
+
+            // 기존 Edge Map 파이프라인 재사용
+            float[] blurred   = gaussianBlur(yBytes, width, height,
+                                    GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA);
+            float[] magnitude = new float[width * height];
+            float[] direction = new float[width * height];
+            computeSobelGradient(blurred, width, height, magnitude, direction);
+            float[] suppressed = nonMaximumSuppression(magnitude, direction, width, height);
+
+            float maxMag = 0f;
+            for (float v : suppressed) if (v > maxMag) maxMag = v;
+            float highT = maxMag > 0 ? Math.min(CANNY_HIGH_THRESHOLD, maxMag * 0.8f)
+                                     : CANNY_HIGH_THRESHOLD;
+            float lowT  = highT * (CANNY_LOW_THRESHOLD / CANNY_HIGH_THRESHOLD);
+
+            byte[] edgeMap = applyDoubleThreshold(suppressed, width, height, lowT, highT);
+            edgeHysteresis(edgeMap, width, height);
+
+            int edgePixelCount = 0;
+            for (byte bv : edgeMap) if (bv == 2) edgePixelCount++;
+            float edgeRatio = (float) edgePixelCount / (width * height);
+
+            Log.d(TAG, "[CardBoundaryPng] edgePixelCount=" + edgePixelCount
+                + " edgeRatio=" + String.format("%.4f", edgeRatio)
+                + " highT=" + String.format("%.1f", highT)
+                + " lowT="  + String.format("%.1f", lowT));
+
+            // Contour → Quad → orderCorners
+            java.util.List<int[]> contours = traceContours(edgeMap, width, height);
+            java.util.List<int[][]> quads  = findQuadrilateralCandidates(contours, width, height);
+
+            boolean cardDetected   = false;
+            int[][] orderedCorners = null;
+            double  bestArea       = 0;
+
+            for (int[][] quad : quads) {
+                double area = 0;
+                for (int i = 0; i < 4; i++) {
+                    int j = (i + 1) % 4;
+                    area += quad[i][0] * quad[j][1];
+                    area -= quad[j][0] * quad[i][1];
+                }
+                area = Math.abs(area) / 2.0;
+                if (area > bestArea) {
+                    bestArea       = area;
+                    orderedCorners = orderCorners(quad);
+                    cardDetected   = true;
+                }
+            }
+
+            double aspectRatioScore = 0;
+            double coverageScore    = 0;
+            double targetRatio      = targetWidthMm / targetHeightMm;
+
+            if (cardDetected && orderedCorners != null) {
+                int[] tl = orderedCorners[0], tr = orderedCorners[1];
+                int[] br = orderedCorners[2], bl = orderedCorners[3];
+                double w = (dist(tl, tr) + dist(bl, br)) / 2.0;
+                double h = (dist(tl, bl) + dist(tr, br)) / 2.0;
+                double measuredRatio = h > 0 ? w / h : 0;
+                aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio - targetRatio) / aspectTolerance);
+                coverageScore    = Math.min(1.0, bestArea / (width * height * 0.5));
+                Log.d(TAG, "[CardBoundaryPng] cardDetected=true"
+                    + " w=" + String.format("%.1f", w)
+                    + " h=" + String.format("%.1f", h)
+                    + " ratio=" + String.format("%.3f", measuredRatio)
+                    + " aspectScore=" + String.format("%.3f", aspectRatioScore)
+                    + " coverageScore=" + String.format("%.3f", coverageScore));
+            }
+
+            JSObject result = new JSObject();
+            result.put("step",             "PNG");
+            result.put("edgePixelCount",   edgePixelCount);
+            result.put("edgeRatio",        edgeRatio);
+            result.put("contourCount",     contours.size());
+            result.put("quadCount",        quads.size());
+            result.put("cardDetected",     cardDetected);
+            result.put("aspectRatioScore", aspectRatioScore);
+            result.put("coverageScore",    coverageScore);
+            result.put("width",            width);
+            result.put("height",           height);
+            result.put("highThreshold",    highT);
+            result.put("lowThreshold",     lowT);
+            if (cardDetected && orderedCorners != null) {
+                JSObject corners = new JSObject();
+                corners.put("tlX", orderedCorners[0][0]); corners.put("tlY", orderedCorners[0][1]);
+                corners.put("trX", orderedCorners[1][0]); corners.put("trY", orderedCorners[1][1]);
+                corners.put("brX", orderedCorners[2][0]); corners.put("brY", orderedCorners[2][1]);
+                corners.put("blX", orderedCorners[3][0]); corners.put("blY", orderedCorners[3][1]);
+                result.put("corners", corners);
+            }
+            call.resolve(result);
+
+        } catch (Exception e) {
+            Log.e(TAG, "[CardBoundaryPng] error: " + e.getMessage());
+            call.reject("detectCardBoundaryFromPng failed: " + e.getMessage());
+        }
+    }
     @Override
     protected void handleOnDestroy() {
         if (cameraExecutor != null) {
