@@ -27,6 +27,8 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import type { CameraScreenProps } from '../types/app.types'
+import { registerPlugin } from '@capacitor/core'
+const YuvCamera = registerPlugin('YuvCamera')
 // ─── 상수 (LC-CAM-001 v4.0 LOCK §10) ─────────────────────────────────────────
 // 가이드박스
 const GUIDE_H_RATIO         = 0.55
@@ -515,6 +517,34 @@ const CameraScreen = ({
       }
       const rectCheck = detectCardBoundary(imageData)
       console.log("[CardBoundary] detected=" + rectCheck.cardDetected + " confidence=" + rectCheck.boundaryConfidence + " edge=" + rectCheck.edgeScore + " aspect=" + rectCheck.aspectRatioScore + " coverage=" + rectCheck.coverageScore + " ratio=" + rectCheck.aspectRatio)
+      // [STEP 2-A TEST] Native edge map 검증 — 2026-07-07
+      ;(async () => {
+        try {
+          const testCanvas = document.createElement('canvas')
+          testCanvas.width  = sampleW
+          testCanvas.height = sampleH
+          const testCtx = testCanvas.getContext('2d')
+          if (testCtx) {
+            testCtx.putImageData(imageData, 0, 0)
+            const yBase64Raw = testCanvas.toDataURL('image/png').replace(/^data:image\/\w+;base64,/, '')
+            const nativeResult = await (YuvCamera as any).detectCardBoundary({
+              yBase64:         yBase64Raw,
+              width:           sampleW,
+              height:          sampleH,
+              targetWidthMm:   selectedCardProfile.widthMm,
+              targetHeightMm:  selectedCardProfile.heightMm,
+              aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
+            })
+            console.log('[Native2A] step=' + nativeResult.step
+              + ' edgePixelCount=' + nativeResult.edgePixelCount
+              + ' edgeRatio=' + nativeResult.edgeRatio?.toFixed(4)
+              + ' highT=' + nativeResult.highThreshold?.toFixed(1)
+              + ' lowT='  + nativeResult.lowThreshold?.toFixed(1))
+          }
+        } catch (e) {
+          console.warn('[Native2A] error:', e)
+        }
+      })()
       rectHistoryRef.current.push(rectCheck.cardDetected)
       if (rectHistoryRef.current.length > 4) rectHistoryRef.current.shift()
       const recentPassCount = rectHistoryRef.current.filter(Boolean).length
