@@ -43,9 +43,12 @@ const GLARE_MAX_RATIO         = 0.07
 // 안정 프레임
 const STABLE_REQUIRED         = 4
 // 카드 존재 인식(직사각형 윤곽 검출) threshold
-const RECT_MIN_EDGE_SCORE     = 0.10
+const CARD_ASPECT_RATIO       = 55 / 85
+const CARD_ASPECT_TOLERANCE   = 0.15
+const CARD_BOUNDARY_THRESHOLD = 0.45           // 개발용 임시값
+const MIN_EDGE_GATE            = 0.05           // edge hard gate
 // 자동 캡처 (v4.0 LOCK §10: false — 수동 촬영이 메인)
-const AUTO_CAPTURE_ENABLED    = false
+const AUTO_CAPTURE_ENABLED    = true
 const AUTO_CAPTURE_DELAY_MS   = 300
 // 디버그 (운영 빌드 시 false)
 const DEBUG_CROP_LOG          = true
@@ -137,47 +140,81 @@ function calcGlareRatio(imageData: ImageData): number {
 }
 
 // ─── 직사각형 윤곽 검출 (카드 존재 인식) ────────────────────────────────────
-function detectRectangleEdges(imageData: ImageData): {
-  ok: boolean
-  topScore: number
-  bottomScore: number
-  leftScore: number
-  rightScore: number
-  avgScore: number
-} {
-  const { data, width, height } = imageData
-  const gray = new Float32Array(width * height)
-  for (let i = 0; i < width * height; i++) {
-    gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]
-  }
-  const bandStart = Math.round(Math.min(width, height) * 0.06)
-  const bandEnd   = Math.round(Math.min(width, height) * 0.30)
-  function lineScore(getGray: (t: number) => number, len: number): number {
-    let strongCount = 0
-    let sampleCount = 0
-    for (let t = bandStart; t < bandEnd && t < len - 1; t++) {
-      const g1 = getGray(t)
-      const g2 = getGray(t + 1)
-      const diff = Math.abs(g1 - g2)
-      if (diff > 5) strongCount++
-      sampleCount++
-    }
-    return sampleCount > 0 ? strongCount / sampleCount : 0
-  }
-  function sideScore(getGray: (pos: number, t: number) => number, crossLen: number, lineLen: number): number {
-    const positions = [Math.floor(crossLen * 0.25), Math.floor(crossLen * 0.5), Math.floor(crossLen * 0.75)]
-    const scores = positions.map(pos => lineScore((t) => getGray(pos, t), lineLen))
-    return Math.max(...scores)
-  }
-  const topScore    = sideScore((x, t) => gray[t * width + x], width, height)
-  const bottomScore = sideScore((x, t) => gray[(height - 1 - t) * width + x], width, height)
-  const leftScore   = sideScore((y, t) => gray[y * width + t], height, width)
-  const rightScore  = sideScore((y, t) => gray[y * width + (width - 1 - t)], height, width)
-  const avgScore    = (topScore + bottomScore + leftScore + rightScore) / 4
-  const passCount   = [topScore, bottomScore, leftScore, rightScore].filter(s => s >= RECT_MIN_EDGE_SCORE).length
-  const ok          = passCount >= 2
-  return { ok, topScore, bottomScore, leftScore, rightScore, avgScore }
+// ── Card Boundary Engine (LC-CARD-BOUNDARY-001 v1.0) ─────────────────────
+// GEO-CAM-001 PHASE 4 / 2026-07-07
+interface CardBoundaryResult {
+  cardDetected:       boolean
+  boundaryConfidence: number
+  edgeScore:          number
+  aspectRatioScore:   number
+  coverageScore:      number
+  aspectRatio:        number
+  ok:                 boolean
+  avgScore:           number
+  topScore:           number
+  bottomScore:        number
+  leftScore:          number
+  rightScore:         number
 }
+
+function detectCardBoundary(imageData: ImageData): CardBoundaryResult {
+  const { data, width, height } = imageData
+  if (width < 10 || height < 10) {
+    return { cardDetected: false, boundaryConfidence: 0, edgeScore: 0, aspectRatioScore: 0, coverageScore: 0, aspectRatio: 0, ok: false, avgScore: 0, topScore: 0, bottomScore: 0, leftScore: 0, rightScore: 0 }
+  }
+  const getGray = (x: number, y: number): number => {
+    const i = (y * width + x) * 4
+    return (data[i] * 299 + data[i+1] * 587 + data[i+2] * 114) / 1000
+  }
+  const bandH = Math.max(4, Math.floor(height * 0.08))
+  const bandW = Math.max(4, Math.floor(width  * 0.08))
+  const measureHEdge = (yStart: number, yEnd: number): number => {
+    let score = 0; let count = 0
+    for (let y = yStart; y < yEnd - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        if (Math.abs(getGray(x, y+1) - getGray(x, y)) > 15) score++
+        count++
+      }
+    }
+    return count > 0 ? score / count : 0
+  }
+  const measureVEdge = (xStart: number, xEnd: number): number => {
+    let score = 0; let count = 0
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = xStart; x < xEnd - 1; x++) {
+        if (Math.abs(getGray(x+1, y) - getGray(x, y)) > 15) score++
+        count++
+      }
+    }
+    return count > 0 ? score / count : 0
+  }
+  const topScore    = measureHEdge(0, bandH)
+  const bottomScore = measureHEdge(height - bandH, height)
+  const leftScore   = measureVEdge(0, bandW)
+  const rightScore  = measureVEdge(width - bandW, width)
+  const edgeScore   = (topScore + bottomScore + leftScore + rightScore) / 4
+  const passCount   = [topScore, bottomScore, leftScore, rightScore].filter(s => s >= 0.08).length
+  const measuredRatio    = width / height
+  const aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio - CARD_ASPECT_RATIO) / CARD_ASPECT_TOLERANCE)
+  const cx0 = Math.floor(width * 0.2); const cy0 = Math.floor(height * 0.2)
+  const cx1 = Math.floor(width * 0.8); const cy1 = Math.floor(height * 0.8)
+  const centerVals: number[] = []
+  for (let y = cy0; y < cy1; y += 4) for (let x = cx0; x < cx1; x += 4) centerVals.push(getGray(x, y))
+  const centerMean = centerVals.reduce((a, b) => a + b, 0) / centerVals.length
+  const centerStd  = Math.sqrt(centerVals.reduce((a, b) => a + (b - centerMean) ** 2, 0) / centerVals.length)
+  const coverageScore    = centerMean > 30 && centerStd < 60 ? Math.max(0, 1 - centerStd / 60) : 0
+  const boundaryConfidence = edgeScore * 0.30 + aspectRatioScore * 0.45 + coverageScore * 0.25
+  const cardDetected = passCount >= 2 && edgeScore >= MIN_EDGE_GATE && aspectRatioScore >= 0.60 && boundaryConfidence >= CARD_BOUNDARY_THRESHOLD
+  return {
+    cardDetected, boundaryConfidence: Math.round(boundaryConfidence*1000)/1000,
+    edgeScore: Math.round(edgeScore*1000)/1000, aspectRatioScore: Math.round(aspectRatioScore*1000)/1000,
+    coverageScore: Math.round(coverageScore*1000)/1000, aspectRatio: Math.round(measuredRatio*1000)/1000,
+    ok: cardDetected, avgScore: Math.round(edgeScore*1000)/1000,
+    topScore: Math.round(topScore*1000)/1000, bottomScore: Math.round(bottomScore*1000)/1000,
+    leftScore: Math.round(leftScore*1000)/1000, rightScore: Math.round(rightScore*1000)/1000,
+  }
+}
+
 async function canvasToPngBase64(canvas: HTMLCanvasElement): Promise<string> {
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
@@ -476,14 +513,14 @@ const CameraScreen = ({
         setQualityState('WARNING_GLARE')
         return
       }
-      const rectCheck = detectRectangleEdges(imageData)
-      console.log(`[RectGate] edgeOk=${rectCheck.ok} avg=${rectCheck.avgScore.toFixed(3)} threshold=${RECT_MIN_EDGE_SCORE} top=${rectCheck.topScore.toFixed(2)} bottom=${rectCheck.bottomScore.toFixed(2)} left=${rectCheck.leftScore.toFixed(2)} right=${rectCheck.rightScore.toFixed(2)}`)
-      rectHistoryRef.current.push(rectCheck.ok)
+      const rectCheck = detectCardBoundary(imageData)
+      console.log("[CardBoundary] detected=" + rectCheck.cardDetected + " confidence=" + rectCheck.boundaryConfidence + " edge=" + rectCheck.edgeScore + " aspect=" + rectCheck.aspectRatioScore + " coverage=" + rectCheck.coverageScore + " ratio=" + rectCheck.aspectRatio)
+      rectHistoryRef.current.push(rectCheck.cardDetected)
       if (rectHistoryRef.current.length > 4) rectHistoryRef.current.shift()
       const recentPassCount = rectHistoryRef.current.filter(Boolean).length
-      const rectStable = recentPassCount >= 2
+      const rectStable = recentPassCount >= 3
       const qualityReady = true
-      const rectReady = recentPassCount >= 2
+      const rectReady = recentPassCount >= 3
       console.log(`[AutoGate] qualityReady=${qualityReady} rectReady=${rectReady} recentPass=${recentPassCount} rectStable=${rectStable} autoCaptureLocked=${captureLockedRef.current} stableCount=${stableCountRef.current}/${STABLE_REQUIRED}`)
       if (!rectStable) {
         stableCountRef.current = Math.max(0, stableCountRef.current - 1)
