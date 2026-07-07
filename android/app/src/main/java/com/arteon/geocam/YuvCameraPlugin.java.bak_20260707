@@ -1,0 +1,267 @@
+package com.arteon.geocam;
+
+import android.graphics.Bitmap;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.hardware.camera2.CaptureRequest;
+import android.util.Base64;
+import android.util.Log;
+
+import androidx.annotation.NonNull;
+import androidx.camera.camera2.interop.Camera2Interop;
+import androidx.camera.core.CameraControl;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LifecycleOwner;
+
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+@CapacitorPlugin(name = "YuvCamera")
+public class YuvCameraPlugin extends Plugin {
+
+    private static final String TAG = "YuvCameraPlugin";
+    private ExecutorService cameraExecutor;
+    private ImageAnalysis imageAnalysis;
+    private ProcessCameraProvider cameraProvider;
+    private final AtomicBoolean isCapturing = new AtomicBoolean(false);
+    private PluginCall pendingCall;
+
+    // LOCK 안정화 관련
+    private static final int LOCK_STABLE_FRAMES = 5;
+    private int stableFrameCount = 0;
+    private float prevMeanY = -1f;
+    private boolean lockStable = false;
+
+    @Override
+    public void load() {
+        cameraExecutor = Executors.newSingleThreadExecutor();
+    }
+
+    @PluginMethod
+    public void startYuvAnalysis(PluginCall call) {
+        call.setKeepAlive(true);
+        pendingCall = call;
+        stableFrameCount = 0;
+        prevMeanY = -1f;
+        lockStable = false;
+
+        getActivity().runOnUiThread(() -> {
+            ProcessCameraProvider.getInstance(getContext()).addListener(() -> {
+                try {
+                    cameraProvider = ProcessCameraProvider.getInstance(getContext()).get();
+                    bindYuvAnalysis();
+                } catch (Exception e) {
+                    Log.e(TAG, "startYuvAnalysis error: " + e.getMessage());
+                    call.reject("Camera init failed: " + e.getMessage());
+                }
+            }, ContextCompat.getMainExecutor(getContext()));
+        });
+    }
+
+    private void bindYuvAnalysis() {
+        cameraProvider.unbindAll();
+
+        // AE/AWB/AF LOCK 설정 (Camera2Interop)
+        ImageAnalysis.Builder analysisBuilder = new ImageAnalysis.Builder()
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
+
+        Camera2Interop.Extender<ImageAnalysis> interop =
+            new Camera2Interop.Extender<>(analysisBuilder);
+        interop.setCaptureRequestOption(
+            CaptureRequest.CONTROL_AWB_LOCK, true);
+        interop.setCaptureRequestOption(
+            CaptureRequest.CONTROL_AF_MODE,
+            CaptureRequest.CONTROL_AF_MODE_OFF);
+        interop.setCaptureRequestOption(
+            CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0);
+
+        imageAnalysis = analysisBuilder.build();
+        imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeFrame);
+
+        Preview preview = new Preview.Builder().build();
+        CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+
+        cameraProvider.bindToLifecycle(
+            (LifecycleOwner) getActivity(),
+            cameraSelector,
+            preview,
+            imageAnalysis
+        );
+
+        Log.d(TAG, "YUV ImageAnalysis bound. LOCK applied.");
+    }
+
+    private void analyzeFrame(@NonNull ImageProxy image) {
+        if (!isCapturing.get()) {
+            // LOCK 안정화 체크 (연속 LOCK_STABLE_FRAMES 프레임)
+            checkLockStability(image);
+            image.close();
+            return;
+        }
+
+        try {
+            int width  = image.getWidth();
+            int height = image.getHeight();
+            int rotation = image.getImageInfo().getRotationDegrees();
+            Rect cropRect = image.getCropRect();
+
+            // Y-plane 추출
+            ImageProxy.PlaneProxy yPlane = image.getPlanes()[0];
+            ByteBuffer yBuffer = yPlane.getBuffer();
+            int rowStride   = yPlane.getRowStride();
+            int pixelStride = yPlane.getPixelStride();
+
+            Log.d(TAG, "[YUV] width=" + width + " height=" + height
+                + " rotation=" + rotation
+                + " rowStride=" + rowStride
+                + " pixelStride=" + pixelStride
+                + " cropRect=" + cropRect.toString());
+
+            // Y-plane → Bitmap (grayscale)
+            Bitmap bitmap = yPlaneToBitmap(yBuffer, width, height, rowStride, pixelStride);
+
+            // PNG 인코딩 (무손실)
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
+            String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+
+            Log.d(TAG, "[YUV] PNG base64 length=" + base64.length()
+                + " estimatedKB=" + (base64.length() / 1024));
+
+            JSObject result = new JSObject();
+            result.put("yuvBase64", base64);
+            result.put("sourceWidth", width);
+            result.put("sourceHeight", height);
+            result.put("rotationDegrees", rotation);
+            result.put("cropRectLeft", cropRect.left);
+            result.put("cropRectTop", cropRect.top);
+            result.put("cropRectRight", cropRect.right);
+            result.put("cropRectBottom", cropRect.bottom);
+            result.put("rowStride", rowStride);
+            result.put("pixelStride", pixelStride);
+            result.put("lockStable", lockStable);
+            result.put("lockStableFrames", stableFrameCount);
+            result.put("source", "YUV_ANALYSIS");
+
+            if (pendingCall != null) {
+                pendingCall.resolve(result);
+                pendingCall = null;
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "analyzeFrame error: " + e.getMessage());
+            if (pendingCall != null) {
+                pendingCall.reject("YUV analysis failed: " + e.getMessage());
+                pendingCall = null;
+            }
+        } finally {
+            isCapturing.set(false);
+            image.close();
+        }
+    }
+
+    private void checkLockStability(@NonNull ImageProxy image) {
+        try {
+            ImageProxy.PlaneProxy yPlane = image.getPlanes()[0];
+            ByteBuffer yBuffer = yPlane.getBuffer().duplicate();
+            int rowStride = yPlane.getRowStride();
+            int width = image.getWidth();
+            int height = image.getHeight();
+
+            // 중앙 샘플 평균값 계산
+            long sum = 0; int count = 0;
+            int centerY = height / 2;
+            int startX = width / 4;
+            int endX   = width * 3 / 4;
+            for (int x = startX; x < endX; x++) {
+                int idx = centerY * rowStride + x;
+                if (idx < yBuffer.capacity()) {
+                    sum += (yBuffer.get(idx) & 0xFF);
+                    count++;
+                }
+            }
+            float meanY = count > 0 ? (float) sum / count : 0f;
+
+            if (prevMeanY >= 0) {
+                float variance = Math.abs(meanY - prevMeanY);
+                if (variance < 2.0f) {
+                    stableFrameCount++;
+                    if (stableFrameCount >= LOCK_STABLE_FRAMES) {
+                        lockStable = true;
+                        Log.d(TAG, "[LOCK] Stable confirmed. frames=" + stableFrameCount
+                            + " meanY=" + meanY);
+                    }
+                } else {
+                    stableFrameCount = 0;
+                    lockStable = false;
+                }
+            }
+            prevMeanY = meanY;
+        } catch (Exception e) {
+            Log.e(TAG, "checkLockStability error: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void captureYuvFrame(PluginCall call) {
+        if (!lockStable) {
+            Log.w(TAG, "[captureYuvFrame] LOCK not stable yet. frames=" + stableFrameCount);
+        }
+        pendingCall = call;
+        isCapturing.set(true);
+    }
+
+    @PluginMethod
+    public void stopYuvAnalysis(PluginCall call) {
+        if (cameraProvider != null) {
+            getActivity().runOnUiThread(() -> {
+                cameraProvider.unbindAll();
+                Log.d(TAG, "YUV analysis stopped.");
+            });
+        }
+        isCapturing.set(false);
+        JSObject result = new JSObject();
+        result.put("stopped", true);
+        call.resolve(result);
+    }
+
+    private Bitmap yPlaneToBitmap(ByteBuffer yBuffer, int width, int height,
+                                   int rowStride, int pixelStride) {
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        int[] pixels = new int[width * height];
+        yBuffer.rewind();
+        for (int row = 0; row < height; row++) {
+            for (int col = 0; col < width; col++) {
+                int idx = row * rowStride + col * pixelStride;
+                if (idx < yBuffer.capacity()) {
+                    int y = yBuffer.get(idx) & 0xFF;
+                    pixels[row * width + col] = 0xFF000000 | (y << 16) | (y << 8) | y;
+                }
+            }
+        }
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+        return bitmap;
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (cameraExecutor != null) {
+            cameraExecutor.shutdown();
+        }
+    }
+}
