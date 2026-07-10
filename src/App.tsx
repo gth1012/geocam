@@ -1,4 +1,4 @@
-import './i18n';
+﻿import './i18n';
 import { useTranslation } from 'react-i18next';
 import { useState, useCallback, useEffect } from 'react'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
@@ -38,9 +38,7 @@ const PROTECTED_SCREENS: Screen[] = [
 
 const AUTH_SCREENS: Screen[] = ['authLanding', 'login', 'register']
 
-const GEO_API_BASE = 'https://geo-api.artionchain.com/api'
-const TEST_CANDIDATE = 'C'
-const TEST_DINA_ID = 'TEST-DINA-LAYER2-001'
+const NEO_API_BASE = 'https://neo-api.artionchain.com/api'
 
 function App() {
   const { i18n } = useTranslation();
@@ -193,22 +191,15 @@ function App() {
     setScanMode('camera')
     setCapturedImage(imageDataUrl)
     try {
-      const base64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
-      const binary = atob(base64)
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-      const blob = new Blob([bytes], { type: 'image/jpeg' })
-      const formData = new FormData()
-      formData.append('image', blob, 'gallery.jpg')
-      formData.append('dina_id', TEST_DINA_ID)
-      formData.append('candidate', TEST_CANDIDATE)
-      const res = await fetch(`${GEO_API_BASE}/geocode/detect-layer2`, {
-        method: 'POST', body: formData,
+      const regionImage = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
+      const res = await fetch('https://neo-api.artionchain.com/api/geocam/physical/detect-signal', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_data: regionImage }),
       })
       const result = await res.json()
-      if (result.verdict === 'PASS') {
+      if (result.verdict === 'SIGNAL_PRESENT') {
         setVerifyStatus('PRESENT')
-      } else if (result.verdict === 'INSUFFICIENT') {
+      } else if (result.verdict === 'SIGNAL_UNCERTAIN') {
         setVerifyStatus('INSUFFICIENT_DATA')
       } else {
         setVerifyStatus('ABSENT')
@@ -358,7 +349,7 @@ function App() {
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '20px 0', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                 <span style={{ color: 'rgba(167,139,250,0.8)', fontSize: '13px', marginTop: '1px' }}>✓</span>
-                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>회원가입이 완료되었습니다. 레그캠을 시작하세요.</p>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '300' }}>회원가입이 완료되었습니다. LegitTag를 시작하세요.</p>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
@@ -373,3 +364,5 @@ function App() {
 }
 
 export default App
+
+
