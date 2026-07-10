@@ -1,4 +1,4 @@
-// CameraScreen.tsx v4.2
+﻿// CameraScreen.tsx v4.2
 // LC-CAM-001 v4.0 LOCK 기준
 // 작성: 짱아 / 2026-06-30
 //
@@ -49,7 +49,7 @@ const CARD_ASPECT_RATIO       = 55 / 85
 const CARD_ASPECT_TOLERANCE   = 0.15
 const CARD_BOUNDARY_THRESHOLD = 0.45           // 개발용 임시값
 const MIN_EDGE_GATE            = 0.05           // edge hard gate
-// 자동 캡처 (v4.0 LOCK §10: false — 수동 촬영이 메인)
+// 자동 캡처 (v4.0 이후 true — 카드 감지 시 자동 촬영)
 const AUTO_CAPTURE_ENABLED    = true
 const AUTO_CAPTURE_DELAY_MS   = 300
 // 디버그 (운영 빌드 시 false)

@@ -192,7 +192,7 @@ function App() {
     setCapturedImage(imageDataUrl)
     try {
       const regionImage = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
-      const res = await fetch('https://neo-api.artionchain.com/api/geocam/physical/detect-signal', {
+      const res = await fetch(`${NEO_API_BASE}/geocam/physical/detect-signal`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image_data: regionImage }),
       })
