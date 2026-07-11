@@ -1,4 +1,4 @@
-﻿// CameraScreen.tsx v4.2
+// CameraScreen.tsx v4.2
 // LC-CAM-001 v4.0 LOCK 기준
 // 작성: 짱아 / 2026-06-30
 //
@@ -27,8 +27,6 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import type { CameraScreenProps } from '../types/app.types'
-import { registerPlugin } from '@capacitor/core'
-const YuvCamera = registerPlugin('YuvCamera')
 // ─── 상수 (LC-CAM-001 v4.0 LOCK §10) ─────────────────────────────────────────
 // 가이드박스
 const GUIDE_H_RATIO         = 0.55
@@ -45,12 +43,9 @@ const GLARE_MAX_RATIO         = 0.07
 // 안정 프레임
 const STABLE_REQUIRED         = 4
 // 카드 존재 인식(직사각형 윤곽 검출) threshold
-const CARD_ASPECT_RATIO       = 55 / 85
-const CARD_ASPECT_TOLERANCE   = 0.15
-const CARD_BOUNDARY_THRESHOLD = 0.45           // 개발용 임시값
-const MIN_EDGE_GATE            = 0.05           // edge hard gate
-// 자동 캡처 (v4.0 이후 true — 카드 감지 시 자동 촬영)
-const AUTO_CAPTURE_ENABLED    = true
+const RECT_MIN_EDGE_SCORE     = 0.10
+// 자동 캡처 (v4.0 LOCK §10: false — 수동 촬영이 메인)
+const AUTO_CAPTURE_ENABLED    = false
 const AUTO_CAPTURE_DELAY_MS   = 300
 // 디버그 (운영 빌드 시 false)
 const DEBUG_CROP_LOG          = true
@@ -142,81 +137,47 @@ function calcGlareRatio(imageData: ImageData): number {
 }
 
 // ─── 직사각형 윤곽 검출 (카드 존재 인식) ────────────────────────────────────
-// ── Card Boundary Engine (LC-CARD-BOUNDARY-001 v1.0) ─────────────────────
-// GEO-CAM-001 PHASE 4 / 2026-07-07
-interface CardBoundaryResult {
-  cardDetected:       boolean
-  boundaryConfidence: number
-  edgeScore:          number
-  aspectRatioScore:   number
-  coverageScore:      number
-  aspectRatio:        number
-  ok:                 boolean
-  avgScore:           number
-  topScore:           number
-  bottomScore:        number
-  leftScore:          number
-  rightScore:         number
-}
-
-function detectCardBoundary(imageData: ImageData): CardBoundaryResult {
+function detectRectangleEdges(imageData: ImageData): {
+  ok: boolean
+  topScore: number
+  bottomScore: number
+  leftScore: number
+  rightScore: number
+  avgScore: number
+} {
   const { data, width, height } = imageData
-  if (width < 10 || height < 10) {
-    return { cardDetected: false, boundaryConfidence: 0, edgeScore: 0, aspectRatioScore: 0, coverageScore: 0, aspectRatio: 0, ok: false, avgScore: 0, topScore: 0, bottomScore: 0, leftScore: 0, rightScore: 0 }
+  const gray = new Float32Array(width * height)
+  for (let i = 0; i < width * height; i++) {
+    gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]
   }
-  const getGray = (x: number, y: number): number => {
-    const i = (y * width + x) * 4
-    return (data[i] * 299 + data[i+1] * 587 + data[i+2] * 114) / 1000
-  }
-  const bandH = Math.max(4, Math.floor(height * 0.08))
-  const bandW = Math.max(4, Math.floor(width  * 0.08))
-  const measureHEdge = (yStart: number, yEnd: number): number => {
-    let score = 0; let count = 0
-    for (let y = yStart; y < yEnd - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        if (Math.abs(getGray(x, y+1) - getGray(x, y)) > 15) score++
-        count++
-      }
+  const bandStart = Math.round(Math.min(width, height) * 0.06)
+  const bandEnd   = Math.round(Math.min(width, height) * 0.30)
+  function lineScore(getGray: (t: number) => number, len: number): number {
+    let strongCount = 0
+    let sampleCount = 0
+    for (let t = bandStart; t < bandEnd && t < len - 1; t++) {
+      const g1 = getGray(t)
+      const g2 = getGray(t + 1)
+      const diff = Math.abs(g1 - g2)
+      if (diff > 5) strongCount++
+      sampleCount++
     }
-    return count > 0 ? score / count : 0
+    return sampleCount > 0 ? strongCount / sampleCount : 0
   }
-  const measureVEdge = (xStart: number, xEnd: number): number => {
-    let score = 0; let count = 0
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = xStart; x < xEnd - 1; x++) {
-        if (Math.abs(getGray(x+1, y) - getGray(x, y)) > 15) score++
-        count++
-      }
-    }
-    return count > 0 ? score / count : 0
+  function sideScore(getGray: (pos: number, t: number) => number, crossLen: number, lineLen: number): number {
+    const positions = [Math.floor(crossLen * 0.25), Math.floor(crossLen * 0.5), Math.floor(crossLen * 0.75)]
+    const scores = positions.map(pos => lineScore((t) => getGray(pos, t), lineLen))
+    return Math.max(...scores)
   }
-  const topScore    = measureHEdge(0, bandH)
-  const bottomScore = measureHEdge(height - bandH, height)
-  const leftScore   = measureVEdge(0, bandW)
-  const rightScore  = measureVEdge(width - bandW, width)
-  const edgeScore   = (topScore + bottomScore + leftScore + rightScore) / 4
-  const passCount   = [topScore, bottomScore, leftScore, rightScore].filter(s => s >= 0.08).length
-  const measuredRatio    = width / height
-  const aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio - CARD_ASPECT_RATIO) / CARD_ASPECT_TOLERANCE)
-  const cx0 = Math.floor(width * 0.2); const cy0 = Math.floor(height * 0.2)
-  const cx1 = Math.floor(width * 0.8); const cy1 = Math.floor(height * 0.8)
-  const centerVals: number[] = []
-  for (let y = cy0; y < cy1; y += 4) for (let x = cx0; x < cx1; x += 4) centerVals.push(getGray(x, y))
-  const centerMean = centerVals.reduce((a, b) => a + b, 0) / centerVals.length
-  const centerStd  = Math.sqrt(centerVals.reduce((a, b) => a + (b - centerMean) ** 2, 0) / centerVals.length)
-  const coverageScore    = centerMean > 30 && centerStd < 60 ? Math.max(0, 1 - centerStd / 60) : 0
-  const boundaryConfidence = edgeScore * 0.30 + aspectRatioScore * 0.45 + coverageScore * 0.25
-  const cardDetected = passCount >= 2 && edgeScore >= MIN_EDGE_GATE && aspectRatioScore >= 0.60 && boundaryConfidence >= CARD_BOUNDARY_THRESHOLD
-  return {
-    cardDetected, boundaryConfidence: Math.round(boundaryConfidence*1000)/1000,
-    edgeScore: Math.round(edgeScore*1000)/1000, aspectRatioScore: Math.round(aspectRatioScore*1000)/1000,
-    coverageScore: Math.round(coverageScore*1000)/1000, aspectRatio: Math.round(measuredRatio*1000)/1000,
-    ok: cardDetected, avgScore: Math.round(edgeScore*1000)/1000,
-    topScore: Math.round(topScore*1000)/1000, bottomScore: Math.round(bottomScore*1000)/1000,
-    leftScore: Math.round(leftScore*1000)/1000, rightScore: Math.round(rightScore*1000)/1000,
-  }
+  const topScore    = sideScore((x, t) => gray[t * width + x], width, height)
+  const bottomScore = sideScore((x, t) => gray[(height - 1 - t) * width + x], width, height)
+  const leftScore   = sideScore((y, t) => gray[y * width + t], height, width)
+  const rightScore  = sideScore((y, t) => gray[y * width + (width - 1 - t)], height, width)
+  const avgScore    = (topScore + bottomScore + leftScore + rightScore) / 4
+  const passCount   = [topScore, bottomScore, leftScore, rightScore].filter(s => s >= RECT_MIN_EDGE_SCORE).length
+  const ok          = passCount >= 2
+  return { ok, topScore, bottomScore, leftScore, rightScore, avgScore }
 }
-
 async function canvasToPngBase64(canvas: HTMLCanvasElement): Promise<string> {
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
@@ -515,42 +476,14 @@ const CameraScreen = ({
         setQualityState('WARNING_GLARE')
         return
       }
-      const rectCheck = detectCardBoundary(imageData)
-      console.log("[CardBoundary] detected=" + rectCheck.cardDetected + " confidence=" + rectCheck.boundaryConfidence + " edge=" + rectCheck.edgeScore + " aspect=" + rectCheck.aspectRatioScore + " coverage=" + rectCheck.coverageScore + " ratio=" + rectCheck.aspectRatio)
-      // [STEP 2-A TEST] Native edge map 검증 — 2026-07-07
-      ;(async () => {
-        try {
-          const testCanvas = document.createElement('canvas')
-          testCanvas.width  = sampleW
-          testCanvas.height = sampleH
-          const testCtx = testCanvas.getContext('2d')
-          if (testCtx) {
-            testCtx.putImageData(imageData, 0, 0)
-            const yBase64Raw = testCanvas.toDataURL('image/png').replace(/^data:image\/\w+;base64,/, '')
-            const nativeResult = await (YuvCamera as any).detectCardBoundary({
-              yBase64:         yBase64Raw,
-              width:           sampleW,
-              height:          sampleH,
-              targetWidthMm:   selectedCardProfile.widthMm,
-              targetHeightMm:  selectedCardProfile.heightMm,
-              aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
-            })
-            console.log('[Native2A] step=' + nativeResult.step
-              + ' edgePixelCount=' + nativeResult.edgePixelCount
-              + ' edgeRatio=' + nativeResult.edgeRatio?.toFixed(4)
-              + ' highT=' + nativeResult.highThreshold?.toFixed(1)
-              + ' lowT='  + nativeResult.lowThreshold?.toFixed(1))
-          }
-        } catch (e) {
-          console.warn('[Native2A] error:', e)
-        }
-      })()
-      rectHistoryRef.current.push(rectCheck.cardDetected)
+      const rectCheck = detectRectangleEdges(imageData)
+      console.log(`[RectGate] edgeOk=${rectCheck.ok} avg=${rectCheck.avgScore.toFixed(3)} threshold=${RECT_MIN_EDGE_SCORE} top=${rectCheck.topScore.toFixed(2)} bottom=${rectCheck.bottomScore.toFixed(2)} left=${rectCheck.leftScore.toFixed(2)} right=${rectCheck.rightScore.toFixed(2)}`)
+      rectHistoryRef.current.push(rectCheck.ok)
       if (rectHistoryRef.current.length > 4) rectHistoryRef.current.shift()
       const recentPassCount = rectHistoryRef.current.filter(Boolean).length
-      const rectStable = recentPassCount >= 3
+      const rectStable = recentPassCount >= 2
       const qualityReady = true
-      const rectReady = recentPassCount >= 3
+      const rectReady = recentPassCount >= 2
       console.log(`[AutoGate] qualityReady=${qualityReady} rectReady=${rectReady} recentPass=${recentPassCount} rectStable=${rectStable} autoCaptureLocked=${captureLockedRef.current} stableCount=${stableCountRef.current}/${STABLE_REQUIRED}`)
       if (!rectStable) {
         stableCountRef.current = Math.max(0, stableCountRef.current - 1)
@@ -563,7 +496,7 @@ const CameraScreen = ({
         qualityReady === true &&
         rectReady === true &&
         stableCountRef.current >= STABLE_REQUIRED &&
-        !captureLockedRef.current
+        captureLockedRef.current !== true
       console.log(
         `[AutoDecision] shouldAutoCapture=${shouldAutoCapture} ` +
         `AUTO_CAPTURE_ENABLED=${AUTO_CAPTURE_ENABLED} ` +
@@ -693,33 +626,6 @@ const CameraScreen = ({
     setCapturing(true)
     try {
       const roiDataUrl = await cropGuideBox()
-      // [STEP 2-A 재검증] PNG 원본 입력 — 2026-07-07
-      ;(async () => {
-        try {
-          const pngBase64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
-          const img = new Image()
-          img.src = roiDataUrl
-          await new Promise(r => { img.onload = r })
-          console.log('[CardBoundary-2A-Input] source=cropGuideBox width=' + img.width + ' height=' + img.height)
-          const nativeResult = await (YuvCamera as any).detectCardBoundaryFromPng({
-            pngBase64,
-            targetWidthMm:   selectedCardProfile.widthMm,
-            targetHeightMm:  selectedCardProfile.heightMm,
-            aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
-          })
-          console.log('[CardBoundary-2A-Result] step=' + nativeResult.step
-            + ' width=' + nativeResult.width + ' height=' + nativeResult.height
-            + ' edgePixelCount=' + nativeResult.edgePixelCount
-            + ' edgeRatio=' + nativeResult.edgeRatio?.toFixed(4)
-            + ' contourCount=' + nativeResult.contourCount
-            + ' quadCount=' + nativeResult.quadCount
-            + ' cardDetected=' + nativeResult.cardDetected
-            + ' aspectRatioScore=' + nativeResult.aspectRatioScore?.toFixed(3)
-            + ' coverageScore=' + nativeResult.coverageScore?.toFixed(3))
-        } catch (e) {
-          console.warn('[CardBoundary-2A-Result] error:', e)
-        }
-      })()
       canvas.width  = video.videoWidth
       canvas.height = video.videoHeight
       const ctx2d = canvas.getContext('2d')
@@ -886,16 +792,8 @@ const CameraScreen = ({
         <video ref={videoRef} autoPlay playsInline muted style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
         {/* 로딩 */}
         {!cameraReady && !cameraError && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)' }}>
-            <div style={{ position: 'relative', width: '72px', height: '72px', marginBottom: '20px' }}>
-              <svg viewBox="0 0 72 72" style={{ width: '72px', height: '72px', transform: 'rotate(-90deg)', animation: 'spin 1.5s linear infinite' }}>
-                <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(167,139,250,0.2)" strokeWidth="4" />
-                <circle cx="36" cy="36" r="30" fill="none" stroke="#a78bfa" strokeWidth="4" strokeDasharray="60 130" strokeLinecap="round" />
-              </svg>
-              <style>{`@keyframes spin { to { transform: rotate(270deg); } }`}</style>
-            </div>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', fontWeight: '300', letterSpacing: '0.05em', marginBottom: '8px' }}>정품 확인 중입니다</p>
-            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '300', letterSpacing: '0.03em' }}>잠시만 기다려 주세요.</p>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)' }}>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', letterSpacing: '0.05em' }}>{t('camera.loading')}</p>
           </div>
         )}
         {/* 배너 */}
@@ -956,12 +854,9 @@ const CameraScreen = ({
       {showGuideOverlay && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}>
           <div style={{ width: '100%', maxHeight: '80vh', overflowY: 'auto', background: '#111', borderRadius: '20px 20px 0 0', padding: '24px', paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h2 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '16px', fontWeight: '400', letterSpacing: '0.06em', margin: 0 }}>
-                    촬영 전 확인사항
-                  </h2>
-                  <button onClick={() => setShowGuideOverlay(false)} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                </div>
+            <h2 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '16px', fontWeight: '400', letterSpacing: '0.06em', marginBottom: '16px', textAlign: 'center' }}>
+              촬영 전 확인사항
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
               {guides.map((item) => (
                 <div key={item.num} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>

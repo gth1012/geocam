@@ -8,6 +8,7 @@
 
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Device } from '@capacitor/device'
 import type { CollectionScreenProps } from '../types/app.types'
 
 const NEO_API_BASE = 'https://neo-api.artionchain.com/api/geocam'
@@ -42,6 +43,8 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   const [items, setItems] = useState<OwnershipItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [ownerId, setOwnerId] = useState<string | null>(null)
+
   const [selectedItem, setSelectedItem] = useState<OwnershipItem | null>(null)
   const [showMore, setShowMore] = useState(false)
   const [showSellModal, setShowSellModal] = useState(false)
@@ -49,19 +52,20 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   const [description, setDescription] = useState('')
   const [selling, setSelling] = useState(false)
   const [sellError, setSellError] = useState<string | null>(null)
-const [sellSuccess, setSellSuccess] = useState(false)
+  const [sellSuccess, setSellSuccess] = useState(false)
+
+  void ownerId
+
   useEffect(() => {
     const fetchCollection = async () => {
       setLoading(true)
       setError(null)
       try {
-        if (!authToken) {
-          setError('로그인이 필요합니다.')
-          return
-        }
-        const res = await fetch(`${NEO_API_BASE}/ownership/me`, {
-          headers: { 'Authorization': `Bearer ${authToken}` }
-        })
+        const deviceInfo = await Device.getId()
+        const deviceId = deviceInfo.identifier
+        setOwnerId(deviceId)
+
+        const res = await fetch(`${NEO_API_BASE}/ownership/${deviceId}`)
         if (!res.ok) {
           setError('서버 응답 오류가 발생했습니다.')
           return
@@ -80,7 +84,7 @@ const [sellSuccess, setSellSuccess] = useState(false)
     }
 
     fetchCollection()
-  }, [authToken])
+  }, [])
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleDateString('ko-KR', {

@@ -11,28 +11,28 @@ const MainMenuScreen = ({
   const menuItems = [
     {
       label: '정품 인증하기',
-      sub: '굿즈 촬영으로 정품 여부를 확인하세요.',
+      sub: '카메라 촬영으로 정품 여부를 확인하세요.',
       onClick: () => navigateToScreen('certSelect'),
       primary: true,
       disabled: false,
     },
     {
       label: '내 컬렉션',
-      sub: '정품 인증된 내 카드를 확인합니다.',
+      sub: '정품으로 검증된 나만의 컬렉션.',
       onClick: () => navigateToScreen('myCollection'),
       primary: false,
       disabled: false,
     },
     {
       label: '판매등록',
-      sub: '인증 완료된 카드를 판매 등록합니다.',
+      sub: '인증마크와 함께 안전하게 판매하기.',
       onClick: () => {},
       primary: false,
       disabled: true,
     },
     {
-      label: '구매 인증 확인',
-      sub: '구매하려는 카드의 인증 상태를 확인합니다.',
+      label: '최초 구매 등록',
+      sub: 'QR을 스캔해 내 컬렉션에 저장하세요.',
       onClick: () => navigateToScreen('qrScan'),
       primary: false,
       disabled: false,

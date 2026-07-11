@@ -104,7 +104,7 @@ const CertSelectScreen = ({
           lineHeight: '1.6',
           textAlign: 'center',
         }}>
-          카드 사이즈 선택 → 가이드박스 촬영{'\n'}→ GeoCode 검출 → NeoStudio 서버 검증
+          카드 사이즈 선택 → 지오캠 촬영으로 정품인증 하세요.
         </div>
       </button>
 

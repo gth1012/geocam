@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">GeoCam</string>
-    <string name="title_activity_main">GeoCam</string>
+    <string name="app_name">LegitTag</string>
+    <string name="title_activity_main">LegitTag</string>
     <string name="package_name">com.arteon.geocam</string>
     <string name="custom_url_scheme">com.arteon.geocam</string>
     <string name="kakao_app_key">d42c5dc0d2631aae05fcaebd32cb92c7</string>

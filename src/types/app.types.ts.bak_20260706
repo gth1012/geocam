@@ -28,13 +28,12 @@ export type Screen =
   | 'registerResult'
   | 'claim'
   | 'claimBundle'
-  | 'collection'
   // 인증 서브 화면 (비로그인 허용)
   | 'registerPending'
 
 
 // LC-CAM-001 v3.3: 카드 사이즈 프로파일
-export type CardProfileId = 'STANDARD' | 'GOODS' | 'LARGE' | 'MINI_POST' | 'CUSTOM'
+export type CardProfileId = 'STANDARD' | 'GOODS' | 'LARGE' | 'MINI_POST'
 
 export interface CardProfile {
   id: CardProfileId
@@ -42,10 +41,6 @@ export interface CardProfile {
   widthMm: number
   heightMm: number
   aspectHOverW: number
-
-  aspectRatio?: number
-  aspectTolerance?: number
-  isCustom?: boolean
 }
 
 export const CARD_PROFILES: CardProfile[] = [
@@ -261,7 +256,6 @@ export interface ScanResultScreenProps extends ScreenProps {
   networkError: boolean
   setScanResultInfo: (info: ScanResultInfo | null) => void
   navigateToScreen: NavigateToScreen
-  authToken: string | null
 }
 
 export interface ResultScreenProps extends ScreenProps {
@@ -350,18 +344,6 @@ export interface RegisterPendingScreenProps {
 export interface SettingsScreenProps extends ScreenProps {
   i18n: { language: string; changeLanguage: (lng: string) => void }
   onLogout: () => void
-  navigateToScreen: NavigateToScreen
 }
 
 export interface RecordsScreenProps extends ScreenProps {}
-
-export const makeCustomProfile = (widthMm: number, heightMm: number): CardProfile => ({
-  id:              'CUSTOM',
-  name:            '직접입력',
-  widthMm,
-  heightMm,
-  aspectHOverW:    heightMm / widthMm,
-  aspectRatio:     widthMm  / heightMm,
-  aspectTolerance: 0.10,
-  isCustom:        true,
-})

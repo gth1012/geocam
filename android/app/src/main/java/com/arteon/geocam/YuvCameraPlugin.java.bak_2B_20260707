@@ -40,11 +40,16 @@ public class YuvCameraPlugin extends Plugin {
     private final AtomicBoolean isCapturing = new AtomicBoolean(false);
     private PluginCall pendingCall;
 
+    // LOCK 안정화 관련
     private static final int LOCK_STABLE_FRAMES = 5;
     private int stableFrameCount = 0;
     private float prevMeanY = -1f;
     private boolean lockStable = false;
 
+    // ============================================================
+    // STEP 2-A: Edge Detection 파라미터
+    // (calibration 전 임시값 — production LOCK 금지)
+    // ============================================================
     private static final int   GAUSSIAN_KERNEL_SIZE = 5;
     private static final float GAUSSIAN_SIGMA       = 1.4f;
     private static final float CANNY_LOW_THRESHOLD  = 50f;
@@ -135,6 +140,9 @@ public class YuvCameraPlugin extends Plugin {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
             String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+
+            Log.d(TAG, "[YUV] PNG base64 length=" + base64.length()
+                + " estimatedKB=" + (base64.length() / 1024));
 
             JSObject result = new JSObject();
             result.put("yuvBase64",       base64);
@@ -233,14 +241,19 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // detectCardBoundary: Y-plane raw bytes 입력
+    // STEP 2-A: detectCardBoundary() — Edge map 생성까지
+    // 입력: Y-plane raw bytes (grayscale)
+    // 출력: JSObject { edgePixelCount, edgeRatio, debugInfo }
     // ============================================================
+
     @PluginMethod
     public void detectCardBoundary(PluginCall call) {
+        // 파라미터 수신 (LC-CARD-BOUNDARY-001 v1.3 §5.1)
         double targetWidthMm   = call.getDouble("targetWidthMm",  55.0);
         double targetHeightMm  = call.getDouble("targetHeightMm", 85.0);
         double aspectTolerance = call.getDouble("aspectTolerance", 0.15);
 
+        // Y-plane base64 수신
         String yBase64 = call.getString("yBase64");
         if (yBase64 == null || yBase64.isEmpty()) {
             call.reject("yBase64 is required");
@@ -257,33 +270,46 @@ public class YuvCameraPlugin extends Plugin {
                 return;
             }
 
-            float[] blurred   = gaussianBlur(yBytes, width, height, GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA);
+            Log.d(TAG, "[CardBoundary2A] start width=" + width + " height=" + height
+                + " targetW=" + targetWidthMm + " targetH=" + targetHeightMm
+                + " tolerance=" + aspectTolerance);
+
+            // ── STEP 1: Gaussian Blur ─────────────────────────────
+            float[] blurred = gaussianBlur(yBytes, width, height,
+                GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA);
+
+            // ── STEP 2: Sobel Gradient ────────────────────────────
             float[] magnitude = new float[width * height];
             float[] direction = new float[width * height];
             computeSobelGradient(blurred, width, height, magnitude, direction);
+
+            // ── STEP 3: Non-Maximum Suppression ───────────────────
             float[] suppressed = nonMaximumSuppression(magnitude, direction, width, height);
 
+            // ── STEP 4: Double Threshold ──────────────────────────
+            // magnitude 최대값 기준으로 비율 적용
             float maxMag = 0f;
             for (float v : suppressed) if (v > maxMag) maxMag = v;
-            float highT = maxMag > 0 ? Math.min(CANNY_HIGH_THRESHOLD, maxMag * 0.8f) : CANNY_HIGH_THRESHOLD;
+            float highT = maxMag > 0 ? Math.min(CANNY_HIGH_THRESHOLD, maxMag * 0.8f)
+                                     : CANNY_HIGH_THRESHOLD;
             float lowT  = highT * (CANNY_LOW_THRESHOLD / CANNY_HIGH_THRESHOLD);
 
             byte[] edgeMap = applyDoubleThreshold(suppressed, width, height, lowT, highT);
+
+            // ── STEP 5: Edge Hysteresis ───────────────────────────
             edgeHysteresis(edgeMap, width, height);
 
-            // STEP 2-B1: Morphological Closing
-            int edgeBeforeClosing = 0;
-            for (byte bv : edgeMap) if (bv == 2) edgeBeforeClosing++;
-            morphologicalClosing(edgeMap, width, height);
-            int edgeAfterClosing = 0;
-            for (byte bv : edgeMap) if (bv == 2) edgeAfterClosing++;
-            Log.d(TAG, "[CardBoundary-2B1-Closing] edgePixelBefore=" + edgeBeforeClosing
-                + " edgePixelAfter=" + edgeAfterClosing);
-
+            // ── 검증: edge pixel 수 집계 ──────────────────────────
             int edgePixelCount = 0;
             for (byte b : edgeMap) if (b == 2) edgePixelCount++;
             float edgeRatio = (float) edgePixelCount / (width * height);
 
+            Log.d(TAG, "[CardBoundary2A] edgePixelCount=" + edgePixelCount
+                + " edgeRatio=" + String.format("%.4f", edgeRatio)
+                + " highT=" + String.format("%.1f", highT)
+                + " lowT="  + String.format("%.1f", lowT));
+
+            // ── STEP 2-B: Contour → Quad → orderCorners ──────────────
             java.util.List<int[]> contours = traceContours(edgeMap, width, height);
             java.util.List<int[][]> quads  = findQuadrilateralCandidates(contours, width, height);
 
@@ -318,6 +344,11 @@ public class YuvCameraPlugin extends Plugin {
                 double measuredRatio = h > 0 ? w / h : 0;
                 aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio - targetRatio) / aspectTolerance);
                 coverageScore    = Math.min(1.0, bestArea / (width * height * 0.5));
+                Log.d(TAG, "[CardBoundary2B] w=" + String.format("%.1f", w)
+                    + " h=" + String.format("%.1f", h)
+                    + " ratio=" + String.format("%.3f", measuredRatio)
+                    + " aspectScore=" + String.format("%.3f", aspectRatioScore)
+                    + " coverageScore=" + String.format("%.3f", coverageScore));
             }
 
             JSObject result = new JSObject();
@@ -344,163 +375,28 @@ public class YuvCameraPlugin extends Plugin {
             call.resolve(result);
 
         } catch (Exception e) {
-            Log.e(TAG, "[CardBoundary2B] error: " + e.getMessage());
-            call.reject("detectCardBoundary failed: " + e.getMessage());
+            Log.e(TAG, "[CardBoundary2A] error: " + e.getMessage());
+            call.reject("detectCardBoundary 2A failed: " + e.getMessage());
         }
     }
 
     // ============================================================
-    // detectCardBoundaryFromPng: PNG Base64 입력 전용
-    // 기존 detectCardBoundary() Y-plane 계약 변경 없음
-    // ============================================================
-    @PluginMethod
-    public void detectCardBoundaryFromPng(PluginCall call) {
-        double targetWidthMm   = call.getDouble("targetWidthMm",  55.0);
-        double targetHeightMm  = call.getDouble("targetHeightMm", 85.0);
-        double aspectTolerance = call.getDouble("aspectTolerance", 0.15);
-
-        String pngBase64 = call.getString("pngBase64");
-        if (pngBase64 == null || pngBase64.isEmpty()) {
-            call.reject("pngBase64 is required");
-            return;
-        }
-
-        try {
-            byte[] pngBytes = Base64.decode(pngBase64, Base64.NO_WRAP);
-            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory
-                .decodeByteArray(pngBytes, 0, pngBytes.length);
-            if (bitmap == null) {
-                call.reject("BitmapFactory decode failed");
-                return;
-            }
-
-            int width  = bitmap.getWidth();
-            int height = bitmap.getHeight();
-
-            Log.d(TAG, "[CardBoundaryPng] input width=" + width + " height=" + height);
-
-            byte[] yBytes = new byte[width * height];
-            int[] pixels  = new int[width * height];
-            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
-            for (int i = 0; i < pixels.length; i++) {
-                int r = (pixels[i] >> 16) & 0xFF;
-                int g = (pixels[i] >>  8) & 0xFF;
-                int b = (pixels[i]      ) & 0xFF;
-                yBytes[i] = (byte)(0.299 * r + 0.587 * g + 0.114 * b);
-            }
-            bitmap.recycle();
-
-            float[] blurred   = gaussianBlur(yBytes, width, height, GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA);
-            float[] magnitude = new float[width * height];
-            float[] direction = new float[width * height];
-            computeSobelGradient(blurred, width, height, magnitude, direction);
-            float[] suppressed = nonMaximumSuppression(magnitude, direction, width, height);
-
-            float maxMag = 0f;
-            for (float v : suppressed) if (v > maxMag) maxMag = v;
-            float highT = maxMag > 0 ? Math.min(CANNY_HIGH_THRESHOLD, maxMag * 0.8f) : CANNY_HIGH_THRESHOLD;
-            float lowT  = highT * (CANNY_LOW_THRESHOLD / CANNY_HIGH_THRESHOLD);
-
-            byte[] edgeMap = applyDoubleThreshold(suppressed, width, height, lowT, highT);
-            edgeHysteresis(edgeMap, width, height);
-
-            // STEP 2-B1: Morphological Closing
-            int edgeBeforeClosing = 0;
-            for (byte bv : edgeMap) if (bv == 2) edgeBeforeClosing++;
-            morphologicalClosing(edgeMap, width, height);
-            int edgeAfterClosing = 0;
-            for (byte bv : edgeMap) if (bv == 2) edgeAfterClosing++;
-            Log.d(TAG, "[CardBoundary-2B1-Closing] edgePixelBefore=" + edgeBeforeClosing
-                + " edgePixelAfter=" + edgeAfterClosing);
-
-            int edgePixelCount = 0;
-            for (byte bv : edgeMap) if (bv == 2) edgePixelCount++;
-            float edgeRatio = (float) edgePixelCount / (width * height);
-
-            Log.d(TAG, "[CardBoundaryPng] edgePixelCount=" + edgePixelCount
-                + " edgeRatio=" + String.format("%.4f", edgeRatio)
-                + " highT=" + String.format("%.1f", highT)
-                + " lowT="  + String.format("%.1f", lowT));
-
-            java.util.List<int[]> contours = traceContours(edgeMap, width, height);
-            java.util.List<int[][]> quads  = findQuadrilateralCandidates(contours, width, height);
-
-            boolean cardDetected   = false;
-            int[][] orderedCorners = null;
-            double  bestArea       = 0;
-
-            for (int[][] quad : quads) {
-                double area = 0;
-                for (int i = 0; i < 4; i++) {
-                    int j = (i + 1) % 4;
-                    area += quad[i][0] * quad[j][1];
-                    area -= quad[j][0] * quad[i][1];
-                }
-                area = Math.abs(area) / 2.0;
-                if (area > bestArea) {
-                    bestArea       = area;
-                    orderedCorners = orderCorners(quad);
-                    cardDetected   = true;
-                }
-            }
-
-            double aspectRatioScore = 0;
-            double coverageScore    = 0;
-            double targetRatio      = targetWidthMm / targetHeightMm;
-
-            if (cardDetected && orderedCorners != null) {
-                int[] tl = orderedCorners[0], tr = orderedCorners[1];
-                int[] br = orderedCorners[2], bl = orderedCorners[3];
-                double w = (dist(tl, tr) + dist(bl, br)) / 2.0;
-                double h = (dist(tl, bl) + dist(tr, br)) / 2.0;
-                double measuredRatio = h > 0 ? w / h : 0;
-                aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio - targetRatio) / aspectTolerance);
-                coverageScore    = Math.min(1.0, bestArea / (width * height * 0.5));
-                Log.d(TAG, "[CardBoundaryPng] cardDetected=true"
-                    + " aspectScore=" + String.format("%.3f", aspectRatioScore)
-                    + " coverageScore=" + String.format("%.3f", coverageScore));
-            }
-
-            JSObject result = new JSObject();
-            result.put("step",             "PNG");
-            result.put("edgePixelCount",   edgePixelCount);
-            result.put("edgeRatio",        edgeRatio);
-            result.put("contourCount",     contours.size());
-            result.put("quadCount",        quads.size());
-            result.put("cardDetected",     cardDetected);
-            result.put("aspectRatioScore", aspectRatioScore);
-            result.put("coverageScore",    coverageScore);
-            result.put("width",            width);
-            result.put("height",           height);
-            result.put("highThreshold",    highT);
-            result.put("lowThreshold",     lowT);
-            if (cardDetected && orderedCorners != null) {
-                JSObject corners = new JSObject();
-                corners.put("tlX", orderedCorners[0][0]); corners.put("tlY", orderedCorners[0][1]);
-                corners.put("trX", orderedCorners[1][0]); corners.put("trY", orderedCorners[1][1]);
-                corners.put("brX", orderedCorners[2][0]); corners.put("brY", orderedCorners[2][1]);
-                corners.put("blX", orderedCorners[3][0]); corners.put("blY", orderedCorners[3][1]);
-                result.put("corners", corners);
-            }
-            call.resolve(result);
-
-        } catch (Exception e) {
-            Log.e(TAG, "[CardBoundaryPng] error: " + e.getMessage());
-            call.reject("detectCardBoundaryFromPng failed: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
-    // Edge Detection 알고리즘
+    // 2-A 내부 알고리즘 구현
     // ============================================================
 
-    private float[] gaussianBlur(byte[] yBytes, int width, int height, int kernelSize, float sigma) {
+    /**
+     * gaussianBlur: 5×5 Gaussian kernel (sigma=1.4) 직접 구현
+     */
+    private float[] gaussianBlur(byte[] yBytes, int width, int height,
+                                  int kernelSize, float sigma) {
         float[] kernel = makeGaussianKernel(kernelSize, sigma);
         int half = kernelSize / 2;
         float[] out = new float[width * height];
+
         for (int row = 0; row < height; row++) {
             for (int col = 0; col < width; col++) {
-                float sum = 0f, wSum = 0f;
+                float sum = 0f;
+                float wSum = 0f;
                 for (int kr = -half; kr <= half; kr++) {
                     for (int kc = -half; kc <= half; kc++) {
                         int r = Math.max(0, Math.min(height - 1, row + kr));
@@ -527,10 +423,15 @@ public class YuvCameraPlugin extends Plugin {
                 sum += val;
             }
         }
+        // normalize
         for (int i = 0; i < kernel.length; i++) kernel[i] /= sum;
         return kernel;
     }
 
+    /**
+     * computeSobelGradient: 3×3 Sobel 직접 구현
+     * magnitude / direction 배열 채움
+     */
     private void computeSobelGradient(float[] blurred, int width, int height,
                                        float[] magnitude, float[] direction) {
         for (int row = 1; row < height - 1; row++) {
@@ -544,13 +445,18 @@ public class YuvCameraPlugin extends Plugin {
                     +blurred[(row-1)*width+(col+1)]
                     -blurred[(row+1)*width+(col-1)] - 2*blurred[(row+1)*width+col]
                     -blurred[(row+1)*width+(col+1)];
+
                 magnitude[row*width+col] = (float) Math.sqrt(gx*gx + gy*gy);
                 direction[row*width+col] = (float) Math.toDegrees(Math.atan2(gy, gx));
             }
         }
     }
 
-    private float[] nonMaximumSuppression(float[] magnitude, float[] direction, int width, int height) {
+    /**
+     * nonMaximumSuppression: gradient direction 따라 local maximum만 유지
+     */
+    private float[] nonMaximumSuppression(float[] magnitude, float[] direction,
+                                            int width, int height) {
         float[] out = new float[width * height];
         for (int row = 1; row < height - 1; row++) {
             for (int col = 1; col < width - 1; col++) {
@@ -577,16 +483,23 @@ public class YuvCameraPlugin extends Plugin {
         return out;
     }
 
-    private byte[] applyDoubleThreshold(float[] suppressed, int width, int height, float lowT, float highT) {
+    /**
+     * applyDoubleThreshold: strong(2) / weak(1) / none(0) 분류
+     */
+    private byte[] applyDoubleThreshold(float[] suppressed, int width, int height,
+                                          float lowT, float highT) {
         byte[] edgeMap = new byte[width * height];
         for (int i = 0; i < suppressed.length; i++) {
-            if      (suppressed[i] >= highT) edgeMap[i] = 2;
-            else if (suppressed[i] >= lowT)  edgeMap[i] = 1;
-            else                             edgeMap[i] = 0;
+            if      (suppressed[i] >= highT) edgeMap[i] = 2; // strong
+            else if (suppressed[i] >= lowT)  edgeMap[i] = 1; // weak
+            else                             edgeMap[i] = 0; // none
         }
         return edgeMap;
     }
 
+    /**
+     * edgeHysteresis: weak pixel이 strong과 8-연결이면 strong으로 승격, 아니면 제거
+     */
     private void edgeHysteresis(byte[] edgeMap, int width, int height) {
         boolean changed = true;
         while (changed) {
@@ -612,57 +525,41 @@ public class YuvCameraPlugin extends Plugin {
                 }
             }
         }
+        // 최종: weak(1) → 제거(0)
         for (int i = 0; i < edgeMap.length; i++) {
             if (edgeMap[i] == 1) edgeMap[i] = 0;
         }
     }
 
-    /**
-     * morphologicalClosing: Dilation → Erosion (3×3, 1회)
-     * Edge 단편화 개선 — STEP 2-B1
-     */
-    private void morphologicalClosing(byte[] edgeMap, int width, int height) {
-        // Dilation
-        byte[] dilated = new byte[width * height];
-        for (int row = 1; row < height - 1; row++) {
-            for (int col = 1; col < width - 1; col++) {
-                boolean hasEdge = false;
-                outer:
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        if (edgeMap[(row+dr)*width+(col+dc)] == 2) {
-                            hasEdge = true;
-                            break outer;
-                        }
-                    }
+    // ============================================================
+    // 기존 유틸
+    // ============================================================
+
+    private Bitmap yPlaneToBitmap(ByteBuffer yBuffer, int width, int height,
+                                   int rowStride, int pixelStride) {
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        int[] pixels = new int[width * height];
+        yBuffer.rewind();
+        for (int row = 0; row < height; row++) {
+            for (int col = 0; col < width; col++) {
+                int idx = row * rowStride + col * pixelStride;
+                if (idx < yBuffer.capacity()) {
+                    int y = yBuffer.get(idx) & 0xFF;
+                    pixels[row * width + col] = 0xFF000000 | (y << 16) | (y << 8) | y;
                 }
-                dilated[row*width+col] = hasEdge ? (byte)2 : (byte)0;
             }
         }
-        // Erosion
-        byte[] eroded = new byte[width * height];
-        for (int row = 1; row < height - 1; row++) {
-            for (int col = 1; col < width - 1; col++) {
-                boolean allEdge = true;
-                outer:
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        if (dilated[(row+dr)*width+(col+dc)] != 2) {
-                            allEdge = false;
-                            break outer;
-                        }
-                    }
-                }
-                eroded[row*width+col] = allEdge ? (byte)2 : (byte)0;
-            }
-        }
-        System.arraycopy(eroded, 0, edgeMap, 0, edgeMap.length);
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+        return bitmap;
     }
-
+// ============================================================
+    // STEP 2-B: Contour 추적 + Douglas-Peucker + Quadrilateral
     // ============================================================
-    // Contour + Quadrilateral
-    // ============================================================
 
+    /**
+     * traceContours: binary edge map에서 외곽선 추적
+     * 반환: contour 목록 (각 contour = int[] {x0,y0, x1,y1, ...})
+     */
     private java.util.List<int[]> traceContours(byte[] edgeMap, int width, int height) {
         java.util.List<int[]> contours = new java.util.ArrayList<>();
         boolean[] visited = new boolean[width * height];
@@ -671,6 +568,7 @@ public class YuvCameraPlugin extends Plugin {
             for (int col = 1; col < width - 1; col++) {
                 int idx = row * width + col;
                 if (edgeMap[idx] == 2 && !visited[idx]) {
+                    // BFS로 연결된 edge 픽셀 추적
                     java.util.List<int[]> points = new java.util.ArrayList<>();
                     java.util.Queue<int[]> queue = new java.util.LinkedList<>();
                     queue.add(new int[]{col, row});
@@ -680,6 +578,7 @@ public class YuvCameraPlugin extends Plugin {
                         int[] p = queue.poll();
                         points.add(p);
                         int px = p[0], py = p[1];
+                        // 8-연결 탐색
                         for (int dr = -1; dr <= 1; dr++) {
                             for (int dc = -1; dc <= 1; dc++) {
                                 if (dr == 0 && dc == 0) continue;
@@ -694,6 +593,7 @@ public class YuvCameraPlugin extends Plugin {
                         }
                     }
 
+                    // 최소 픽셀 수 이상인 contour만 저장 (노이즈 제거)
                     if (points.size() >= 20) {
                         int[] flat = new int[points.size() * 2];
                         for (int i = 0; i < points.size(); i++) {
@@ -709,13 +609,19 @@ public class YuvCameraPlugin extends Plugin {
         return contours;
     }
 
+    /**
+     * approximatePolygonDouglasPeucker: Douglas-Peucker 알고리즘으로 다각형 근사
+     */
     private java.util.List<int[]> approximatePolygonDouglasPeucker(int[] points, double epsilon) {
         if (points.length < 4) return new java.util.ArrayList<>();
         int n = points.length / 2;
+
+        // 재귀적 Douglas-Peucker
         boolean[] keep = new boolean[n];
         keep[0] = true;
         keep[n - 1] = true;
         dpRecursive(points, 0, n - 1, epsilon, keep);
+
         java.util.List<int[]> result = new java.util.ArrayList<>();
         for (int i = 0; i < n; i++) {
             if (keep[i]) result.add(new int[]{points[i * 2], points[i * 2 + 1]});
@@ -749,34 +655,18 @@ public class YuvCameraPlugin extends Plugin {
         }
     }
 
+    /**
+     * findQuadrilateralCandidates: contour 목록에서 4각형 후보 찾기
+     */
     private java.util.List<int[][]> findQuadrilateralCandidates(
             java.util.List<int[]> contours, int width, int height) {
 
         java.util.List<int[][]> quads = new java.util.ArrayList<>();
-        double EPSILON_RATIO = 0.04;
-        double frameArea = (double) width * height;
-        double minAreaRatio = 0.05;
-        double minArea = frameArea * minAreaRatio;
+        double epsilon = 0.04; // DP epsilon (contour 길이 대비 비율)
 
-        java.util.List<int[]> sorted = new java.util.ArrayList<>(contours);
-        sorted.sort((a, b) -> {
-            double areaA = 0, areaB = 0;
-            for (int i = 0; i < a.length/2; i++) {
-                int j = (i+1) % (a.length/2);
-                areaA += Math.abs(a[i*2]*(double)a[j*2+1] - a[j*2]*(double)a[i*2+1]);
-            }
-            for (int i = 0; i < b.length/2; i++) {
-                int j = (i+1) % (b.length/2);
-                areaB += Math.abs(b[i*2]*(double)b[j*2+1] - b[j*2]*(double)b[i*2+1]);
-            }
-            return Double.compare(areaB/2, areaA/2);
-        });
-
-        int diagLimit = Math.min(10, sorted.size());
-        for (int idx = 0; idx < sorted.size(); idx++) {
-            int[] contour = sorted.get(idx);
+        for (int[] contour : contours) {
             int n = contour.length / 2;
-
+            // contour 둘레 계산
             double perimeter = 0;
             for (int i = 0; i < n; i++) {
                 int next = (i + 1) % n;
@@ -785,58 +675,44 @@ public class YuvCameraPlugin extends Plugin {
                 perimeter += Math.sqrt(dx*dx + dy*dy);
             }
 
-            double area = 0;
-            for (int i = 0; i < n; i++) {
-                int j = (i + 1) % n;
-                area += contour[i*2] * (double)contour[j*2+1];
-                area -= contour[j*2] * (double)contour[i*2+1];
-            }
-            area = Math.abs(area) / 2.0;
-            double areaRatio = area / frameArea;
+            // Douglas-Peucker 근사
+            java.util.List<int[]> approx = approximatePolygonDouglasPeucker(
+                contour, epsilon * perimeter);
 
-            double epsilon = EPSILON_RATIO * perimeter;
-            java.util.List<int[]> approx = approximatePolygonDouglasPeucker(contour, epsilon);
-
-            if (idx < diagLimit) {
-                Log.d(TAG, "[CardBoundary-2B-Contour] index=" + idx
-                    + " pointCount=" + n
-                    + " area=" + (int)area
-                    + " areaRatio=" + String.format("%.4f", areaRatio)
-                    + " perimeter=" + (int)perimeter
-                    + " epsilon=" + String.format("%.1f", epsilon)
-                    + " approxVertexCount=" + approx.size());
-            }
-
-            String rejectReason = null;
-            if (area < minArea) {
-                rejectReason = "AREA_TOO_SMALL(area=" + (int)area + " min=" + (int)minArea + ")";
-            } else if (approx.size() < 4) {
-                rejectReason = "APPROX_VERTEX_LT4(approxSize=" + approx.size() + ")";
-            } else if (approx.size() > 4) {
-                rejectReason = "APPROX_VERTEX_GT4(approxSize=" + approx.size() + ")";
-            }
-
-            if (rejectReason != null) {
-                if (idx < diagLimit) {
-                    Log.d(TAG, "[CardBoundary-2B-Reject] index=" + idx + " reason=" + rejectReason);
+            // 4각형 후보 (꼭짓점 4개)
+            if (approx.size() == 4) {
+                // 면적 계산 (Shoelace)
+                double area = 0;
+                int m = approx.size();
+                for (int i = 0; i < m; i++) {
+                    int j = (i + 1) % m;
+                    area += approx.get(i)[0] * approx.get(j)[1];
+                    area -= approx.get(j)[0] * approx.get(i)[1];
                 }
-                continue;
-            }
+                area = Math.abs(area) / 2.0;
 
-            int[][] quad = new int[4][2];
-            for (int i = 0; i < 4; i++) {
-                quad[i][0] = approx.get(i)[0];
-                quad[i][1] = approx.get(i)[1];
+                // 최소 면적 필터 (전체 이미지의 5% 이상)
+                double minArea = width * height * 0.05;
+                if (area >= minArea) {
+                    int[][] quad = new int[4][2];
+                    for (int i = 0; i < 4; i++) {
+                        quad[i][0] = approx.get(i)[0];
+                        quad[i][1] = approx.get(i)[1];
+                    }
+                    quads.add(quad);
+                    Log.d(TAG, "[Quad] found area=" + (int)area
+                        + " perimeter=" + (int)perimeter);
+                }
             }
-            quads.add(quad);
-            Log.d(TAG, "[Quad] found area=" + (int)area
-                + " perimeter=" + (int)perimeter
-                + " areaRatio=" + String.format("%.4f", areaRatio));
         }
         Log.d(TAG, "[Quad] candidates=" + quads.size());
         return quads;
     }
 
+    /**
+     * orderCorners: TL/TR/BR/BL 순서로 corner 정렬
+     * TL: x+y 최소 / BR: x+y 최대 / TR: y-x 최소 / BL: y-x 최대
+     */
     private int[][] orderCorners(int[][] quad) {
         int[][] ordered = new int[4][2];
         int[] sumArr  = new int[4];
@@ -845,49 +721,32 @@ public class YuvCameraPlugin extends Plugin {
             sumArr[i]  = quad[i][0] + quad[i][1];
             diffArr[i] = quad[i][1] - quad[i][0];
         }
+        // TL: sum 최소
         int tlIdx = 0;
         for (int i = 1; i < 4; i++) if (sumArr[i] < sumArr[tlIdx]) tlIdx = i;
         ordered[0] = quad[tlIdx];
+        // BR: sum 최대
         int brIdx = 0;
         for (int i = 1; i < 4; i++) if (sumArr[i] > sumArr[brIdx]) brIdx = i;
         ordered[2] = quad[brIdx];
+        // TR: diff 최소 (y-x 최소)
         int trIdx = 0;
         for (int i = 1; i < 4; i++) if (diffArr[i] < diffArr[trIdx]) trIdx = i;
         ordered[1] = quad[trIdx];
+        // BL: diff 최대 (y-x 최대)
         int blIdx = 0;
         for (int i = 1; i < 4; i++) if (diffArr[i] > diffArr[blIdx]) blIdx = i;
         ordered[3] = quad[blIdx];
         return ordered;
     }
-
+    /**
+     * dist: 두 점 사이 거리
+     */
     private double dist(int[] a, int[] b) {
         int dx = a[0] - b[0];
         int dy = a[1] - b[1];
         return Math.sqrt(dx * dx + dy * dy);
     }
-
-    // ============================================================
-    // 기존 유틸
-    // ============================================================
-
-    private Bitmap yPlaneToBitmap(ByteBuffer yBuffer, int width, int height,
-                                   int rowStride, int pixelStride) {
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        int[] pixels = new int[width * height];
-        yBuffer.rewind();
-        for (int row = 0; row < height; row++) {
-            for (int col = 0; col < width; col++) {
-                int idx = row * rowStride + col * pixelStride;
-                if (idx < yBuffer.capacity()) {
-                    int y = yBuffer.get(idx) & 0xFF;
-                    pixels[row * width + col] = 0xFF000000 | (y << 16) | (y << 8) | y;
-                }
-            }
-        }
-        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-        return bitmap;
-    }
-
     @Override
     protected void handleOnDestroy() {
         if (cameraExecutor != null) {

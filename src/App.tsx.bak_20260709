@@ -189,22 +189,26 @@ function App() {
   }, []);
 
   const runGalleryPhysicalVerify = useCallback(async (imageDataUrl: string) => {
-    // LT-GAL-001: 갤러리 picker 닫힌 후 처리 (오버레이 방지)
-    await new Promise(resolve => setTimeout(resolve, 300))
     setProcessing(true)
     setScanMode('camera')
     setCapturedImage(imageDataUrl)
     try {
-      const NEO_API = 'https://neo-api.artionchain.com/api/geocam'
-      const res = await fetch(`${NEO_API}/physical/detect-signal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_data: imageDataUrl }),
+      const base64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, '')
+      const binary = atob(base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      const blob = new Blob([bytes], { type: 'image/jpeg' })
+      const formData = new FormData()
+      formData.append('image', blob, 'gallery.jpg')
+      formData.append('dina_id', TEST_DINA_ID)
+      formData.append('candidate', TEST_CANDIDATE)
+      const res = await fetch(`${GEO_API_BASE}/geocode/detect-layer2`, {
+        method: 'POST', body: formData,
       })
       const result = await res.json()
-      if (result.verdict === 'SIGNAL_PRESENT') {
+      if (result.verdict === 'PASS') {
         setVerifyStatus('PRESENT')
-      } else if (result.verdict === 'SIGNAL_UNCERTAIN') {
+      } else if (result.verdict === 'INSUFFICIENT') {
         setVerifyStatus('INSUFFICIENT_DATA')
       } else {
         setVerifyStatus('ABSENT')
@@ -272,7 +276,7 @@ function App() {
     finally { setProcessing(false); }
   }
 
-  const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow , navigateToScreen};
+  const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow };
 
   return (
     <ErrorBoundary>
