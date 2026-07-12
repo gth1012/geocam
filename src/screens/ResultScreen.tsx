@@ -104,6 +104,33 @@ const ResultScreen = ({
           )
         }
       }
+      if (verifyStatus === 'PASS_CONFIRMED') {
+        return {
+          color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
+          title: 'PHYSICAL VERIFIED',
+          subtitle: 'GeoCode 신호가 확인됐습니다',
+          icon: (
+            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
+              <path d="M14 24l7 7 13-13" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )
+        }
+      }
+      if (verifyStatus === 'SIGNAL_WEAK' || verifyStatus === 'RETRY') {
+        return {
+          color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
+          title: 'RETRY',
+          subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
+          icon: (
+            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="#facc15" strokeWidth="2.5" />
+              <path d="M24 14v14" stroke="#facc15" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="24" cy="35" r="2.5" fill="#facc15" />
+            </svg>
+          )
+        }
+      }
       if (verifyStatus === 'ABSENT') {
         return {
           color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
