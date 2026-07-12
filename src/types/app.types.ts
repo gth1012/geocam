@@ -219,6 +219,7 @@ export interface SizeSelectScreenProps {
 }
 
 export interface CameraScreenProps extends ScreenProps {
+  authToken: string | null
   selectedCardProfile: CardProfile
   sessionToken: string | null
   nonce: string | null

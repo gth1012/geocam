@@ -1,4 +1,4 @@
-﻿// CameraScreen.tsx v4.2
+// CameraScreen.tsx v4.2
 // LC-CAM-001 v4.0 LOCK 기준
 // 작성: 짱아 / 2026-06-30
 //
@@ -260,13 +260,14 @@ async function callPhysicalVerify(params: {
   geocodeToken: string
   roiDataUrl: string
   cardProfileId: string
+  authToken: string | null
 }): Promise<PhysicalVerifyApiResult> {
-  const { scanSessionId, nonce, geocodeToken, roiDataUrl, cardProfileId } = params
+  const { scanSessionId, nonce, geocodeToken, roiDataUrl, cardProfileId, authToken } = params
   const roiHash = await sha256Base64(roiDataUrl)
   const regionImage = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
   const res = await fetch(`${NEO_API_BASE}/geocam/physical/verify`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {}) },
     body: JSON.stringify({
       scan_session_id:      scanSessionId,
       nonce,
@@ -285,8 +286,7 @@ async function callPhysicalVerify(params: {
 }
 // ─── CameraScreen v4.2 ────────────────────────────────────────────────────────
 const CameraScreen = ({
-  safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData,
-  selectedCardProfile,
+  safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
   setErrorCode, setNetworkError, setProcessing, navigateToScreen, cameraError, setCameraError,
 }: CameraScreenProps) => {
@@ -651,6 +651,7 @@ const CameraScreen = ({
         geocodeToken:  geocodeToken,
         roiDataUrl,
         cardProfileId: selectedCardProfile.id,
+        authToken,
       })
       physSessionRef.current = null
       startPhysicalSession()
