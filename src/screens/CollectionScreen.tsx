@@ -99,7 +99,14 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   const getSeriesName = (item: OwnershipItem) => item.series_name ?? '-'
   const getArtistName = (item: OwnershipItem) => item.artist_name ?? '-'
   const getAgencyName = (item: OwnershipItem) => item.agency_name ?? '-'
-  const getStatusLabel = (item: OwnershipItem) => item.status_label ?? item.ownership_status ?? '-'
+  const getStatusLabel = (item: OwnershipItem) => {
+    const s = item.ownership_status ?? item.status_label ?? ''
+    if (s === 'UNCLAIMED') return '미인증'
+    if (s === 'CLAIMED') return '인증완료'
+    if (s === 'ACTIVATED') return '활성화'
+    if (s === 'TRANSFERRED') return '이전됨'
+    return item.status_label ?? s ?? '-'
+  }
 
   const handlePhysicalVerify = (item: OwnershipItem) => {
     if (!item.dina_id) return
