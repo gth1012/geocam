@@ -288,7 +288,7 @@ async function callPhysicalVerify(params: {
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
-  setErrorCode, setNetworkError, setProcessing, navigateToScreen, cameraError, setCameraError,
+  setErrorCode, setNetworkError, setProcessing, navigateToScreen, cameraError, setCameraError, selectedCardProfile,
 }: CameraScreenProps) => {
   const { t } = useTranslation()
   // ─── refs ──────────────────────────────────────────────────────────────────
