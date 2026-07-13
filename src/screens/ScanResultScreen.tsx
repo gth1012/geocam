@@ -259,8 +259,8 @@ const ScanResultScreen = ({
         {/* 내 컬렉션 보러가기 버튼 (CLAIMED / ALREADY_CLAIMED) */}
         {config.showCollection && (
           <button
-            onClick={() => navigateToScreen('collection')}
-            style={{ width: '100%', padding: '16px', borderRadius: '14px', background: '#a78bfa', border: 'none', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}
+            onClick={() => navigateToScreen('myCollection')}
+            style={{ width: '100%', padding: '16px', borderRadius: '14px', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}
           >
             내 컬렉션 보러가기
           </button>
