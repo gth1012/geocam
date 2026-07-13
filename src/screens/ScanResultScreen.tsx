@@ -1,5 +1,5 @@
 // ScanResultScreen.tsx
-// LC-UI-001 (2026-07-05): Unclaimed 한글화 + DINA → artist_name 표시 + 노란색 컬러
+// LC-UI-001 (2026-07-05): Unclaimed 상태 + DINA 대신 artist_name 표시 + 인증하기 버튼
 // 2026-07-06: STEP 2-A — authToken prop 추가, /register 요청에 Authorization: Bearer 헤더 추가
 // 2026-07-09: LC-COLLECT-001 — CLAIMED 후 내 컬렉션 보기 버튼 추가 + 자동이동
 
@@ -62,10 +62,6 @@ const ScanResultScreen = ({
       const result = await response.json()
       if (response.ok && result.status === 'CLAIMED') {
         setScanResultInfo({ status: 'CLAIMED', message: undefined })
-        // LC-COLLECT-001: Claim 성공 후 1.2초 뒤 내 컬렉션 자동이동
-        setTimeout(() => {
-          navigateToScreen('collection')
-        }, 1200)
       } else if (result.status === 'CLAIMED') {
         setScanResultInfo({ status: 'ALREADY_CLAIMED', message: undefined })
       } else {
@@ -114,7 +110,7 @@ const ScanResultScreen = ({
           </svg>
         ),
         title: '인증완료',
-        subtitle: '최초 인증이 완료되었습니다.\n내 컬렉션에 저장됩니다.',
+        subtitle: '최초 인증이 완료되었습니다.\n내 컬렉션에서 확인하세요.',
         titleColor: '#4ade80',
         showClaim: false,
         showCollection: true,
@@ -159,7 +155,7 @@ const ScanResultScreen = ({
       }
     }
 
-    // 기본 (로딩 중 or null)
+    // 기본값 (로딩 중 or null)
     return {
       iconColor: '#fbbf24',
       iconBg: 'rgba(251,191,36,0.15)',
@@ -234,7 +230,7 @@ const ScanResultScreen = ({
           {config.subtitle}
         </p>
 
-        {/* 아티스트명 카드 */}
+        {/* 아티스트/시리즈 뱃지 */}
         <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '16px 32px', textAlign: 'center', minWidth: '200px' }}>
           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', letterSpacing: '0.1em', marginBottom: '6px' }}>
             {artistName ? 'ARTIST' : seriesName ? 'SERIES' : 'DINA'}
@@ -260,13 +256,13 @@ const ScanResultScreen = ({
           </button>
         )}
 
-        {/* 내 컬렉션 보기 버튼 (CLAIMED / ALREADY_CLAIMED) */}
+        {/* 내 컬렉션 보러가기 버튼 (CLAIMED / ALREADY_CLAIMED) */}
         {config.showCollection && (
           <button
             onClick={() => navigateToScreen('collection')}
             style={{ width: '100%', padding: '16px', borderRadius: '14px', background: '#a78bfa', border: 'none', color: 'white', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}
           >
-            내 컬렉션 보기
+            내 컬렉션 보러가기
           </button>
         )}
 
