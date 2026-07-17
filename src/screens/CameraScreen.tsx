@@ -753,10 +753,64 @@ const CameraScreen = ({
       //   console.warn('[Capture] 갤러리 저장 실패:', e)
       // }
 
-      // ── [STEP 2] 서버 업로드는 아직 수정하지 않음 (STEP 3에서 진행) ────────────
-      // STEP 2 완료 조건: path/uri/fileSize/mimeType 콘솔 출력 확인
-      // fileSize > 0 이면 PASS
-      console.log('[STEP2] 완료. fileSize=' + photoResult.size + ' STEP3에서 업로드 연결 예정')
+      // ── [STEP 3] 파일 바이트 읽기 → SHA-256 → multipart 업로드 ──────────────
+      console.log('[STEP3] 파일 읽기 시작:', photoResult.path)
+
+      // Capacitor Filesystem으로 파일 읽기 (base64)
+      const fileData = await Filesystem.readFile({ path: photoResult.path })
+      const base64Str = typeof fileData.data === 'string' ? fileData.data : ''
+
+      // base64 → Uint8Array
+      const binaryStr = atob(base64Str)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
+
+      // 클라이언트 SHA-256 계산
+      const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
+      const clientSha256 = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+      console.log('[STEP3] clientSha256:', clientSha256)
+      console.log('[STEP3] clientFileSize:', photoResult.size)
+
+      // multipart FormData 생성
+      const blob = new Blob([bytes], { type: photoResult.mimeType })
+      const formData = new FormData()
+      formData.append('image', blob, 'geo_capture.jpg')
+      formData.append('client_sha256', clientSha256)
+      formData.append('client_file_size', String(photoResult.size))
+
+      // 서버 전송
+      console.log('[STEP3] multipart 전송 시작 → /physical/verify-file')
+      const uploadRes = await fetch(`${NEO_API_BASE}/geocam/physical/verify-file`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!uploadRes.ok) {
+        const errBody = await uploadRes.json().catch(() => ({}))
+        console.error('[STEP3] 업로드 실패:', uploadRes.status, errBody)
+        throw new Error(`verify-file error: ${uploadRes.status}`)
+      }
+
+      const uploadResult = await uploadRes.json()
+      console.log('[STEP3] 서버 응답:', JSON.stringify(uploadResult))
+      console.log('[STEP3] transferIntegrity:', uploadResult.transferIntegrity)
+      console.log('[STEP3] clientSha256 :', uploadResult.clientSha256)
+      console.log('[STEP3] serverSha256 :', uploadResult.serverSha256)
+      console.log('[STEP3] serverFileSize:', uploadResult.serverFileSize)
+      console.log('[STEP3] verdict       :', uploadResult.verdict)
+
+      // SHA-256 일치 여부에 따라 결과 처리
+      if (uploadResult.transferIntegrity === false) {
+        console.error('[STEP3] SHA-256 불일치 → TRANSFER_INTEGRITY_FAIL')
+        setVerifyStatus('INSUFFICIENT_DATA')
+      } else if (uploadResult.verdict === 'SIGNAL_PRESENT') {
+        setVerifyStatus('PRESENT')
+      } else if (uploadResult.verdict === 'SIGNAL_UNCERTAIN') {
+        setVerifyStatus('INSUFFICIENT_DATA')
+      } else {
+        setVerifyStatus('ABSENT')
+      }
+      navigateToScreen('result')
 
     } catch (e) {
       console.error('[capturePhoto] error:', e)
