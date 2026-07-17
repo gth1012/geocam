@@ -694,6 +694,16 @@ const CameraScreen = ({
     console.log(`[AutoCapture] LOCKED source=${source}`)
     setCapturing(true)
     try {
+      // ── [STEP 2] WebView 카메라 스트림 먼저 해제 — CameraX와 동시 점유 방지 ────
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+      }
+      if (videoRef.current) videoRef.current.srcObject = null
+      setCameraReady(false)
+      // 스트림 해제 후 CameraX가 카메라를 열 수 있도록 짧게 대기
+      await new Promise(resolve => setTimeout(resolve, 300))
+
       // ── [STEP 2] capturePhotoFile() 호출 — CameraX 네이티브 JPEG 파일 직접 생성 ──
       console.log('[STEP2] capturePhotoFile() 호출 시작')
       const photoResult = await (YuvCamera as any).capturePhotoFile()
@@ -742,14 +752,6 @@ const CameraScreen = ({
       // } catch (e) {
       //   console.warn('[Capture] 갤러리 저장 실패:', e)
       // }
-
-      // ── [STEP 2] 카메라 스트림 정지 ────────────────────────────────────────────
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop())
-        streamRef.current = null
-      }
-      if (videoRef.current) videoRef.current.srcObject = null
-      setCameraReady(false)
 
       // ── [STEP 2] 서버 업로드는 아직 수정하지 않음 (STEP 3에서 진행) ────────────
       // STEP 2 완료 조건: path/uri/fileSize/mimeType 콘솔 출력 확인
