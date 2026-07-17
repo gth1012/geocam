@@ -31,7 +31,7 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE_URL } from '../api/client'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import type { CameraScreenProps } from '../types/app.types'
-import { registerPlugin } from '@capacitor/core'
+import { registerPlugin, Capacitor } from '@capacitor/core'
 const YuvCamera = registerPlugin('YuvCamera')
 // ─── 상수 (LC-CAM-001 v4.0 LOCK §10) ─────────────────────────────────────────
 // 가이드박스
@@ -752,7 +752,6 @@ const CameraScreen = ({
       // ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
       // const fullDataUrl = await canvasToPngBase64(canvas)
       // file:// URI → Capacitor WebView 호환 경로로 변환
-      const { Capacitor } = await import('@capacitor/core')
       const displayUri = Capacitor.convertFileSrc(photoResult.path)
       setCapturedImage(displayUri)
       // try {
