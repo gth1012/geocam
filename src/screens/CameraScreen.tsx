@@ -1,4 +1,4 @@
-// CameraScreen.tsx v4.2
+// CameraScreen.tsx v4.3
 // LC-CAM-001 v4.0 LOCK 기준
 // 작성: 짱아 / 2026-06-30
 //
@@ -12,6 +12,10 @@
 //   - dinaId 없을 때 /physical/detect-signal 호출 (순수 신호 검출)
 //   - dinaId 있을 때 기존 /physical/verify 유지
 //   - 보안: API 키는 서버간 통신만 사용 (레그캠 노출 없음)
+// v4.3 (2026-07-17): GEO-CAM-TRANSFER-001 STEP 2
+//   - capturePhoto() 내 canvas 캡처 경로 주석 처리
+//   - YuvCamera.capturePhotoFile() 호출 → path/uri/fileSize/mimeType 콘솔 출력
+//   - 서버 업로드 / multipart / SHA-256 / API 호출 수정 없음
 //
 // 금지(v4.0 §33):
 //   - 엣지 기반 탐지 재도입
@@ -284,7 +288,7 @@ async function callPhysicalVerify(params: {
   }
   return res.json()
 }
-// ─── CameraScreen v4.2 ────────────────────────────────────────────────────────
+// ─── CameraScreen v4.3 ────────────────────────────────────────────────────────
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
@@ -396,7 +400,7 @@ const CameraScreen = ({
     if (qualityState.startsWith('WARNING')) return { bg: 'rgba(250,204,21,0.10)', border: '1px solid rgba(250,204,21,0.35)', color: '#facc15' }
     return { bg: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }
   }
-  // ─── cropGuideBox (v4.0 LOCK §16) ──────────────────────────────────────────
+  // ─── cropGuideBox (v4.0 LOCK §16) — 품질체크 루프 전용, capturePhoto에서 미사용 ──
   const cropGuideBox = useCallback(async (): Promise<string> => {
     const video = videoRef.current
     if (!video) throw new Error('cropGuideBox: video not ready')
@@ -596,7 +600,7 @@ const CameraScreen = ({
       const res = await fetch(`${NEO_API_BASE}/geocam/physical/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '4.2.0' }),
+        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '4.3.0' }),
       })
       if (!res.ok) return false
       const data = await res.json()
@@ -614,16 +618,10 @@ const CameraScreen = ({
     }
   }, [])
   // ─── runPhysicalVerify (v4.2: dinaId 유무에 따라 분기) ────────────────────
-  // dinaId 없음 (정품인증하기 → 카메라):
-  //   → /physical/detect-signal 호출 (순수 신호 검출)
-  //   → SIGNAL_PRESENT → PRESENT / SIGNAL_UNCERTAIN → INSUFFICIENT_DATA / SIGNAL_ABSENT → ABSENT
-  // dinaId 있음 (내 컬렉션 → 카메라):
-  //   → /physical/verify 호출 (등록 자산 정합성 포함)
-  //   → PHYSICAL VERIFIED → PRESENT / RETRY → INSUFFICIENT_DATA / INVALID → ABSENT
+  // v4.3: STEP 2 — 아직 수정 없음, 기존 roiDataUrl 경로 유지
   const runPhysicalVerify = useCallback(async (roiDataUrl: string): Promise<void> => {
     setProcessing(true)
     try {
-      // ── SIGNAL_ONLY 모드 (dinaId 없음) ──────────────────────────────────────
       if (isSignalOnlyMode) {
         console.log('[PhysicalVerify] SIGNAL_ONLY mode (no dinaId)')
         const result = await callDetectSignal(roiDataUrl)
@@ -639,7 +637,6 @@ const CameraScreen = ({
         setProcessing(false)
         return
       }
-      // ── FULL_VERIFY 모드 (dinaId 있음) ──────────────────────────────────────
       if (!physSessionRef.current) {
         const ok = await startPhysicalSession()
         if (!ok) throw new Error('physical session unavailable')
@@ -675,7 +672,11 @@ const CameraScreen = ({
     }
     setProcessing(false)
   }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken, selectedCardProfile, startPhysicalSession, isSignalOnlyMode])
-  // ─── 수동 촬영 (메인, v4.0 LOCK §9.2) ──────────────────────────────────────
+
+  // ─── capturePhoto v4.3 (GEO-CAM-TRANSFER-001 STEP 2) ────────────────────────
+  // 기존 canvas 캡처 경로 주석 처리
+  // YuvCamera.capturePhotoFile() 호출 → path/uri/fileSize/mimeType 콘솔 출력
+  // 서버 업로드 / multipart / SHA-256 / API 호출 수정 없음 (STEP 3에서 진행)
   const capturePhoto = useCallback(async (source: 'auto' | 'manual' = 'manual') => {
     console.log(`[AutoCapture] ENTER source=${source}`)
     if (captureLockedRef.current) {
@@ -693,66 +694,75 @@ const CameraScreen = ({
     console.log(`[AutoCapture] LOCKED source=${source}`)
     setCapturing(true)
     try {
-      const roiDataUrl = await cropGuideBox()
-      // [STEP 2-A 재검증] PNG 원본 입력 — 2026-07-07
-      ;(async () => {
-        try {
-          const pngBase64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
-          const img = new Image()
-          img.src = roiDataUrl
-          await new Promise(r => { img.onload = r })
-          console.log('[CardBoundary-2A-Input] source=cropGuideBox width=' + img.width + ' height=' + img.height)
-          const nativeResult = await (YuvCamera as any).detectCardBoundaryFromPng({
-            pngBase64,
-            targetWidthMm:   selectedCardProfile.widthMm,
-            targetHeightMm:  selectedCardProfile.heightMm,
-            aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
-          })
-          console.log('[CardBoundary-2A-Result] step=' + nativeResult.step
-            + ' width=' + nativeResult.width + ' height=' + nativeResult.height
-            + ' edgePixelCount=' + nativeResult.edgePixelCount
-            + ' edgeRatio=' + nativeResult.edgeRatio?.toFixed(4)
-            + ' contourCount=' + nativeResult.contourCount
-            + ' quadCount=' + nativeResult.quadCount
-            + ' cardDetected=' + nativeResult.cardDetected
-            + ' aspectRatioScore=' + nativeResult.aspectRatioScore?.toFixed(3)
-            + ' coverageScore=' + nativeResult.coverageScore?.toFixed(3))
-        } catch (e) {
-          console.warn('[CardBoundary-2A-Result] error:', e)
-        }
-      })()
-      canvas.width  = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx2d = canvas.getContext('2d')
-      if (!ctx2d) throw new Error('capturePhoto: canvas context failed')
-      ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const fullDataUrl = await canvasToPngBase64(canvas)
-      setCapturedImage(fullDataUrl)
-      try {
-        const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
-        const fileName   = `legicam_${Date.now()}.png`
-        await Filesystem.writeFile({
-          path: fileName,
-          data: base64Data,
-          directory: Directory.Documents,
-        })
-        console.log('[Capture] 갤러리 저장 완료:', fileName)
-      } catch (e) {
-        console.warn('[Capture] 갤러리 저장 실패:', e)
-      }
+      // ── [STEP 2] capturePhotoFile() 호출 — CameraX 네이티브 JPEG 파일 직접 생성 ──
+      console.log('[STEP2] capturePhotoFile() 호출 시작')
+      const photoResult = await (YuvCamera as any).capturePhotoFile()
+      console.log('[STEP2] capturePhotoFile() 결과:')
+      console.log('[STEP2]   path     :', photoResult.path)
+      console.log('[STEP2]   uri      :', photoResult.uri)
+      console.log('[STEP2]   fileSize :', photoResult.size)
+      console.log('[STEP2]   mimeType :', photoResult.mimeType)
+
+      // ── [STEP 2] 기존 canvas 캡처 경로 주석 처리 (STEP 3에서 교체 예정) ──────────
+      // const roiDataUrl = await cropGuideBox()
+      // ;(async () => {
+      //   try {
+      //     const pngBase64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
+      //     const img = new Image()
+      //     img.src = roiDataUrl
+      //     await new Promise(r => { img.onload = r })
+      //     console.log('[CardBoundary-2A-Input] source=cropGuideBox width=' + img.width + ' height=' + img.height)
+      //     const nativeResult = await (YuvCamera as any).detectCardBoundaryFromPng({
+      //       pngBase64,
+      //       targetWidthMm:   selectedCardProfile.widthMm,
+      //       targetHeightMm:  selectedCardProfile.heightMm,
+      //       aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
+      //     })
+      //     console.log('[CardBoundary-2A-Result] step=' + nativeResult.step ...)
+      //   } catch (e) {
+      //     console.warn('[CardBoundary-2A-Result] error:', e)
+      //   }
+      // })()
+      // canvas.width  = video.videoWidth
+      // canvas.height = video.videoHeight
+      // const ctx2d = canvas.getContext('2d')
+      // if (!ctx2d) throw new Error('capturePhoto: canvas context failed')
+      // ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
+      // const fullDataUrl = await canvasToPngBase64(canvas)
+      // setCapturedImage(fullDataUrl)
+      // try {
+      //   const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
+      //   const fileName   = `legicam_${Date.now()}.png`
+      //   await Filesystem.writeFile({
+      //     path: fileName,
+      //     data: base64Data,
+      //     directory: Directory.Documents,
+      //   })
+      //   console.log('[Capture] 갤러리 저장 완료:', fileName)
+      // } catch (e) {
+      //   console.warn('[Capture] 갤러리 저장 실패:', e)
+      // }
+
+      // ── [STEP 2] 카메라 스트림 정지 ────────────────────────────────────────────
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
         streamRef.current = null
       }
       if (videoRef.current) videoRef.current.srcObject = null
       setCameraReady(false)
-      await runPhysicalVerify(roiDataUrl)
+
+      // ── [STEP 2] 서버 업로드는 아직 수정하지 않음 (STEP 3에서 진행) ────────────
+      // STEP 2 완료 조건: path/uri/fileSize/mimeType 콘솔 출력 확인
+      // fileSize > 0 이면 PASS
+      console.log('[STEP2] 완료. fileSize=' + photoResult.size + ' STEP3에서 업로드 연결 예정')
+
     } catch (e) {
       console.error('[capturePhoto] error:', e)
       resetCaptureLock('capture_failed')
     }
     setCapturing(false)
-  }, [cameraReady, cropGuideBox, setCapturedImage, runPhysicalVerify, resetCaptureLock])
+  }, [cameraReady, setCapturedImage, runPhysicalVerify, resetCaptureLock]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // capturePhotoRef를 항상 최신 capturePhoto로 갱신
   useEffect(() => {
     capturePhotoRef.current = capturePhoto
@@ -809,7 +819,6 @@ const CameraScreen = ({
   }, [])
   useEffect(() => {
     startCamera()
-    // SIGNAL_ONLY 모드에서는 세션 시작 불필요
     if (!isSignalOnlyMode) {
       startPhysicalSession()
     }
@@ -819,7 +828,6 @@ const CameraScreen = ({
     stopCamera()
     navigateToScreen('sizeSelect')
   }, [stopCamera, navigateToScreen])
-  // ─── focus 복귀 시 resetCaptureLock (v4.0 LOCK §13) ────────────────────────
   const handleGuideConfirm = useCallback(() => {
     setShowGuideOverlay(false)
     resetCaptureLock('guide_confirm')
@@ -854,7 +862,6 @@ const CameraScreen = ({
     )
   }
 
-  // ─── 촬영 안내 오버레이 (v4.0 LOCK §18) ─────────────────────────────────────
   const guides = [
     { num: '01', title: '카드를 평평한 곳에 놓으세요', desc: '손으로 들지 말고 테이블 위에 올려주세요.' },
     { num: '02', title: '카드 전체가 박스 안에 살짝 여유 있게 들어오게 맞춰주세요', desc: '카드 모서리가 박스 선에 닿거나 잘리지 않아야 합니다.' },
@@ -885,7 +892,6 @@ const CameraScreen = ({
       {/* 카메라 영역 */}
       <div ref={cameraViewRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <video ref={videoRef} autoPlay playsInline muted style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-        {/* 로딩 */}
         {!cameraReady && !cameraError && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)' }}>
             <div style={{ position: 'relative', width: '72px', height: '72px', marginBottom: '20px' }}>
@@ -899,7 +905,6 @@ const CameraScreen = ({
             <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '300', letterSpacing: '0.03em' }}>잠시만 기다려 주세요.</p>
           </div>
         )}
-        {/* 배너 */}
         {cameraReady && (
           <div style={{ position: 'absolute', top: 'max(90px, calc(env(safe-area-inset-top) + 74px))', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 15, pointerEvents: 'none' }}>
             <div style={{ background: bannerStyle.bg, border: bannerStyle.border, borderRadius: '20px', padding: '5px 16px', transition: 'all 0.3s ease' }}>
@@ -909,7 +914,6 @@ const CameraScreen = ({
             </div>
           </div>
         )}
-        {/* 고정 가이드박스 */}
         {cameraReady && guideBox.w > 0 && (
           <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
             <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
@@ -957,12 +961,12 @@ const CameraScreen = ({
       {showGuideOverlay && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}>
           <div style={{ width: '100%', maxHeight: '80vh', overflowY: 'auto', background: '#111', borderRadius: '20px 20px 0 0', padding: '24px', paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h2 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '16px', fontWeight: '400', letterSpacing: '0.06em', margin: 0 }}>
-                    촬영 전 확인사항
-                  </h2>
-                  <button onClick={() => setShowGuideOverlay(false)} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '16px', fontWeight: '400', letterSpacing: '0.06em', margin: 0 }}>
+                촬영 전 확인사항
+              </h2>
+              <button onClick={() => setShowGuideOverlay(false)} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
               {guides.map((item) => (
                 <div key={item.num} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
