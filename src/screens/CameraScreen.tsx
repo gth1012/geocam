@@ -713,6 +713,18 @@ const CameraScreen = ({
       console.log('[STEP2]   fileSize :', photoResult.size)
       console.log('[STEP2]   mimeType :', photoResult.mimeType)
 
+      // ── [CROP_CHECK] 좌표계 확인 로그 (제니팀장 지시) ──────────────────────
+      console.log('[CROP_CHECK]', JSON.stringify({
+        previewView: { width: cameraViewSize.w, height: cameraViewSize.h },
+        videoFrame:  { width: videoRef.current?.videoWidth, height: videoRef.current?.videoHeight },
+        guideBox,
+        capturedPhoto: {
+          width:        photoResult.width,
+          height:       photoResult.height,
+          exifRotation: photoResult.exifRotation,
+        },
+      }))
+
       // ── [STEP 2] 기존 canvas 캡처 경로 주석 처리 (STEP 3에서 교체 예정) ──────────
       // const roiDataUrl = await cropGuideBox()
       // ;(async () => {
