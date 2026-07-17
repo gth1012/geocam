@@ -165,15 +165,44 @@ public class YuvCameraPlugin extends Plugin {
                                             ? outputFileResults.getSavedUri().toString()
                                             : "file://" + absolutePath;
 
+                                        // JPEG 실제 크기 + EXIF rotation 확인
+                                        android.graphics.BitmapFactory.Options opts =
+                                            new android.graphics.BitmapFactory.Options();
+                                        opts.inJustDecodeBounds = true;
+                                        android.graphics.BitmapFactory.decodeFile(absolutePath, opts);
+                                        int jpegWidth  = opts.outWidth;
+                                        int jpegHeight = opts.outHeight;
+
+                                        // EXIF rotation
+                                        int exifRotation = 0;
+                                        try {
+                                            androidx.exifinterface.media.ExifInterface exif =
+                                                new androidx.exifinterface.media.ExifInterface(absolutePath);
+                                            int orientation = exif.getAttributeInt(
+                                                androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                                                androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL);
+                                            if (orientation == androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90)  exifRotation = 90;
+                                            else if (orientation == androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180) exifRotation = 180;
+                                            else if (orientation == androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270) exifRotation = 270;
+                                        } catch (Exception ex) {
+                                            Log.w(TAG, "[capturePhotoFile] EXIF read failed: " + ex.getMessage());
+                                        }
+
                                         Log.d(TAG, "[capturePhotoFile] SAVED"
                                             + " path=" + absolutePath
-                                            + " size=" + fileSize);
+                                            + " size=" + fileSize
+                                            + " jpegW=" + jpegWidth
+                                            + " jpegH=" + jpegHeight
+                                            + " exifRotation=" + exifRotation);
 
                                         JSObject result = new JSObject();
-                                        result.put("path",     absolutePath);
-                                        result.put("uri",      uri);
-                                        result.put("size",     fileSize);
-                                        result.put("mimeType", "image/jpeg");
+                                        result.put("path",         absolutePath);
+                                        result.put("uri",          uri);
+                                        result.put("size",         fileSize);
+                                        result.put("mimeType",     "image/jpeg");
+                                        result.put("width",        jpegWidth);
+                                        result.put("height",       jpegHeight);
+                                        result.put("exifRotation", exifRotation);
 
                                         finalProvider.unbindAll();
                                         call.resolve(result);
