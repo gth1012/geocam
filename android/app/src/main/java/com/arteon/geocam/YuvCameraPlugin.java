@@ -12,6 +12,8 @@ import androidx.camera.camera2.interop.Camera2Interop;
 import androidx.camera.core.CameraControl;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
@@ -25,6 +27,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,6 +57,106 @@ public class YuvCameraPlugin extends Plugin {
     public void load() {
         cameraExecutor = Executors.newSingleThreadExecutor();
     }
+
+    // ============================================================
+    // capturePhotoFile — CameraX ImageCapture 직접 파일 저장
+    // GEO-CAM-TRANSFER-001 STEP 1
+    // Canvas / Bitmap / Base64 / YUV→RGB 변환 일절 없음
+    // ============================================================
+    @PluginMethod
+    public void capturePhotoFile(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            ProcessCameraProvider.getInstance(getContext()).addListener(() -> {
+                try {
+                    ProcessCameraProvider provider =
+                        ProcessCameraProvider.getInstance(getContext()).get();
+
+                    // 기존 바인딩 해제 (충돌 방지)
+                    provider.unbindAll();
+
+                    // Preview (필수 — ImageCapture only 바인딩 시 일부 기기 오류 방지)
+                    Preview preview = new Preview.Builder().build();
+
+                    // ImageCapture — JPEG 직접 저장
+                    ImageCapture imageCapture = new ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                        .build();
+
+                    CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+
+                    provider.bindToLifecycle(
+                        (LifecycleOwner) getActivity(),
+                        cameraSelector,
+                        preview,
+                        imageCapture
+                    );
+
+                    // 저장 경로: 앱 캐시 디렉터리 / geo_capture_{timestamp}.jpg
+                    File outputDir = getContext().getCacheDir();
+                    File outputFile = new File(outputDir,
+                        "geo_capture_" + System.currentTimeMillis() + ".jpg");
+
+                    ImageCapture.OutputFileOptions outputOptions =
+                        new ImageCapture.OutputFileOptions.Builder(outputFile).build();
+
+                    imageCapture.takePicture(
+                        outputOptions,
+                        ContextCompat.getMainExecutor(getContext()),
+                        new ImageCapture.OnImageSavedCallback() {
+                            @Override
+                            public void onImageSaved(
+                                    @NonNull ImageCapture.OutputFileResults outputFileResults) {
+                                try {
+                                    long fileSize = outputFile.length();
+                                    String absolutePath = outputFile.getAbsolutePath();
+                                    String uri = outputFileResults.getSavedUri() != null
+                                        ? outputFileResults.getSavedUri().toString()
+                                        : "file://" + absolutePath;
+
+                                    Log.d(TAG, "[capturePhotoFile] SAVED"
+                                        + " path=" + absolutePath
+                                        + " size=" + fileSize);
+
+                                    JSObject result = new JSObject();
+                                    result.put("path",     absolutePath);
+                                    result.put("uri",      uri);
+                                    result.put("size",     fileSize);
+                                    result.put("mimeType", "image/jpeg");
+
+                                    // 바인딩 해제 (촬영 완료 후 정리)
+                                    provider.unbindAll();
+
+                                    call.resolve(result);
+                                } catch (Exception e) {
+                                    Log.e(TAG, "[capturePhotoFile] result error: "
+                                        + e.getMessage());
+                                    call.reject("capturePhotoFile result error: "
+                                        + e.getMessage());
+                                }
+                            }
+
+                            @Override
+                            public void onError(@NonNull ImageCaptureException exception) {
+                                Log.e(TAG, "[capturePhotoFile] ERROR: "
+                                    + exception.getMessage());
+                                provider.unbindAll();
+                                call.reject("capturePhotoFile failed: "
+                                    + exception.getMessage());
+                            }
+                        }
+                    );
+
+                } catch (Exception e) {
+                    Log.e(TAG, "[capturePhotoFile] init error: " + e.getMessage());
+                    call.reject("capturePhotoFile init error: " + e.getMessage());
+                }
+            }, ContextCompat.getMainExecutor(getContext()));
+        });
+    }
+
+    // ============================================================
+    // 기존 메서드 (변경 없음)
+    // ============================================================
 
     @PluginMethod
     public void startYuvAnalysis(PluginCall call) {
@@ -271,7 +374,6 @@ public class YuvCameraPlugin extends Plugin {
             byte[] edgeMap = applyDoubleThreshold(suppressed, width, height, lowT, highT);
             edgeHysteresis(edgeMap, width, height);
 
-            // STEP 2-B1: Morphological Closing
             int edgeBeforeClosing = 0;
             for (byte bv : edgeMap) if (bv == 2) edgeBeforeClosing++;
             morphologicalClosing(edgeMap, width, height);
@@ -351,7 +453,6 @@ public class YuvCameraPlugin extends Plugin {
 
     // ============================================================
     // detectCardBoundaryFromPng: PNG Base64 입력 전용
-    // 기존 detectCardBoundary() Y-plane 계약 변경 없음
     // ============================================================
     @PluginMethod
     public void detectCardBoundaryFromPng(PluginCall call) {
@@ -404,7 +505,6 @@ public class YuvCameraPlugin extends Plugin {
             byte[] edgeMap = applyDoubleThreshold(suppressed, width, height, lowT, highT);
             edgeHysteresis(edgeMap, width, height);
 
-            // STEP 2-B1: Morphological Closing
             int edgeBeforeClosing = 0;
             for (byte bv : edgeMap) if (bv == 2) edgeBeforeClosing++;
             morphologicalClosing(edgeMap, width, height);
@@ -491,7 +591,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // Edge Detection 알고리즘
+    // Edge Detection 알고리즘 (변경 없음)
     // ============================================================
 
     private float[] gaussianBlur(byte[] yBytes, int width, int height, int kernelSize, float sigma) {
@@ -617,12 +717,7 @@ public class YuvCameraPlugin extends Plugin {
         }
     }
 
-    /**
-     * morphologicalClosing: Dilation → Erosion (3×3, 1회)
-     * Edge 단편화 개선 — STEP 2-B1
-     */
     private void morphologicalClosing(byte[] edgeMap, int width, int height) {
-        // Dilation
         byte[] dilated = new byte[width * height];
         for (int row = 1; row < height - 1; row++) {
             for (int col = 1; col < width - 1; col++) {
@@ -639,7 +734,6 @@ public class YuvCameraPlugin extends Plugin {
                 dilated[row*width+col] = hasEdge ? (byte)2 : (byte)0;
             }
         }
-        // Erosion
         byte[] eroded = new byte[width * height];
         for (int row = 1; row < height - 1; row++) {
             for (int col = 1; col < width - 1; col++) {
@@ -660,7 +754,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // Contour + Quadrilateral
+    // Contour + Quadrilateral (변경 없음)
     // ============================================================
 
     private java.util.List<int[]> traceContours(byte[] edgeMap, int width, int height) {
@@ -867,7 +961,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // 기존 유틸
+    // 기존 유틸 (변경 없음)
     // ============================================================
 
     private Bitmap yPlaneToBitmap(ByteBuffer yBuffer, int width, int height,
