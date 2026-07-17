@@ -18,7 +18,7 @@ import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.content.ContextCompat;
-import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.ProcessLifecycleOwner;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -97,15 +97,15 @@ public class YuvCameraPlugin extends Plugin {
                             try {
                                 finalProvider.unbindAll();
 
-                                Preview preview = new Preview.Builder().build();
+                                // ImageCapture 단독 바인딩
+                                // Preview SurfaceProvider 미연결 시 카메라 즉시 닫힘 방지
                                 ImageCapture imageCapture = new ImageCapture.Builder()
                                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                                     .build();
 
                                 finalProvider.bindToLifecycle(
-                                    (LifecycleOwner) getActivity(),
+                                    ProcessLifecycleOwner.get(),
                                     CameraSelector.DEFAULT_BACK_CAMERA,
-                                    preview,
                                     imageCapture
                                 );
 
@@ -269,7 +269,7 @@ public class YuvCameraPlugin extends Plugin {
         CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
 
         cameraProvider.bindToLifecycle(
-            (LifecycleOwner) getActivity(),
+            ProcessLifecycleOwner.get(),
             cameraSelector,
             preview,
             imageAnalysis
