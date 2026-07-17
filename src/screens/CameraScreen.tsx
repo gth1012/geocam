@@ -739,7 +739,10 @@ const CameraScreen = ({
       // if (!ctx2d) throw new Error('capturePhoto: canvas context failed')
       // ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
       // const fullDataUrl = await canvasToPngBase64(canvas)
-      setCapturedImage(photoResult.uri)
+      // file:// URI → Capacitor WebView 호환 경로로 변환
+      const { Capacitor } = await import('@capacitor/core')
+      const displayUri = Capacitor.convertFileSrc(photoResult.path)
+      setCapturedImage(displayUri)
       // try {
       //   const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
       //   const fileName   = `legicam_${Date.now()}.png`
