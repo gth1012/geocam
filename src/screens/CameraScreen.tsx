@@ -739,7 +739,7 @@ const CameraScreen = ({
       // if (!ctx2d) throw new Error('capturePhoto: canvas context failed')
       // ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
       // const fullDataUrl = await canvasToPngBase64(canvas)
-      // setCapturedImage(fullDataUrl)
+      setCapturedImage(photoResult.uri)
       // try {
       //   const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
       //   const fileName   = `legicam_${Date.now()}.png`
