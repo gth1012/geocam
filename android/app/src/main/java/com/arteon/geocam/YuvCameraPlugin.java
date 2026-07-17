@@ -65,92 +65,161 @@ public class YuvCameraPlugin extends Plugin {
     // ============================================================
     @PluginMethod
     public void capturePhotoFile(PluginCall call) {
-        getActivity().runOnUiThread(() -> {
-            ProcessCameraProvider.getInstance(getContext()).addListener(() -> {
+        // 백그라운드 스레드에서 재시도 루프 실행
+        // WebView stream.stop() 이후 Android OS 카메라 해제까지 시간이 필요
+        // → 최대 5회, 600ms 간격으로 bindToLifecycle 재시도
+        cameraExecutor.execute(() -> {
+            final int MAX_RETRY    = 5;
+            final int RETRY_DELAY_MS = 600;
+
+            ProcessCameraProvider provider = null;
+            try {
+                provider = ProcessCameraProvider.getInstance(getContext()).get();
+            } catch (Exception e) {
+                Log.e(TAG, "[capturePhotoFile] provider get failed: " + e.getMessage());
+                call.reject("capturePhotoFile provider failed: " + e.getMessage());
+                return;
+            }
+            final ProcessCameraProvider finalProvider = provider;
+
+            for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
+                final int currentAttempt = attempt;
+                Log.d(TAG, "[capturePhotoFile] attempt=" + currentAttempt);
+
                 try {
-                    ProcessCameraProvider provider =
-                        ProcessCameraProvider.getInstance(getContext()).get();
+                    // UI 스레드에서 바인딩 실행 (CameraX 요구사항)
+                    final boolean[] bindSuccess = {false};
+                    final ImageCapture[] imageCaptureHolder = {null};
+                    final Object lock = new Object();
 
-                    // 기존 바인딩 해제 (충돌 방지)
-                    provider.unbindAll();
+                    getActivity().runOnUiThread(() -> {
+                        synchronized (lock) {
+                            try {
+                                finalProvider.unbindAll();
 
-                    // Preview (필수 — ImageCapture only 바인딩 시 일부 기기 오류 방지)
-                    Preview preview = new Preview.Builder().build();
+                                Preview preview = new Preview.Builder().build();
+                                ImageCapture imageCapture = new ImageCapture.Builder()
+                                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                                    .build();
 
-                    // ImageCapture — JPEG 직접 저장
-                    ImageCapture imageCapture = new ImageCapture.Builder()
-                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                        .build();
+                                finalProvider.bindToLifecycle(
+                                    (LifecycleOwner) getActivity(),
+                                    CameraSelector.DEFAULT_BACK_CAMERA,
+                                    preview,
+                                    imageCapture
+                                );
 
-                    CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+                                imageCaptureHolder[0] = imageCapture;
+                                bindSuccess[0] = true;
+                                Log.d(TAG, "[capturePhotoFile] bind success attempt=" + currentAttempt);
+                            } catch (Exception e) {
+                                Log.w(TAG, "[capturePhotoFile] bind failed attempt=" + currentAttempt
+                                    + " error=" + e.getMessage());
+                                bindSuccess[0] = false;
+                            } finally {
+                                lock.notifyAll();
+                            }
+                        }
+                    });
 
-                    provider.bindToLifecycle(
-                        (LifecycleOwner) getActivity(),
-                        cameraSelector,
-                        preview,
-                        imageCapture
-                    );
+                    // UI 스레드 완료 대기
+                    synchronized (lock) {
+                        lock.wait(2000);
+                    }
 
-                    // 저장 경로: 앱 캐시 디렉터리 / geo_capture_{timestamp}.jpg
-                    File outputDir = getContext().getCacheDir();
+                    if (!bindSuccess[0] || imageCaptureHolder[0] == null) {
+                        if (attempt < MAX_RETRY) {
+                            Log.d(TAG, "[capturePhotoFile] retry in " + RETRY_DELAY_MS + "ms");
+                            Thread.sleep(RETRY_DELAY_MS);
+                            continue;
+                        } else {
+                            call.reject("capturePhotoFile: camera bind failed after " + MAX_RETRY + " attempts");
+                            return;
+                        }
+                    }
+
+                    // 바인딩 성공 → takePicture
+                    final ImageCapture imageCapture = imageCaptureHolder[0];
+                    File outputDir  = getContext().getCacheDir();
                     File outputFile = new File(outputDir,
                         "geo_capture_" + System.currentTimeMillis() + ".jpg");
 
                     ImageCapture.OutputFileOptions outputOptions =
                         new ImageCapture.OutputFileOptions.Builder(outputFile).build();
 
-                    imageCapture.takePicture(
-                        outputOptions,
-                        ContextCompat.getMainExecutor(getContext()),
-                        new ImageCapture.OnImageSavedCallback() {
-                            @Override
-                            public void onImageSaved(
-                                    @NonNull ImageCapture.OutputFileResults outputFileResults) {
-                                try {
-                                    long fileSize = outputFile.length();
-                                    String absolutePath = outputFile.getAbsolutePath();
-                                    String uri = outputFileResults.getSavedUri() != null
-                                        ? outputFileResults.getSavedUri().toString()
-                                        : "file://" + absolutePath;
+                    final Object photoLock = new Object();
+                    final boolean[] photoDone = {false};
 
-                                    Log.d(TAG, "[capturePhotoFile] SAVED"
-                                        + " path=" + absolutePath
-                                        + " size=" + fileSize);
+                    getActivity().runOnUiThread(() -> {
+                        imageCapture.takePicture(
+                            outputOptions,
+                            ContextCompat.getMainExecutor(getContext()),
+                            new ImageCapture.OnImageSavedCallback() {
+                                @Override
+                                public void onImageSaved(
+                                        @NonNull ImageCapture.OutputFileResults outputFileResults) {
+                                    try {
+                                        long fileSize = outputFile.length();
+                                        String absolutePath = outputFile.getAbsolutePath();
+                                        String uri = outputFileResults.getSavedUri() != null
+                                            ? outputFileResults.getSavedUri().toString()
+                                            : "file://" + absolutePath;
 
-                                    JSObject result = new JSObject();
-                                    result.put("path",     absolutePath);
-                                    result.put("uri",      uri);
-                                    result.put("size",     fileSize);
-                                    result.put("mimeType", "image/jpeg");
+                                        Log.d(TAG, "[capturePhotoFile] SAVED"
+                                            + " path=" + absolutePath
+                                            + " size=" + fileSize);
 
-                                    // 바인딩 해제 (촬영 완료 후 정리)
-                                    provider.unbindAll();
+                                        JSObject result = new JSObject();
+                                        result.put("path",     absolutePath);
+                                        result.put("uri",      uri);
+                                        result.put("size",     fileSize);
+                                        result.put("mimeType", "image/jpeg");
 
-                                    call.resolve(result);
-                                } catch (Exception e) {
-                                    Log.e(TAG, "[capturePhotoFile] result error: "
-                                        + e.getMessage());
-                                    call.reject("capturePhotoFile result error: "
-                                        + e.getMessage());
+                                        finalProvider.unbindAll();
+                                        call.resolve(result);
+                                    } catch (Exception e) {
+                                        Log.e(TAG, "[capturePhotoFile] result error: " + e.getMessage());
+                                        call.reject("capturePhotoFile result error: " + e.getMessage());
+                                    } finally {
+                                        synchronized (photoLock) {
+                                            photoDone[0] = true;
+                                            photoLock.notifyAll();
+                                        }
+                                    }
+                                }
+
+                                @Override
+                                public void onError(@NonNull ImageCaptureException exception) {
+                                    Log.e(TAG, "[capturePhotoFile] takePicture ERROR: "
+                                        + exception.getMessage());
+                                    finalProvider.unbindAll();
+                                    call.reject("capturePhotoFile takePicture failed: "
+                                        + exception.getMessage());
+                                    synchronized (photoLock) {
+                                        photoDone[0] = true;
+                                        photoLock.notifyAll();
+                                    }
                                 }
                             }
+                        );
+                    });
 
-                            @Override
-                            public void onError(@NonNull ImageCaptureException exception) {
-                                Log.e(TAG, "[capturePhotoFile] ERROR: "
-                                    + exception.getMessage());
-                                provider.unbindAll();
-                                call.reject("capturePhotoFile failed: "
-                                    + exception.getMessage());
-                            }
-                        }
-                    );
+                    // takePicture 완료 대기
+                    synchronized (photoLock) {
+                        if (!photoDone[0]) photoLock.wait(15000);
+                    }
+                    return; // 성공 또는 에러 반환 완료
 
                 } catch (Exception e) {
-                    Log.e(TAG, "[capturePhotoFile] init error: " + e.getMessage());
-                    call.reject("capturePhotoFile init error: " + e.getMessage());
+                    Log.e(TAG, "[capturePhotoFile] attempt=" + currentAttempt
+                        + " exception=" + e.getMessage());
+                    if (attempt < MAX_RETRY) {
+                        try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) { break; }
+                    } else {
+                        call.reject("capturePhotoFile failed: " + e.getMessage());
+                    }
                 }
-            }, ContextCompat.getMainExecutor(getContext()));
+            }
         });
     }
 
