@@ -20,64 +20,6 @@ const NEO_API_BASE          = 'https://neo-api.artionchain.com/api'
 void API_BASE_URL
 
 // ── CameraScreen v4.7 ───────────────────────────────────────────────────────
-type DisplayCropParams = {
-  bytes: Uint8Array
-  previewW: number; previewH: number
-  guideX: number;   guideY: number
-  guideW: number;   guideH: number
-  imageW: number;   imageH: number
-  exifRotation: number
-}
-
-async function createDisplayCropUri({
-  bytes, previewW, previewH, guideX, guideY, guideW, guideH, imageW, imageH, exifRotation,
-}: DisplayCropParams): Promise<string> {
-  const blob = new Blob([bytes], { type: 'image/jpeg' })
-  const objectUrl = URL.createObjectURL(blob)
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve(img)
-      img.onerror = () => reject(new Error('[DISPLAY_CROP] JPEG decode failed'))
-      img.src = objectUrl
-    })
-    console.log('[DISPLAY_SOURCE_FACT]', { naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight, imageW, imageH, exifRotation })
-    const sourceW = image.naturalWidth
-    const sourceH = image.naturalHeight
-    const scale = Math.max(previewW / sourceW, previewH / sourceH)
-    const displayedW = sourceW * scale
-    const displayedH = sourceH * scale
-    const offsetX = (displayedW - previewW) / 2
-    const offsetY = (displayedH - previewH) / 2
-    const rawLeft   = Math.round((guideX + offsetX) / scale)
-    const rawTop    = Math.round((guideY + offsetY) / scale)
-    const rawWidth  = Math.round(guideW / scale)
-    const rawHeight = Math.round(guideH / scale)
-    const left   = Math.max(0, Math.min(rawLeft,   sourceW - 1))
-    const top    = Math.max(0, Math.min(rawTop,    sourceH - 1))
-    const width  = Math.max(1, Math.min(rawWidth,  sourceW - left))
-    const height = Math.max(1, Math.min(rawHeight, sourceH - top))
-    const cropCanvas = document.createElement('canvas')
-    cropCanvas.width = width
-    cropCanvas.height = height
-    const cropCtx = cropCanvas.getContext('2d')
-    if (!cropCtx) throw new Error('[DISPLAY_CROP] canvas context failed')
-    cropCtx.drawImage(image, left, top, width, height, 0, 0, width, height)
-    console.log('[DISPLAY_CROP_V2]', { decodedSource: { width: sourceW, height: sourceH }, preview: { width: previewW, height: previewH }, crop: { left, top, width, height } })
-    const displayCanvas = document.createElement('canvas')
-    displayCanvas.width = height
-    displayCanvas.height = width
-    const displayCtx = displayCanvas.getContext('2d')
-    if (!displayCtx) throw new Error('[DISPLAY_CROP] display canvas context failed')
-    displayCtx.translate(height, 0)
-    displayCtx.rotate(Math.PI / 2)
-    displayCtx.drawImage(cropCanvas, 0, 0)
-    return displayCanvas.toDataURL('image/jpeg', 0.95)
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
-}
-
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
@@ -89,7 +31,7 @@ const CameraScreen = ({
   const canvasRef              = useRef<HTMLCanvasElement>(null)
   const captureLockedRef       = useRef(false)
   const cameraViewRef          = useRef<HTMLDivElement>(null)
-  const captureInProgressRef   = useRef(false)
+  const captureInProgressRef   = useRef(false)   // v4.7: Race Condition 방지
 
   // ── state ─────────────────────────────────────────────────────────────────
   const [previewReady, setPreviewReady]         = useState(false)
@@ -113,7 +55,7 @@ const CameraScreen = ({
     return () => { captureLockedRef.current = true }
   }, [resetCaptureLock])
 
-  // ── cameraView 크기 측정 ──────────────────────────────────────────────────
+  // ── cameraView 크기 측정 (guideBox 계산 기준) ─────────────────────────────
   useEffect(() => {
     const el = cameraViewRef.current
     if (!el) return
@@ -159,40 +101,19 @@ const CameraScreen = ({
     }
   }, [guideBox])
 
-  // ── WebView 배경 투명 처리 (STEP 3-A-1) ─────────────────────────────────
-  // body / html / #root 전체 !important 적용 → CSS background shorthand 우선순위 극복
-  // cleanup에서 복원 → 다른 화면 배경 영향 없음
+  // ── WebView 배경 투명 처리 ────────────────────────────────────────────────
   useEffect(() => {
-    const body = document.body
-    const html = document.documentElement
-    const root = document.getElementById('root')
-
-    body.style.setProperty('background', 'transparent', 'important')
-    body.style.setProperty('background-color', 'transparent', 'important')
-
-    html.style.setProperty('background', 'transparent', 'important')
-    html.style.setProperty('background-color', 'transparent', 'important')
-
-    root?.style.setProperty('background', 'transparent', 'important')
-    root?.style.setProperty('background-color', 'transparent', 'important')
-
-    console.log('[GeoCam] WEB_HTML_TRANSPARENT_APPLIED')
-
+    document.body.style.backgroundColor = 'transparent'
+    document.documentElement.style.backgroundColor = 'transparent'
     return () => {
-      body.style.removeProperty('background')
-      body.style.removeProperty('background-color')
-
-      html.style.removeProperty('background')
-      html.style.removeProperty('background-color')
-
-      root?.style.removeProperty('background')
-      root?.style.removeProperty('background-color')
-
-      console.log('[GeoCam] WEB_HTML_TRANSPARENT_REMOVED')
+      document.body.style.backgroundColor = ''
+      document.documentElement.style.backgroundColor = ''
     }
   }, [])
 
   // ── CameraX Preview 시작/종료 ─────────────────────────────────────────────
+  // v4.7: captureInProgressRef가 true이면 cleanup에서 stopPreview 호출 안 함
+  //       촬영 완료 후 capturePhoto 내부에서 명시적으로 stopPreview 호출
   useEffect(() => {
     console.log('[UNIFIED-001] startPreview() 호출')
     ;(YuvCamera as any).startPreview()
@@ -219,6 +140,12 @@ const CameraScreen = ({
   }, [])
 
   // ── capturePhoto v4.7 ─────────────────────────────────────────────────────
+  // Race Condition 수정:
+  //   1. captureInProgressRef = true (cleanup stopPreview 차단)
+  //   2. capturePhotoFile() 완료
+  //   3. stopPreview() 명시적 호출 후 await
+  //   4. captureInProgressRef = false
+  //   5. navigateToScreen('result')
   const capturePhoto = useCallback(async (source: 'manual' = 'manual') => {
     const triggerTime = Date.now()
     console.log(`[CAPTURE] ENTER source=${source} t=${triggerTime}`)
@@ -228,11 +155,14 @@ const CameraScreen = ({
       return
     }
     captureLockedRef.current = true
-    captureInProgressRef.current = true
+    captureInProgressRef.current = true   // v4.7: cleanup stopPreview 차단
     setCapturing(true)
 
     try {
-      console.log('[CAPTURE] previewView:', JSON.stringify({ w: cameraViewSize.w, h: cameraViewSize.h }))
+      console.log('[CAPTURE] previewView:', JSON.stringify({
+        w: cameraViewSize.w,
+        h: cameraViewSize.h,
+      }))
       console.log('[CAPTURE] guideBox:', JSON.stringify(guideBox))
 
       const callTime = Date.now()
@@ -250,11 +180,15 @@ const CameraScreen = ({
       console.log('[CROP_CHECK]', JSON.stringify({
         previewView:   { width: cameraViewSize.w, height: cameraViewSize.h },
         guideBox,
-        capturedPhoto: { width: photoResult.width, height: photoResult.height, exifRotation: photoResult.exifRotation },
+        capturedPhoto: {
+          width:        photoResult.width,
+          height:       photoResult.height,
+          exifRotation: photoResult.exifRotation,
+        },
       }))
 
-      // 서버 전송 원본 경로 — crop/rotate/재인코딩 금지
-      const uploadUri = Capacitor.convertFileSrc(photoResult.path)
+      const displayUri = Capacitor.convertFileSrc(photoResult.path)
+      setCapturedImage(displayUri)
 
       console.log('[STEP3] 파일 읽기 시작')
       const fileData = await Filesystem.readFile({ path: photoResult.path })
@@ -263,23 +197,6 @@ const CameraScreen = ({
       const bytes = new Uint8Array(binaryStr.length)
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
 
-      try {
-        const croppedDisplayUri = await createDisplayCropUri({
-          bytes,
-          previewW:     cameraViewSize.w,
-          previewH:     cameraViewSize.h,
-          guideX:       guideBox.x,
-          guideY:       guideBox.y,
-          guideW:       guideBox.w,
-          guideH:       guideBox.h,
-          imageW:       photoResult.width,
-          imageH:       photoResult.height,
-          exifRotation: photoResult.exifRotation ?? 0,
-        })
-        setCapturedImage(croppedDisplayUri)
-      } catch (displayCropError) {
-        console.error('[DISPLAY_CROP_ERROR]', displayCropError)
-      }
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
       const clientSha256 = Array.from(new Uint8Array(hashBuf))
         .map(b => b.toString(16).padStart(2, '0')).join('')
@@ -291,25 +208,6 @@ const CameraScreen = ({
       formData.append('image', blob, 'geo_capture.jpg')
       formData.append('client_sha256', clientSha256)
       formData.append('client_file_size', String(photoResult.size))
-      // ── STEP 4-A: 촬영 메타데이터 전달 ──────────────────────────────────
-      formData.append('preview_w',          String(cameraViewSize.w))
-      formData.append('preview_h',          String(cameraViewSize.h))
-      formData.append('guide_x',            String(guideBox.x))
-      formData.append('guide_y',            String(guideBox.y))
-      formData.append('guide_w',            String(guideBox.w))
-      formData.append('guide_h',            String(guideBox.h))
-      formData.append('image_w',            String(photoResult.width))
-      formData.append('image_h',            String(photoResult.height))
-      formData.append('exif_rotation',      String(photoResult.exifRotation ?? 0))
-      formData.append('preview_scale_type', 'FILL_CENTER')
-      console.log('[STEP4A] 메타데이터 전달:', JSON.stringify({
-        preview: { w: cameraViewSize.w, h: cameraViewSize.h },
-        guide:   { x: guideBox.x, y: guideBox.y, w: guideBox.w, h: guideBox.h },
-        image:   { w: photoResult.width, h: photoResult.height },
-        exifRotation: photoResult.exifRotation ?? 0,
-        scaleType: 'FILL_CENTER',
-      }))
-      // ─────────────────────────────────────────────────────────────────────
 
       console.log('[STEP3] multipart 전송 시작')
       const uploadRes = await fetch(`${NEO_API_BASE}/geocam/physical/verify-file`, {
@@ -340,6 +238,7 @@ const CameraScreen = ({
         setVerifyStatus('ABSENT')
       }
 
+      // v4.7: navigateToScreen 전에 stopPreview 명시적 완료 보장
       console.log('[CAPTURE] stopPreview() 명시적 호출 (navigate 전)')
       await (YuvCamera as any).stopPreview()
         .then((r: any) => console.log('[CAPTURE] stopPreview 완료:', r))
@@ -502,9 +401,3 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
-
-
-
-
-
-

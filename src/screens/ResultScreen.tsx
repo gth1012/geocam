@@ -230,7 +230,7 @@ const ResultScreen = ({
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', overflow: 'hidden' }}>
       <div style={{ flex: '0 0 65%', position: 'relative', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
         {displayImage && (
-          <img src={displayImage} alt="captured" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center center' }} />
+          <img src={displayImage} alt="captured" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center center', transform: 'rotate(90deg)', transformOrigin: 'center center' }} />
         )}
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
       </div>
@@ -288,3 +288,4 @@ const ResultScreen = ({
 }
 
 export default ResultScreen
+

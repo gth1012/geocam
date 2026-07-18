@@ -1,33 +1,20 @@
 package com.arteon.geocam;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import androidx.camera.view.PreviewView;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     private PreviewView cameraPreviewView;
-    private static final int CAMERA_PERMISSION_REQUEST_CODE = 1001;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(YuvCameraPlugin.class);
         super.onCreate(savedInstanceState);
-
-        // 카메라 런타임 권한 요청
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.CAMERA},
-                CAMERA_PERMISSION_REQUEST_CODE);
-        }
 
         ViewGroup rootView = (ViewGroup) getWindow().getDecorView()
             .findViewById(android.R.id.content);
@@ -47,26 +34,36 @@ public class MainActivity extends BridgeActivity {
             this.bridge.getWebView().setBackgroundColor(0x00000000);
         }
 
-        // GCS-CAMERA-UNIFIED-001 STEP 3-A-0: VIEW_TREE 로그
+        // ── GCS-CAMERA-UNIFIED-001 STEP 3-A-0: VIEW_TREE 로그 ──────────────
         View contentView = findViewById(android.R.id.content);
         android.webkit.WebView webView = this.bridge != null ? this.bridge.getWebView() : null;
 
         Log.d("GeoCam", "[VIEW_TREE] contentView="
             + (contentView != null ? contentView.getClass().getName() : "null"));
+
         Log.d("GeoCam", "[VIEW_TREE] contentChildCount="
             + (contentView instanceof ViewGroup
-                ? ((ViewGroup) contentView).getChildCount() : -1));
+                ? ((ViewGroup) contentView).getChildCount()
+                : -1));
+
         Log.d("GeoCam", "[VIEW_TREE] webView="
             + (webView != null ? webView.getClass().getName() : "null"));
+
         Log.d("GeoCam", "[VIEW_TREE] webViewParent="
             + (webView != null && webView.getParent() != null
-                ? webView.getParent().getClass().getName() : "null"));
+                ? webView.getParent().getClass().getName()
+                : "null"));
+
         Log.d("GeoCam", "[VIEW_TREE] previewView="
             + (cameraPreviewView != null
-                ? cameraPreviewView.getClass().getName() : "null"));
+                ? cameraPreviewView.getClass().getName()
+                : "null"));
+
         Log.d("GeoCam", "[VIEW_TREE] previewParent="
             + (cameraPreviewView != null && cameraPreviewView.getParent() != null
-                ? cameraPreviewView.getParent().getClass().getName() : "null"));
+                ? cameraPreviewView.getParent().getClass().getName()
+                : "null"));
+        // ────────────────────────────────────────────────────────────────────
     }
 
     public PreviewView getCameraPreviewView() {
