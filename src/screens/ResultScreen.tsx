@@ -93,7 +93,7 @@ const ResultScreen = ({
       if (verifyStatus === 'INSUFFICIENT_DATA') {
         return {
           color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
-          title: 'RETRY',
+          title: '재촬영',
           subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
@@ -120,7 +120,7 @@ const ResultScreen = ({
       if (verifyStatus === 'SIGNAL_WEAK' || verifyStatus === 'RETRY') {
         return {
           color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
-          title: 'RETRY',
+          title: '재촬영',
           subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
@@ -134,7 +134,7 @@ const ResultScreen = ({
       if (verifyStatus === 'ABSENT') {
         return {
           color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
-          title: 'INVALID',
+          title: '인증 불가',
           subtitle: 'GeoCode 신호가 감지되지 않았습니다',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
@@ -228,13 +228,13 @@ const ResultScreen = ({
 
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0c', overflow: 'hidden' }}>
-      <div style={{ flex: '0 0 65%', position: 'relative', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
+      <div style={{ flex: '1', position: 'relative', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
         {displayImage && (
-          <img src={displayImage} alt="captured" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center center', transform: 'rotate(90deg)', transformOrigin: 'center center' }} />
+          <img src={displayImage} alt="captured" style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center center' }} />
         )}
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px', background: 'linear-gradient(to top, #0a0a0c, transparent)' }} />
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ flex: '0 0 auto', overflowY: 'auto', padding: '12px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: config.bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             {config.icon}
@@ -288,4 +288,5 @@ const ResultScreen = ({
 }
 
 export default ResultScreen
+
 

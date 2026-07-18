@@ -261,6 +261,16 @@ public class YuvCameraPlugin extends Plugin {
                                 + " jpegW=" + jpegWidth
                                 + " jpegH=" + jpegHeight
                                 + " exifRotation=" + exifRotation);
+                                // ── GCS-CAMERA-UNIFIED-001 STEP 4 ──
+                            androidx.camera.core.ResolutionInfo resInfo = imageCapture.getResolutionInfo();
+                            if (resInfo != null) {
+                                Log.d("GCS_CROP_FACT", "cropRect=" + resInfo.getCropRect()
+                                    + ", resolution=" + resInfo.getResolution()
+                                    + ", rotation=" + resInfo.getRotationDegrees());
+                            } else {
+                                Log.d("GCS_CROP_FACT", "resolutionInfo=null");
+                            }
+                            // ── STEP 4 END ──
 
                             JSObject result = new JSObject();
                             result.put("path",         absolutePath);

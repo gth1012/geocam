@@ -1,5 +1,4 @@
 import type { CapacitorConfig } from '@capacitor/cli';
-
 // v4.3 변경 (2026-06-30): CapacitorHttp.enabled true→false
 // 원인: CapacitorHttp가 전역 fetch를 가로채면서 QR 스캐너(@yudiel/react-qr-scanner)의
 // WASM 디코더 로딩이 깨짐 (Capacitor 공식 이슈 #6123과 동일 증상).
@@ -11,7 +10,8 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
-    allowNavigation: ['neo-api.artionchain.com']
+    allowNavigation: ['neo-api.artionchain.com'],
+    cleartext: true
   },
   android: {
     loggingBehavior: 'debug',
@@ -27,5 +27,3 @@ const config: CapacitorConfig = {
   }
 };
 export default config;
-
-

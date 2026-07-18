@@ -41,14 +41,14 @@ async function createDisplayCropUri({
       img.onerror = () => reject(new Error('[DISPLAY_CROP] JPEG decode failed'))
       img.src = objectUrl
     })
-    console.log('[DISPLAY_SOURCE_FACT]', { naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight, imageW, imageH, exifRotation })
+    console.log('[DISPLAY_SOURCE_FACT]', JSON.stringify({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight, imageW, imageH, exifRotation }))
     const sourceW = image.naturalWidth
     const sourceH = image.naturalHeight
     const scale = Math.max(previewW / sourceW, previewH / sourceH)
     const displayedW = sourceW * scale
     const displayedH = sourceH * scale
     const offsetX = (displayedW - previewW) / 2
-    const offsetY = (displayedH - previewH) / 2
+const offsetY = 0
     const rawLeft   = Math.round((guideX + offsetX) / scale)
     const rawTop    = Math.round((guideY + offsetY) / scale)
     const rawWidth  = Math.round(guideW / scale)
@@ -63,16 +63,9 @@ async function createDisplayCropUri({
     const cropCtx = cropCanvas.getContext('2d')
     if (!cropCtx) throw new Error('[DISPLAY_CROP] canvas context failed')
     cropCtx.drawImage(image, left, top, width, height, 0, 0, width, height)
-    console.log('[DISPLAY_CROP_V2]', { decodedSource: { width: sourceW, height: sourceH }, preview: { width: previewW, height: previewH }, crop: { left, top, width, height } })
-    const displayCanvas = document.createElement('canvas')
-    displayCanvas.width = height
-    displayCanvas.height = width
-    const displayCtx = displayCanvas.getContext('2d')
-    if (!displayCtx) throw new Error('[DISPLAY_CROP] display canvas context failed')
-    displayCtx.translate(height, 0)
-    displayCtx.rotate(Math.PI / 2)
-    displayCtx.drawImage(cropCanvas, 0, 0)
-    return displayCanvas.toDataURL('image/jpeg', 0.95)
+    
+    console.log('[DISPLAY_CROP_V2]', JSON.stringify({ decodedSource: { width: sourceW, height: sourceH }, preview: { width: previewW, height: previewH }, crop: { left, top, width, height } }))
+    return cropCanvas.toDataURL('image/jpeg', 0.95)
   } finally {
     URL.revokeObjectURL(objectUrl)
   }
@@ -279,6 +272,7 @@ const CameraScreen = ({
         setCapturedImage(croppedDisplayUri)
       } catch (displayCropError) {
         console.error('[DISPLAY_CROP_ERROR]', displayCropError)
+        setCapturedImage(uploadUri)
       }
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
       const clientSha256 = Array.from(new Uint8Array(hashBuf))
@@ -502,6 +496,9 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+
+
+
 
 
 
