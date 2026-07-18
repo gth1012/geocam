@@ -216,6 +216,25 @@ const CameraScreen = ({
       formData.append('image', blob, 'geo_capture.jpg')
       formData.append('client_sha256', clientSha256)
       formData.append('client_file_size', String(photoResult.size))
+      // ── STEP 4-A: 촬영 메타데이터 전달 ──────────────────────────────────
+      formData.append('preview_w',          String(cameraViewSize.w))
+      formData.append('preview_h',          String(cameraViewSize.h))
+      formData.append('guide_x',            String(guideBox.x))
+      formData.append('guide_y',            String(guideBox.y))
+      formData.append('guide_w',            String(guideBox.w))
+      formData.append('guide_h',            String(guideBox.h))
+      formData.append('image_w',            String(photoResult.width))
+      formData.append('image_h',            String(photoResult.height))
+      formData.append('exif_rotation',      String(photoResult.exifRotation ?? 0))
+      formData.append('preview_scale_type', 'FILL_CENTER')
+      console.log('[STEP4A] 메타데이터 전달:', JSON.stringify({
+        preview: { w: cameraViewSize.w, h: cameraViewSize.h },
+        guide:   { x: guideBox.x, y: guideBox.y, w: guideBox.w, h: guideBox.h },
+        image:   { w: photoResult.width, h: photoResult.height },
+        exifRotation: photoResult.exifRotation ?? 0,
+        scaleType: 'FILL_CENTER',
+      }))
+      // ─────────────────────────────────────────────────────────────────────
 
       console.log('[STEP3] multipart 전송 시작')
       const uploadRes = await fetch(`${NEO_API_BASE}/geocam/physical/verify-file`, {
