@@ -17,6 +17,7 @@ import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ProcessLifecycleOwner;
 
@@ -53,21 +54,98 @@ public class YuvCameraPlugin extends Plugin {
     private static final float CANNY_LOW_THRESHOLD  = 50f;
     private static final float CANNY_HIGH_THRESHOLD = 150f;
 
+    // GCS-CAMERA-UNIFIED-001: Preview 전용 cameraProvider 참조
+    private ProcessCameraProvider previewCameraProvider;
+
     @Override
     public void load() {
         cameraExecutor = Executors.newSingleThreadExecutor();
     }
 
     // ============================================================
-    // capturePhotoFile — CameraX ImageCapture 직접 파일 저장
+    // GCS-CAMERA-UNIFIED-001 STEP 2
+    // startPreview: CameraX Preview → MainActivity PreviewView 연결
+    // ImageCapture / capturePhotoFile 수정 없음
+    // ============================================================
+    @PluginMethod
+    public void startPreview(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                // MainActivity에서 PreviewView 참조 확보
+                MainActivity activity = (MainActivity) getActivity();
+                PreviewView previewView = activity.getCameraPreviewView();
+                if (previewView == null) {
+                    call.reject("startPreview: PreviewView not found");
+                    return;
+                }
+
+                ProcessCameraProvider.getInstance(getContext()).addListener(() -> {
+                    try {
+                        previewCameraProvider = ProcessCameraProvider.getInstance(getContext()).get();
+                        previewCameraProvider.unbindAll();
+
+                        Preview preview = new Preview.Builder().build();
+                        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+
+                        previewCameraProvider.bindToLifecycle(
+                            ProcessLifecycleOwner.get(),
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview
+                        );
+
+                        // PreviewView 표시
+                        activity.showCameraPreview();
+
+                        Log.d(TAG, "[startPreview] CameraX Preview 바인딩 완료");
+                        JSObject result = new JSObject();
+                        result.put("started", true);
+                        call.resolve(result);
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "[startPreview] 바인딩 실패: " + e.getMessage());
+                        call.reject("startPreview bind failed: " + e.getMessage());
+                    }
+                }, ContextCompat.getMainExecutor(getContext()));
+
+            } catch (Exception e) {
+                Log.e(TAG, "[startPreview] error: " + e.getMessage());
+                call.reject("startPreview error: " + e.getMessage());
+            }
+        });
+    }
+
+    // ============================================================
+    // GCS-CAMERA-UNIFIED-001 STEP 2
+    // stopPreview: CameraX Preview 해제 + PreviewView 숨김
+    // ============================================================
+    @PluginMethod
+    public void stopPreview(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                if (previewCameraProvider != null) {
+                    previewCameraProvider.unbindAll();
+                    previewCameraProvider = null;
+                }
+                MainActivity activity = (MainActivity) getActivity();
+                activity.hideCameraPreview();
+                Log.d(TAG, "[stopPreview] CameraX Preview 해제 완료");
+                JSObject result = new JSObject();
+                result.put("stopped", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                Log.e(TAG, "[stopPreview] error: " + e.getMessage());
+                call.reject("stopPreview error: " + e.getMessage());
+            }
+        });
+    }
+
+    // ============================================================
+    // capturePhotoFile — 수정 없음 (GCS-CAMERA-UNIFIED-001 STEP 2 금지)
     // GEO-CAM-TRANSFER-001 STEP 1
-    // Canvas / Bitmap / Base64 / YUV→RGB 변환 일절 없음
+    // Canvas / Bitmap / Base64 / YUV→RGB 변환 없음
     // ============================================================
     @PluginMethod
     public void capturePhotoFile(PluginCall call) {
-        // 백그라운드 스레드에서 재시도 루프 실행
-        // WebView stream.stop() 이후 Android OS 카메라 해제까지 시간이 필요
-        // → 최대 5회, 600ms 간격으로 bindToLifecycle 재시도
         cameraExecutor.execute(() -> {
             final int MAX_RETRY    = 5;
             final int RETRY_DELAY_MS = 600;
@@ -87,7 +165,6 @@ public class YuvCameraPlugin extends Plugin {
                 Log.d(TAG, "[capturePhotoFile] attempt=" + currentAttempt);
 
                 try {
-                    // UI 스레드에서 바인딩 실행 (CameraX 요구사항)
                     final boolean[] bindSuccess = {false};
                     final ImageCapture[] imageCaptureHolder = {null};
                     final Object lock = new Object();
@@ -97,8 +174,6 @@ public class YuvCameraPlugin extends Plugin {
                             try {
                                 finalProvider.unbindAll();
 
-                                // ImageCapture 단독 바인딩
-                                // Preview SurfaceProvider 미연결 시 카메라 즉시 닫힘 방지
                                 ImageCapture imageCapture = new ImageCapture.Builder()
                                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                                     .build();
@@ -122,7 +197,6 @@ public class YuvCameraPlugin extends Plugin {
                         }
                     });
 
-                    // UI 스레드 완료 대기
                     synchronized (lock) {
                         lock.wait(2000);
                     }
@@ -138,7 +212,6 @@ public class YuvCameraPlugin extends Plugin {
                         }
                     }
 
-                    // 바인딩 성공 → takePicture
                     final ImageCapture imageCapture = imageCaptureHolder[0];
                     File outputDir  = getContext().getCacheDir();
                     File outputFile = new File(outputDir,
@@ -165,7 +238,6 @@ public class YuvCameraPlugin extends Plugin {
                                             ? outputFileResults.getSavedUri().toString()
                                             : "file://" + absolutePath;
 
-                                        // JPEG 실제 크기 + EXIF rotation 확인
                                         android.graphics.BitmapFactory.Options opts =
                                             new android.graphics.BitmapFactory.Options();
                                         opts.inJustDecodeBounds = true;
@@ -173,7 +245,6 @@ public class YuvCameraPlugin extends Plugin {
                                         int jpegWidth  = opts.outWidth;
                                         int jpegHeight = opts.outHeight;
 
-                                        // EXIF rotation
                                         int exifRotation = 0;
                                         try {
                                             androidx.exifinterface.media.ExifInterface exif =
@@ -233,11 +304,10 @@ public class YuvCameraPlugin extends Plugin {
                         );
                     });
 
-                    // takePicture 완료 대기
                     synchronized (photoLock) {
                         if (!photoDone[0]) photoLock.wait(15000);
                     }
-                    return; // 성공 또는 에러 반환 완료
+                    return;
 
                 } catch (Exception e) {
                     Log.e(TAG, "[capturePhotoFile] attempt=" + currentAttempt
@@ -253,7 +323,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // 기존 메서드 (변경 없음)
+    // 기존 메서드 (수정 없음)
     // ============================================================
 
     @PluginMethod
@@ -550,7 +620,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // detectCardBoundaryFromPng: PNG Base64 입력 전용
+    // detectCardBoundaryFromPng: PNG Base64 입력 사용
     // ============================================================
     @PluginMethod
     public void detectCardBoundaryFromPng(PluginCall call) {
@@ -689,7 +759,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // Edge Detection 알고리즘 (변경 없음)
+    // Edge Detection 보조함수 (수정 없음)
     // ============================================================
 
     private float[] gaussianBlur(byte[] yBytes, int width, int height, int kernelSize, float sigma) {
@@ -852,7 +922,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // Contour + Quadrilateral (변경 없음)
+    // Contour + Quadrilateral (수정 없음)
     // ============================================================
 
     private java.util.List<int[]> traceContours(byte[] edgeMap, int width, int height) {
@@ -1059,7 +1129,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // 기존 유틸 (변경 없음)
+    // 기존 유틸 (수정 없음)
     // ============================================================
 
     private Bitmap yPlaneToBitmap(ByteBuffer yBuffer, int width, int height,

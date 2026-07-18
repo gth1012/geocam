@@ -1,4 +1,4 @@
-// CameraScreen.tsx v4.3
+// CameraScreen.tsx v4.4
 // LC-CAM-001 v4.0 LOCK 기준
 // 작성: 짱아 / 2026-06-30
 //
@@ -16,6 +16,11 @@
 //   - capturePhoto() 내 canvas 캡처 경로 주석 처리
 //   - YuvCamera.capturePhotoFile() 호출 → path/uri/fileSize/mimeType 콘솔 출력
 //   - 서버 업로드 / multipart / SHA-256 / API 호출 수정 없음
+// v4.4 (2026-07-18): GCS-TRANSFER-RAW-001 STEP 2-A
+//   - stop() 직전에 savedVideoW/H/ViewW/H 저장
+//   - 하나라도 0이면 INVALID_PREVIEW_FRAME 오류 출력 후 중단
+//   - CROP_CHECK 로그에서 videoRef.current?.videoWidth → savedVideoW/H 교체
+//   - stop 순서 / 나머지 코드 수정 없음
 //
 // 금지(v4.0 §33):
 //   - 엣지 기반 탐지 재도입
@@ -239,8 +244,6 @@ async function sha256Base64(dataUrl: string): Promise<string> {
   return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 // ─── callDetectSignal (LC-PHOTO-002 해결 — dinaId 없을 때 순수 신호 검출) ──────
-// 정품인증하기 → 카메라 경로: NeoStudio /physical/detect-signal 호출
-// 보안: API 키는 서버간 통신만 사용 (레그캠 노출 없음)
 async function callDetectSignal(roiDataUrl: string): Promise<DetectSignalApiResult> {
   const regionImage = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
   const res = await fetch(`${NEO_API_BASE}/geocam/physical/detect-signal`, {
@@ -255,9 +258,6 @@ async function callDetectSignal(roiDataUrl: string): Promise<DetectSignalApiResu
   return res.json()
 }
 // ─── callPhysicalVerify (Phase 1.5 보안 계약 + v4.0 LOCK) ────────────────────
-// NeoStudio /api/geocam/physical/verify 호출
-// 클라이언트는 DINA ID를 detect-hybrid-v3에 직접 보내지 않음
-// geocode_token(=dina_id)만 NeoStudio에 전송, 서버가 내부 매핑 + 검출 + claim + ownership 처리
 async function callPhysicalVerify(params: {
   scanSessionId: string
   nonce: string
@@ -288,7 +288,7 @@ async function callPhysicalVerify(params: {
   }
   return res.json()
 }
-// ─── CameraScreen v4.3 ────────────────────────────────────────────────────────
+// ─── CameraScreen v4.4 ────────────────────────────────────────────────────────
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
@@ -600,7 +600,7 @@ const CameraScreen = ({
       const res = await fetch(`${NEO_API_BASE}/geocam/physical/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '4.3.0' }),
+        body: JSON.stringify({ device_id: navigator.userAgent.slice(0, 64), app_version: '4.4.0' }),
       })
       if (!res.ok) return false
       const data = await res.json()
@@ -618,7 +618,6 @@ const CameraScreen = ({
     }
   }, [])
   // ─── runPhysicalVerify (v4.2: dinaId 유무에 따라 분기) ────────────────────
-  // v4.3: STEP 2 — 아직 수정 없음, 기존 roiDataUrl 경로 유지
   const runPhysicalVerify = useCallback(async (roiDataUrl: string): Promise<void> => {
     setProcessing(true)
     try {
@@ -673,10 +672,11 @@ const CameraScreen = ({
     setProcessing(false)
   }, [setProcessing, setNetworkError, setVerifyStatus, navigateToScreen, geocodeToken, selectedCardProfile, startPhysicalSession, isSignalOnlyMode])
 
-  // ─── capturePhoto v4.3 (GEO-CAM-TRANSFER-001 STEP 2) ────────────────────────
-  // 기존 canvas 캡처 경로 주석 처리
-  // YuvCamera.capturePhotoFile() 호출 → path/uri/fileSize/mimeType 콘솔 출력
-  // 서버 업로드 / multipart / SHA-256 / API 호출 수정 없음 (STEP 3에서 진행)
+  // ─── capturePhoto v4.4 (GCS-TRANSFER-RAW-001 STEP 2-A) ──────────────────────
+  // stop() 직전에 savedVideoW/H/ViewW/H 저장
+  // 하나라도 0이면 INVALID_PREVIEW_FRAME 오류 출력 후 중단
+  // CROP_CHECK 로그에서 videoRef.current?.videoWidth → savedVideoW/H 교체
+  // stop 순서 / 나머지 코드 수정 없음
   const capturePhoto = useCallback(async (source: 'auto' | 'manual' = 'manual') => {
     console.log(`[AutoCapture] ENTER source=${source}`)
     if (captureLockedRef.current) {
@@ -694,6 +694,24 @@ const CameraScreen = ({
     console.log(`[AutoCapture] LOCKED source=${source}`)
     setCapturing(true)
     try {
+      // ── [STEP 2-A] stop() 직전 프리뷰 크기 저장 ─────────────────────────────
+      const savedVideoW = video.videoWidth
+      const savedVideoH = video.videoHeight
+      const savedViewW  = video.clientWidth
+      const savedViewH  = video.clientHeight
+
+      if (savedVideoW <= 0 || savedVideoH <= 0 || savedViewW <= 0 || savedViewH <= 0) {
+        console.error('[INVALID_PREVIEW_FRAME]', {
+          savedVideoW,
+          savedVideoH,
+          savedViewW,
+          savedViewH,
+        })
+        resetCaptureLock('invalid_preview_frame')
+        setCapturing(false)
+        return
+      }
+
       // ── [STEP 2] WebView 카메라 스트림 먼저 해제 — CameraX와 동시 점유 방지 ────
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
@@ -713,10 +731,10 @@ const CameraScreen = ({
       console.log('[STEP2]   fileSize :', photoResult.size)
       console.log('[STEP2]   mimeType :', photoResult.mimeType)
 
-      // ── [CROP_CHECK] 좌표계 확인 로그 (제니팀장 지시) ──────────────────────
+      // ── [CROP_CHECK] 좌표계 확인 로그 — savedVideoW/H 사용 (v4.4 STEP 2-A) ──
       console.log('[CROP_CHECK]', JSON.stringify({
-        previewView: { width: cameraViewSize.w, height: cameraViewSize.h },
-        videoFrame:  { width: videoRef.current?.videoWidth, height: videoRef.current?.videoHeight },
+        previewView: { width: savedViewW, height: savedViewH },
+        videoFrame:  { width: savedVideoW, height: savedVideoH },
         guideBox,
         capturedPhoto: {
           width:        photoResult.width,
@@ -727,72 +745,38 @@ const CameraScreen = ({
 
       // ── [STEP 2] 기존 canvas 캡처 경로 주석 처리 (STEP 3에서 교체 예정) ──────────
       // const roiDataUrl = await cropGuideBox()
-      // ;(async () => {
-      //   try {
-      //     const pngBase64 = roiDataUrl.replace(/^data:image\/\w+;base64,/, '')
-      //     const img = new Image()
-      //     img.src = roiDataUrl
-      //     await new Promise(r => { img.onload = r })
-      //     console.log('[CardBoundary-2A-Input] source=cropGuideBox width=' + img.width + ' height=' + img.height)
-      //     const nativeResult = await (YuvCamera as any).detectCardBoundaryFromPng({
-      //       pngBase64,
-      //       targetWidthMm:   selectedCardProfile.widthMm,
-      //       targetHeightMm:  selectedCardProfile.heightMm,
-      //       aspectTolerance: (selectedCardProfile as any).aspectTolerance ?? 0.15,
-      //     })
-      //     console.log('[CardBoundary-2A-Result] step=' + nativeResult.step ...)
-      //   } catch (e) {
-      //     console.warn('[CardBoundary-2A-Result] error:', e)
-      //   }
-      // })()
       // canvas.width  = video.videoWidth
       // canvas.height = video.videoHeight
       // const ctx2d = canvas.getContext('2d')
       // if (!ctx2d) throw new Error('capturePhoto: canvas context failed')
       // ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height)
       // const fullDataUrl = await canvasToPngBase64(canvas)
+
       // file:// URI → Capacitor WebView 호환 경로로 변환
       const displayUri = Capacitor.convertFileSrc(photoResult.path)
       setCapturedImage(displayUri)
-      // try {
-      //   const base64Data = fullDataUrl.replace(/^data:image\/\w+;base64,/, '')
-      //   const fileName   = `legicam_${Date.now()}.png`
-      //   await Filesystem.writeFile({
-      //     path: fileName,
-      //     data: base64Data,
-      //     directory: Directory.Documents,
-      //   })
-      //   console.log('[Capture] 갤러리 저장 완료:', fileName)
-      // } catch (e) {
-      //   console.warn('[Capture] 갤러리 저장 실패:', e)
-      // }
 
       // ── [STEP 3] 파일 바이트 읽기 → SHA-256 → multipart 업로드 ──────────────
       console.log('[STEP3] 파일 읽기 시작:', photoResult.path)
 
-      // Capacitor Filesystem으로 파일 읽기 (base64)
       const fileData = await Filesystem.readFile({ path: photoResult.path })
       const base64Str = typeof fileData.data === 'string' ? fileData.data : ''
 
-      // base64 → Uint8Array
       const binaryStr = atob(base64Str)
       const bytes = new Uint8Array(binaryStr.length)
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
 
-      // 클라이언트 SHA-256 계산
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
       const clientSha256 = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
       console.log('[STEP3] clientSha256:', clientSha256)
       console.log('[STEP3] clientFileSize:', photoResult.size)
 
-      // multipart FormData 생성
       const blob = new Blob([bytes], { type: photoResult.mimeType })
       const formData = new FormData()
       formData.append('image', blob, 'geo_capture.jpg')
       formData.append('client_sha256', clientSha256)
       formData.append('client_file_size', String(photoResult.size))
 
-      // 서버 전송
       console.log('[STEP3] multipart 전송 시작 → /physical/verify-file')
       const uploadRes = await fetch(`${NEO_API_BASE}/geocam/physical/verify-file`, {
         method: 'POST',
@@ -813,7 +797,6 @@ const CameraScreen = ({
       console.log('[STEP3] serverFileSize:', uploadResult.serverFileSize)
       console.log('[STEP3] verdict       :', uploadResult.verdict)
 
-      // SHA-256 일치 여부에 따라 결과 처리
       if (uploadResult.transferIntegrity === false) {
         console.error('[STEP3] SHA-256 불일치 → TRANSFER_INTEGRITY_FAIL')
         setVerifyStatus('INSUFFICIENT_DATA')
@@ -833,7 +816,6 @@ const CameraScreen = ({
     setCapturing(false)
   }, [cameraReady, setCapturedImage, runPhysicalVerify, resetCaptureLock]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // capturePhotoRef를 항상 최신 capturePhoto로 갱신
   useEffect(() => {
     capturePhotoRef.current = capturePhoto
   }, [capturePhoto])
