@@ -32,3 +32,6 @@ dist-ssr
 # Backup folders
 android_backup_rn/
 *.apk
+*.bak
+android/app/build.gradle.backup_*
+백업_*/

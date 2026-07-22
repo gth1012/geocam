@@ -111,7 +111,7 @@ const CollectionScreen = ({ safeGoHome, BackArrow, authToken, navigateToScreen, 
   const handlePhysicalVerify = (item: OwnershipItem) => {
     if (!item.dina_id) return
     setDinaId(item.dina_id)
-    navigateToScreen('sizeSelect')
+    navigateToScreen('camera')
   }
 
   const handleSell = async () => {

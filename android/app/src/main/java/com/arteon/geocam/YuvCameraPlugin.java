@@ -1,14 +1,26 @@
 package com.arteon.geocam;
 
-import android.graphics.Bitmap;
-import android.graphics.Rect;
-import android.hardware.camera2.CaptureRequest;
-import android.util.Base64;
+// [한글 주석] LT-AUTOCAP-002 v1.2 - 2026-07-22 짱아
+// 변경 이력:
+//   - detectCardBoundaryOpenCV() 삭제: Canny+컨투어 방식, "STEP 4-B-2 판정 미연결"로
+//     항상 false 반환하던 죽은 코드였음 (자동촬영이 영원히 안 되던 근본 원인)
+//   - detectCardBoundary(), detectCardBoundaryFromPng() 삭제: JS 어디서도 호출 안 되는
+//     완전한 죽은 코드로 확인됨 (grep 결과 인터페이스 선언조차 없음)
+//   - startYuvAnalysis/bindYuvAnalysis/captureYuvFrame/stopYuvAnalysis 삭제:
+//     CameraScreen.tsx v4.8이 startPreview/stopPreview/capturePhotoFile만 사용,
+//     이 구버전 YUV 경로는 인터페이스 선언은 있으나 아무도 호출 안 함
+//   - OpenCV 의존성 전체 제거 (컨투어 로직 삭제로 더 이상 불필요)
+//   - 신규: 밝기 체크 / 포커스(Laplacian 분산) 체크 - 완전 신규 구현
+//   - 개선: checkLockStability() - 기존엔 프레임 중앙 가로띠만 봤으나,
+//     가이드박스 영역(setGuideBox로 전달받은 좌표) 내부로 샘플링 범위 변경
+//   - 핵심 원칙: 이 플러그인은 "촬영품질(밝기/초점/안정성)"만 판단한다.
+//     "GeoCode 존재여부"는 절대 판단하지 않는다 (서버 GEO-DETECT-CIRCLE-V7-KES 전담,
+//     제니팀장 2026-07-22 피드백 반영)
+
 import android.util.Log;
 import android.util.Rational;
 
 import androidx.annotation.NonNull;
-import androidx.camera.camera2.interop.Camera2Interop;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
@@ -28,12 +40,10 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @CapacitorPlugin(name = "YuvCamera")
 public class YuvCameraPlugin extends Plugin {
@@ -41,34 +51,43 @@ public class YuvCameraPlugin extends Plugin {
     private static final String TAG = "YuvCameraPlugin";
     private ExecutorService cameraExecutor;
     private ImageAnalysis imageAnalysis;
-    private ProcessCameraProvider cameraProvider;
-    private final AtomicBoolean isCapturing = new AtomicBoolean(false);
-    private PluginCall pendingCall;
 
-    private static final int LOCK_STABLE_FRAMES = 5;
-    private int stableFrameCount = 0;
-    private float prevMeanY = -1f;
-    private boolean lockStable = false;
-
-    private static final int   GAUSSIAN_KERNEL_SIZE = 5;
-    private static final float GAUSSIAN_SIGMA       = 1.4f;
-    private static final float CANNY_LOW_THRESHOLD  = 50f;
-    private static final float CANNY_HIGH_THRESHOLD = 150f;
-
-    // GCS-CAMERA-UNIFIED-001 STEP 3
-    // Preview + ImageCapture 동시 바인딩 멤버변수
+    // GCS-CAMERA-UNIFIED-001: 촬영 세션 (startPreview/stopPreview/capturePhotoFile 전용)
     private ProcessCameraProvider previewCameraProvider;
     private ImageCapture unifiedImageCapture;
+
+    // GCS-AUTO-CAPTURE-001: 자동촬영 상태
+    private boolean autoCaptureNotified = false;
+
+    // [한글 주석] 모션안정성 상태 (checkMotionStability에서 사용, 가이드박스 영역 기준)
+    private static final int LOCK_STABLE_FRAMES = 5; // ⚠️ 잠정치, 실측 후 조정
+    private int stableFrameCount = 0;
+    private float prevGuideMeanY = -1f;
+    private boolean lockStable = false;
+
+    // [한글 주석] 신규 게이트 임계값 - 전부 잠정치, 실물 촬영 데이터로 실측 후 확정 필요
+    private static final float BRIGHTNESS_MIN = 30f;   // ⚠️ 잠정치
+    private static final float BRIGHTNESS_MAX = 220f;  // ⚠️ 잠정치
+    private static final float FOCUS_MIN_VARIANCE = 60f; // ⚠️ 잠정치 (Laplacian 분산 기준)
+    private static final int   SAMPLE_STEP = 2; // 성능을 위해 격자 2px 간격 샘플링
+
+    // GCS-AUTO-CAPTURE-001: 가이드박스 (JS → Java, volatile: 플러그인 스레드 쓰기 / 분석 스레드 읽기)
+    private volatile float previewViewWidth  = 0f;
+    private volatile float previewViewHeight = 0f;
+    private volatile float guideBoxX         = 0f;
+    private volatile float guideBoxY         = 0f;
+    private volatile float guideBoxWidth     = 0f;
+    private volatile float guideBoxHeight    = 0f;
 
     @Override
     public void load() {
         cameraExecutor = Executors.newSingleThreadExecutor();
+        // [한글 주석] OpenCV 초기화 제거됨 (컨투어 로직 삭제로 더 이상 불필요, LT-AUTOCAP-002 v1.2)
     }
 
     // ============================================================
-    // GCS-CAMERA-UNIFIED-001 STEP 3
-    // startPreview: Preview + ImageCapture + UseCaseGroup + ViewPort
-    // 같은 cameraProvider, 같은 바인딩으로 한 번에 묶음
+    // startPreview: Preview + ImageCapture + ImageAnalysis + ViewPort
+    // (변경 없음 - LT-AUTOCAP-002 영향 없는 영역)
     // ============================================================
     @PluginMethod
     public void startPreview(PluginCall call) {
@@ -81,23 +100,34 @@ public class YuvCameraPlugin extends Plugin {
                     return;
                 }
 
-                // PreviewView 크기 확정 후 바인딩
-                // 이미 크기가 있으면 즉시, 없으면 OnGlobalLayoutListener 대기
                 Runnable bindCamera = () -> {
                     try {
                         previewCameraProvider = ProcessCameraProvider.getInstance(getContext()).get();
                         previewCameraProvider.unbindAll();
 
+                        // 자동촬영 상태 리셋
+                        autoCaptureNotified = false;
+                        stableFrameCount = 0;
+                        prevGuideMeanY = -1f;
+                        lockStable = false;
+
                         // 1. Preview UseCase
                         Preview preview = new Preview.Builder().build();
                         preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-                        // 2. ImageCapture UseCase (동일 세션)
+                        // 2. ImageCapture UseCase
                         unifiedImageCapture = new ImageCapture.Builder()
                             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                             .build();
 
-                        // 3. ViewPort: PreviewView 실제 크기 기준
+                        // 3. ImageAnalysis UseCase (자동촬영 품질게이트용)
+                        imageAnalysis = new ImageAnalysis.Builder()
+                            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build();
+                        imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeFrame);
+
+                        // 4. ViewPort
                         int pvW = previewView.getWidth();
                         int pvH = previewView.getHeight();
                         int rotation = previewView.getDisplay() != null
@@ -108,14 +138,14 @@ public class YuvCameraPlugin extends Plugin {
                             new Rational(pvW, pvH), rotation
                         ).build();
 
-                        // 4. UseCaseGroup: Preview + ImageCapture 동일 ViewPort
+                        // 5. UseCaseGroup
                         UseCaseGroup useCaseGroup = new UseCaseGroup.Builder()
                             .addUseCase(preview)
                             .addUseCase(unifiedImageCapture)
+                            .addUseCase(imageAnalysis)
                             .setViewPort(viewPort)
                             .build();
 
-                        // 5. 한 번의 bindToLifecycle로 바인딩
                         previewCameraProvider.bindToLifecycle(
                             ProcessLifecycleOwner.get(),
                             CameraSelector.DEFAULT_BACK_CAMERA,
@@ -136,17 +166,14 @@ public class YuvCameraPlugin extends Plugin {
                     }
                 };
 
-                // PreviewView 먼저 VISIBLE → 크기 확정 유도
                 activity.showCameraPreview();
 
                 if (previewView.getWidth() > 0 && previewView.getHeight() > 0) {
-                    // 이미 크기 확정 → 즉시 바인딩
                     Log.d(TAG, "[startPreview] 크기 확정 즉시 바인딩: "
                         + previewView.getWidth() + "x" + previewView.getHeight());
                     ProcessCameraProvider.getInstance(getContext()).addListener(
                         bindCamera, ContextCompat.getMainExecutor(getContext()));
                 } else {
-                    // 크기 미확정 → 레이아웃 완료 후 바인딩
                     Log.d(TAG, "[startPreview] 크기 미확정 → OnGlobalLayoutListener 대기");
                     previewView.getViewTreeObserver().addOnGlobalLayoutListener(
                         new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
@@ -172,8 +199,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // GCS-CAMERA-UNIFIED-001 STEP 3
-    // stopPreview: 바인딩 해제 + PreviewView 숨김 + unifiedImageCapture 초기화
+    // stopPreview (변경 없음)
     // ============================================================
     @PluginMethod
     public void stopPreview(PluginCall call) {
@@ -184,6 +210,7 @@ public class YuvCameraPlugin extends Plugin {
                     previewCameraProvider = null;
                 }
                 unifiedImageCapture = null;
+                autoCaptureNotified = false;
 
                 MainActivity activity = (MainActivity) getActivity();
                 activity.hideCameraPreview();
@@ -200,9 +227,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // GCS-CAMERA-UNIFIED-001 STEP 3
-    // capturePhotoFile: unbindAll/재바인딩 제거
-    // startPreview()에서 바인딩된 unifiedImageCapture.takePicture()만 호출
+    // capturePhotoFile (변경 없음)
     // ============================================================
     @PluginMethod
     public void capturePhotoFile(PluginCall call) {
@@ -261,7 +286,7 @@ public class YuvCameraPlugin extends Plugin {
                                 + " jpegW=" + jpegWidth
                                 + " jpegH=" + jpegHeight
                                 + " exifRotation=" + exifRotation);
-                                // ── GCS-CAMERA-UNIFIED-001 STEP 4 ──
+
                             androidx.camera.core.ResolutionInfo resInfo = imageCapture.getResolutionInfo();
                             if (resInfo != null) {
                                 Log.d("GCS_CROP_FACT", "cropRect=" + resInfo.getCropRect()
@@ -270,7 +295,6 @@ public class YuvCameraPlugin extends Plugin {
                             } else {
                                 Log.d("GCS_CROP_FACT", "resolutionInfo=null");
                             }
-                            // ── STEP 4 END ──
 
                             JSObject result = new JSObject();
                             result.put("path",         absolutePath);
@@ -299,553 +323,245 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // 기존 메서드 (수정 없음)
+    // analyzeFrame: LT-AUTOCAP-002 v1.2 신규 3중게이트
+    // (1)밝기 AND (2)포커스 AND (3)모션안정 → 전부 통과 시에만 autoCaptureReady
     // ============================================================
-
-    @PluginMethod
-    public void startYuvAnalysis(PluginCall call) {
-        call.setKeepAlive(true);
-        pendingCall = call;
-        stableFrameCount = 0;
-        prevMeanY = -1f;
-        lockStable = false;
-
-        getActivity().runOnUiThread(() -> {
-            ProcessCameraProvider.getInstance(getContext()).addListener(() -> {
-                try {
-                    cameraProvider = ProcessCameraProvider.getInstance(getContext()).get();
-                    bindYuvAnalysis();
-                } catch (Exception e) {
-                    Log.e(TAG, "startYuvAnalysis error: " + e.getMessage());
-                    call.reject("Camera init failed: " + e.getMessage());
-                }
-            }, ContextCompat.getMainExecutor(getContext()));
-        });
-    }
-
-    private void bindYuvAnalysis() {
-        cameraProvider.unbindAll();
-
-        ImageAnalysis.Builder analysisBuilder = new ImageAnalysis.Builder()
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
-
-        Camera2Interop.Extender<ImageAnalysis> interop =
-            new Camera2Interop.Extender<>(analysisBuilder);
-        interop.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true);
-        interop.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE,
-            CaptureRequest.CONTROL_AF_MODE_OFF);
-        interop.setCaptureRequestOption(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0);
-
-        imageAnalysis = analysisBuilder.build();
-        imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeFrame);
-
-        Preview preview = new Preview.Builder().build();
-        CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
-
-        cameraProvider.bindToLifecycle(
-            ProcessLifecycleOwner.get(),
-            cameraSelector,
-            preview,
-            imageAnalysis
-        );
-
-        Log.d(TAG, "YUV ImageAnalysis bound.");
-    }
-
     private void analyzeFrame(@NonNull ImageProxy image) {
-        if (!isCapturing.get()) {
-            checkLockStability(image);
-            image.close();
-            return;
-        }
-
         try {
-            int width    = image.getWidth();
-            int height   = image.getHeight();
-            int rotation = image.getImageInfo().getRotationDegrees();
-            Rect cropRect = image.getCropRect();
+            int frameW = image.getWidth();
+            int frameH = image.getHeight();
+            int rotationDegrees = image.getImageInfo().getRotationDegrees();
 
-            ImageProxy.PlaneProxy yPlane   = image.getPlanes()[0];
-            ByteBuffer yBuffer             = yPlane.getBuffer();
-            int rowStride                  = yPlane.getRowStride();
-            int pixelStride                = yPlane.getPixelStride();
-
-            Bitmap bitmap = yPlaneToBitmap(yBuffer, width, height, rowStride, pixelStride);
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
-            String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-
-            JSObject result = new JSObject();
-            result.put("yuvBase64",       base64);
-            result.put("sourceWidth",     width);
-            result.put("sourceHeight",    height);
-            result.put("rotationDegrees", rotation);
-            result.put("cropRectLeft",    cropRect.left);
-            result.put("cropRectTop",     cropRect.top);
-            result.put("cropRectRight",   cropRect.right);
-            result.put("cropRectBottom",  cropRect.bottom);
-            result.put("rowStride",       rowStride);
-            result.put("pixelStride",     pixelStride);
-            result.put("lockStable",      lockStable);
-            result.put("lockStableFrames", stableFrameCount);
-            result.put("source",          "YUV_ANALYSIS");
-
-            if (pendingCall != null) {
-                pendingCall.resolve(result);
-                pendingCall = null;
+            // [한글 주석] 가이드박스 → 프레임 좌표 변환 (기존 STEP A/B 로직 재사용)
+            int[] guideRect = computeGuideRectInFrame(frameW, frameH, rotationDegrees);
+            if (guideRect == null) {
+                // 가이드박스 미설정 시 게이트 판단 불가, 대기
+                return;
             }
 
+            ImageProxy.PlaneProxy yPlane = image.getPlanes()[0];
+            ByteBuffer yBuf = yPlane.getBuffer().duplicate();
+            int rowStride   = yPlane.getRowStride();
+            int pixelStride = yPlane.getPixelStride();
+
+            // [한글 주석] 가이드박스 영역 내부 샘플링 (밝기+포커스+안정성 한번에 계산)
+            GateSampleResult sample = sampleGuideRegion(
+                yBuf, rowStride, pixelStride, guideRect, frameW, frameH);
+
+            boolean brightnessOk = sample.meanY >= BRIGHTNESS_MIN && sample.meanY <= BRIGHTNESS_MAX;
+            boolean focusOk      = sample.laplacianVariance >= FOCUS_MIN_VARIANCE;
+            boolean motionOk     = updateMotionStability(sample.meanY);
+
+            if (DebugFlags.CROP_LOG) {
+                Log.d("GeoCamAuto", "[QUALITY_GATE]"
+                    + " brightness=" + String.format("%.1f", sample.meanY) + "(" + brightnessOk + ")"
+                    + " focusVar=" + String.format("%.1f", sample.laplacianVariance) + "(" + focusOk + ")"
+                    + " motionStable=" + motionOk
+                    + " guideRect=" + guideRect[0] + "," + guideRect[1] + "," + guideRect[2] + "," + guideRect[3]);
+            }
+
+            if (brightnessOk && focusOk && motionOk && !autoCaptureNotified) {
+                autoCaptureNotified = true;
+                JSObject result = new JSObject();
+                result.put("qualityReady", true);
+                notifyListeners("autoCaptureReady", result);
+                Log.d(TAG, "[AUTO-CAPTURE] autoCaptureReady 전달 (품질게이트 3종 통과)");
+            }
         } catch (Exception e) {
             Log.e(TAG, "analyzeFrame error: " + e.getMessage());
-            if (pendingCall != null) {
-                pendingCall.reject("YUV analysis failed: " + e.getMessage());
-                pendingCall = null;
-            }
         } finally {
-            isCapturing.set(false);
             image.close();
         }
     }
 
-    private void checkLockStability(@NonNull ImageProxy image) {
-        try {
-            ImageProxy.PlaneProxy yPlane = image.getPlanes()[0];
-            ByteBuffer yBuffer = yPlane.getBuffer().duplicate();
-            int rowStride = yPlane.getRowStride();
-            int width  = image.getWidth();
-            int height = image.getHeight();
+    // ============================================================
+    // computeGuideRectInFrame: JS 가이드박스 좌표 → 프레임(Y플레인) 좌표 변환
+    // (기존 detectCardBoundaryOpenCV STEP A/B 로직 그대로 유지, 컨투어 부분만 제거)
+    // 반환: {left, top, width, height} 또는 가이드박스 미설정 시 null
+    // ============================================================
+    private int[] computeGuideRectInFrame(int frameW, int frameH, int rotationDegrees) {
+        float pvW = previewViewWidth;
+        float pvH = previewViewHeight;
+        float jsX = guideBoxX;
+        float jsY = guideBoxY;
+        float jsW = guideBoxWidth;
+        float jsH = guideBoxHeight;
 
-            long sum = 0; int count = 0;
-            int centerY = height / 2;
-            int startX  = width / 4;
-            int endX    = width * 3 / 4;
-            for (int x = startX; x < endX; x++) {
-                int idx = centerY * rowStride + x;
-                if (idx < yBuffer.capacity()) {
-                    sum += (yBuffer.get(idx) & 0xFF);
-                    count++;
-                }
-            }
-            float meanY = count > 0 ? (float) sum / count : 0f;
-
-            if (prevMeanY >= 0) {
-                float variance = Math.abs(meanY - prevMeanY);
-                if (variance < 2.0f) {
-                    stableFrameCount++;
-                    if (stableFrameCount >= LOCK_STABLE_FRAMES) {
-                        lockStable = true;
-                    }
-                } else {
-                    stableFrameCount = 0;
-                    lockStable = false;
-                }
-            }
-            prevMeanY = meanY;
-        } catch (Exception e) {
-            Log.e(TAG, "checkLockStability error: " + e.getMessage());
+        if (pvW <= 0f || pvH <= 0f || jsW <= 0f || jsH <= 0f) {
+            return null;
         }
+
+        float rotatedFrameW, rotatedFrameH;
+        if (rotationDegrees == 90 || rotationDegrees == 270) {
+            rotatedFrameW = frameH;
+            rotatedFrameH = frameW;
+        } else {
+            rotatedFrameW = frameW;
+            rotatedFrameH = frameH;
+        }
+
+        float scale       = Math.max(pvW / rotatedFrameW, pvH / rotatedFrameH);
+        float cropOffsetX = (rotatedFrameW * scale - pvW) / 2f;
+        float cropOffsetY = (rotatedFrameH * scale - pvH) / 2f;
+
+        float rotGuideX = (jsX + cropOffsetX) / scale;
+        float rotGuideY = (jsY + cropOffsetY) / scale;
+        float rotGuideW = jsW / scale;
+        float rotGuideH = jsH / scale;
+
+        float aLeft, aTop, aWidth, aHeight;
+        if (rotationDegrees == 90) {
+            aLeft   = rotGuideY;
+            aTop    = rotatedFrameW - rotGuideX - rotGuideW;
+            aWidth  = rotGuideH;
+            aHeight = rotGuideW;
+        } else if (rotationDegrees == 270) {
+            aLeft   = rotatedFrameH - rotGuideY - rotGuideH;
+            aTop    = rotGuideX;
+            aWidth  = rotGuideH;
+            aHeight = rotGuideW;
+        } else {
+            aLeft   = rotGuideX;
+            aTop    = rotGuideY;
+            aWidth  = rotGuideW;
+            aHeight = rotGuideH;
+        }
+
+        int left   = Math.max(0, Math.round(aLeft));
+        int top    = Math.max(0, Math.round(aTop));
+        int width  = Math.min(frameW - left, Math.round(aWidth));
+        int height = Math.min(frameH - top,  Math.round(aHeight));
+
+        return new int[]{ left, top, width, height };
     }
 
-    @PluginMethod
-    public void captureYuvFrame(PluginCall call) {
-        pendingCall = call;
-        isCapturing.set(true);
-    }
-
-    @PluginMethod
-    public void stopYuvAnalysis(PluginCall call) {
-        if (cameraProvider != null) {
-            getActivity().runOnUiThread(() -> {
-                cameraProvider.unbindAll();
-            });
-        }
-        isCapturing.set(false);
-        JSObject result = new JSObject();
-        result.put("stopped", true);
-        call.resolve(result);
+    // [한글 주석] 샘플링 결과 묶음 (밝기평균 + Laplacian분산)
+    private static class GateSampleResult {
+        float meanY;
+        float laplacianVariance;
     }
 
     // ============================================================
-    // detectCardBoundary (수정 없음)
+    // sampleGuideRegion: 가이드박스 영역 내부에서 밝기평균 + 포커스(Laplacian분산) 계산
+    // 성능을 위해 SAMPLE_STEP 간격으로 격자 샘플링
     // ============================================================
-    @PluginMethod
-    public void detectCardBoundary(PluginCall call) {
-        double targetWidthMm   = call.getDouble("targetWidthMm",  55.0);
-        double targetHeightMm  = call.getDouble("targetHeightMm", 85.0);
-        double aspectTolerance = call.getDouble("aspectTolerance", 0.15);
+    private GateSampleResult sampleGuideRegion(
+        ByteBuffer yBuf, int rowStride, int pixelStride,
+        int[] guideRect, int frameW, int frameH
+    ) {
+        int left = guideRect[0], top = guideRect[1], w = guideRect[2], h = guideRect[3];
+        int right  = Math.min(frameW - 2, left + w);
+        int bottom = Math.min(frameH - 2, top + h);
+        int startX = Math.max(1, left);
+        int startY = Math.max(1, top);
 
-        String yBase64 = call.getString("yBase64");
-        if (yBase64 == null || yBase64.isEmpty()) { call.reject("yBase64 is required"); return; }
+        long sumY = 0;
+        long sumLapSq = 0;
+        long sumLap = 0;
+        int count = 0;
 
-        try {
-            byte[] yBytes = Base64.decode(yBase64, Base64.NO_WRAP);
-            int width  = call.getInt("width",  0);
-            int height = call.getInt("height", 0);
-            if (width <= 0 || height <= 0 || yBytes.length < width * height) { call.reject("invalid width/height or yBytes length"); return; }
+        for (int y = startY; y < bottom; y += SAMPLE_STEP) {
+            for (int x = startX; x < right; x += SAMPLE_STEP) {
+                int idxC = y * rowStride + x * pixelStride;
+                int idxL = y * rowStride + (x - 1) * pixelStride;
+                int idxR = y * rowStride + (x + 1) * pixelStride;
+                int idxU = (y - 1) * rowStride + x * pixelStride;
+                int idxD = (y + 1) * rowStride + x * pixelStride;
 
-            float[] blurred   = gaussianBlur(yBytes, width, height, GAUSSIAN_KERNEL_SIZE, GAUSSIAN_SIGMA);
-            float[] magnitude = new float[width * height];
-            float[] direction = new float[width * height];
-            computeSobelGradient(blurred, width, height, magnitude, direction);
-            float[] suppressed = nonMaximumSuppression(magnitude, direction, width, height);
+                if (idxD >= yBuf.capacity() || idxR >= yBuf.capacity()) continue;
 
-            float maxMag = 0f;
-            for (float v : suppressed) if (v > maxMag) maxMag = v;
-            float highT = maxMag > 0 ? Math.min(CANNY_HIGH_THRESHOLD, maxMag * 0.8f) : CANNY_HIGH_THRESHOLD;
-            float lowT  = highT * (CANNY_LOW_THRESHOLD / CANNY_HIGH_THRESHOLD);
+                int c = yBuf.get(idxC) & 0xFF;
+                int l = yBuf.get(idxL) & 0xFF;
+                int r = yBuf.get(idxR) & 0xFF;
+                int u = yBuf.get(idxU) & 0xFF;
+                int d = yBuf.get(idxD) & 0xFF;
 
-            byte[] edgeMap = applyDoubleThreshold(suppressed, width, height, lowT, highT);
-            edgeHysteresis(edgeMap, width, height);
-            morphologicalClosing(edgeMap, width, height);
+                int lap = 4 * c - l - r - u - d; // 이산 라플라시안 (블러 검출용)
 
-            int edgePixelCount = 0;
-            for (byte b : edgeMap) if (b == 2) edgePixelCount++;
-            float edgeRatio = (float) edgePixelCount / (width * height);
-
-            java.util.List<int[]> contours = traceContours(edgeMap, width, height);
-            java.util.List<int[][]> quads  = findQuadrilateralCandidates(contours, width, height);
-
-            boolean cardDetected = false; int[][] orderedCorners = null; double bestArea = 0;
-            for (int[][] quad : quads) {
-                double area = 0;
-                for (int i = 0; i < 4; i++) { int j = (i+1)%4; area += quad[i][0]*quad[j][1]; area -= quad[j][0]*quad[i][1]; }
-                area = Math.abs(area) / 2.0;
-                if (area > bestArea) { bestArea = area; orderedCorners = orderCorners(quad); cardDetected = true; }
-            }
-
-            double aspectRatioScore = 0, coverageScore = 0;
-            double targetRatio = targetWidthMm / targetHeightMm;
-            if (cardDetected && orderedCorners != null) {
-                int[] tl=orderedCorners[0],tr=orderedCorners[1],br=orderedCorners[2],bl=orderedCorners[3];
-                double w=(dist(tl,tr)+dist(bl,br))/2.0, h=(dist(tl,bl)+dist(tr,br))/2.0;
-                double measuredRatio = h > 0 ? w/h : 0;
-                aspectRatioScore = Math.max(0, 1 - Math.abs(measuredRatio-targetRatio)/aspectTolerance);
-                coverageScore    = Math.min(1.0, bestArea/(width*height*0.5));
-            }
-
-            JSObject result = new JSObject();
-            result.put("step","2B"); result.put("edgePixelCount",edgePixelCount); result.put("edgeRatio",edgeRatio);
-            result.put("contourCount",contours.size()); result.put("quadCount",quads.size());
-            result.put("cardDetected",cardDetected); result.put("aspectRatioScore",aspectRatioScore);
-            result.put("coverageScore",coverageScore); result.put("width",width); result.put("height",height);
-            result.put("highThreshold",highT); result.put("lowThreshold",lowT);
-            if (cardDetected && orderedCorners != null) {
-                JSObject corners = new JSObject();
-                corners.put("tlX",orderedCorners[0][0]); corners.put("tlY",orderedCorners[0][1]);
-                corners.put("trX",orderedCorners[1][0]); corners.put("trY",orderedCorners[1][1]);
-                corners.put("brX",orderedCorners[2][0]); corners.put("brY",orderedCorners[2][1]);
-                corners.put("blX",orderedCorners[3][0]); corners.put("blY",orderedCorners[3][1]);
-                result.put("corners",corners);
-            }
-            call.resolve(result);
-        } catch (Exception e) { call.reject("detectCardBoundary failed: " + e.getMessage()); }
-    }
-
-    // ============================================================
-    // detectCardBoundaryFromPng (수정 없음)
-    // ============================================================
-    @PluginMethod
-    public void detectCardBoundaryFromPng(PluginCall call) {
-        double targetWidthMm   = call.getDouble("targetWidthMm",  55.0);
-        double targetHeightMm  = call.getDouble("targetHeightMm", 85.0);
-        double aspectTolerance = call.getDouble("aspectTolerance", 0.15);
-
-        String pngBase64 = call.getString("pngBase64");
-        if (pngBase64 == null || pngBase64.isEmpty()) { call.reject("pngBase64 is required"); return; }
-
-        try {
-            byte[] pngBytes = Base64.decode(pngBase64, Base64.NO_WRAP);
-            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.length);
-            if (bitmap == null) { call.reject("BitmapFactory decode failed"); return; }
-
-            int width=bitmap.getWidth(), height=bitmap.getHeight();
-            byte[] yBytes = new byte[width*height];
-            int[] pixels  = new int[width*height];
-            bitmap.getPixels(pixels,0,width,0,0,width,height);
-            for (int i=0;i<pixels.length;i++) {
-                int r=(pixels[i]>>16)&0xFF,g=(pixels[i]>>8)&0xFF,b=pixels[i]&0xFF;
-                yBytes[i]=(byte)(0.299*r+0.587*g+0.114*b);
-            }
-            bitmap.recycle();
-
-            float[] blurred=gaussianBlur(yBytes,width,height,GAUSSIAN_KERNEL_SIZE,GAUSSIAN_SIGMA);
-            float[] magnitude=new float[width*height], direction=new float[width*height];
-            computeSobelGradient(blurred,width,height,magnitude,direction);
-            float[] suppressed=nonMaximumSuppression(magnitude,direction,width,height);
-
-            float maxMag=0f; for (float v:suppressed) if (v>maxMag) maxMag=v;
-            float highT=maxMag>0?Math.min(CANNY_HIGH_THRESHOLD,maxMag*0.8f):CANNY_HIGH_THRESHOLD;
-            float lowT=highT*(CANNY_LOW_THRESHOLD/CANNY_HIGH_THRESHOLD);
-
-            byte[] edgeMap=applyDoubleThreshold(suppressed,width,height,lowT,highT);
-            edgeHysteresis(edgeMap,width,height);
-            morphologicalClosing(edgeMap,width,height);
-
-            int edgePixelCount=0; for (byte bv:edgeMap) if (bv==2) edgePixelCount++;
-            float edgeRatio=(float)edgePixelCount/(width*height);
-
-            java.util.List<int[]> contours=traceContours(edgeMap,width,height);
-            java.util.List<int[][]> quads=findQuadrilateralCandidates(contours,width,height);
-
-            boolean cardDetected=false; int[][] orderedCorners=null; double bestArea=0;
-            for (int[][] quad:quads) {
-                double area=0;
-                for (int i=0;i<4;i++){int j=(i+1)%4;area+=quad[i][0]*quad[j][1];area-=quad[j][0]*quad[i][1];}
-                area=Math.abs(area)/2.0;
-                if (area>bestArea){bestArea=area;orderedCorners=orderCorners(quad);cardDetected=true;}
-            }
-
-            double aspectRatioScore=0,coverageScore=0,targetRatio=targetWidthMm/targetHeightMm;
-            if (cardDetected&&orderedCorners!=null) {
-                int[] tl=orderedCorners[0],tr=orderedCorners[1],br=orderedCorners[2],bl=orderedCorners[3];
-                double w=(dist(tl,tr)+dist(bl,br))/2.0,h=(dist(tl,bl)+dist(tr,br))/2.0;
-                double measuredRatio=h>0?w/h:0;
-                aspectRatioScore=Math.max(0,1-Math.abs(measuredRatio-targetRatio)/aspectTolerance);
-                coverageScore=Math.min(1.0,bestArea/(width*height*0.5));
-            }
-
-            JSObject result=new JSObject();
-            result.put("step","PNG"); result.put("edgePixelCount",edgePixelCount); result.put("edgeRatio",edgeRatio);
-            result.put("contourCount",contours.size()); result.put("quadCount",quads.size());
-            result.put("cardDetected",cardDetected); result.put("aspectRatioScore",aspectRatioScore);
-            result.put("coverageScore",coverageScore); result.put("width",width); result.put("height",height);
-            result.put("highThreshold",highT); result.put("lowThreshold",lowT);
-            if (cardDetected&&orderedCorners!=null) {
-                JSObject corners=new JSObject();
-                corners.put("tlX",orderedCorners[0][0]); corners.put("tlY",orderedCorners[0][1]);
-                corners.put("trX",orderedCorners[1][0]); corners.put("trY",orderedCorners[1][1]);
-                corners.put("brX",orderedCorners[2][0]); corners.put("brY",orderedCorners[2][1]);
-                corners.put("blX",orderedCorners[3][0]); corners.put("blY",orderedCorners[3][1]);
-                result.put("corners",corners);
-            }
-            call.resolve(result);
-        } catch (Exception e) { call.reject("detectCardBoundaryFromPng failed: " + e.getMessage()); }
-    }
-
-    // ============================================================
-    // Edge Detection 보조함수 (수정 없음)
-    // ============================================================
-
-    private float[] gaussianBlur(byte[] yBytes, int width, int height, int kernelSize, float sigma) {
-        float[] kernel = makeGaussianKernel(kernelSize, sigma);
-        int half = kernelSize / 2;
-        float[] out = new float[width * height];
-        for (int row = 0; row < height; row++) {
-            for (int col = 0; col < width; col++) {
-                float sum = 0f, wSum = 0f;
-                for (int kr = -half; kr <= half; kr++) {
-                    for (int kc = -half; kc <= half; kc++) {
-                        int r = Math.max(0, Math.min(height-1, row+kr));
-                        int c = Math.max(0, Math.min(width-1,  col+kc));
-                        float w = kernel[(kr+half)*kernelSize+(kc+half)];
-                        sum  += w * (yBytes[r*width+c] & 0xFF);
-                        wSum += w;
-                    }
-                }
-                out[row*width+col] = sum / wSum;
+                sumY   += c;
+                sumLap += lap;
+                sumLapSq += (long) lap * lap;
+                count++;
             }
         }
-        return out;
-    }
 
-    private float[] makeGaussianKernel(int size, float sigma) {
-        float[] kernel = new float[size * size];
-        int half = size / 2; float sum = 0f;
-        for (int i=-half;i<=half;i++) for (int j=-half;j<=half;j++) {
-            float val=(float)Math.exp(-(i*i+j*j)/(2*sigma*sigma));
-            kernel[(i+half)*size+(j+half)]=val; sum+=val;
+        GateSampleResult result = new GateSampleResult();
+        if (count == 0) {
+            result.meanY = 0f;
+            result.laplacianVariance = 0f;
+            return result;
         }
-        for (int i=0;i<kernel.length;i++) kernel[i]/=sum;
-        return kernel;
-    }
 
-    private void computeSobelGradient(float[] blurred, int width, int height, float[] magnitude, float[] direction) {
-        for (int row=1;row<height-1;row++) for (int col=1;col<width-1;col++) {
-            float gx=-blurred[(row-1)*width+(col-1)]+blurred[(row-1)*width+(col+1)]
-                -2*blurred[row*width+(col-1)]+2*blurred[row*width+(col+1)]
-                -blurred[(row+1)*width+(col-1)]+blurred[(row+1)*width+(col+1)];
-            float gy=blurred[(row-1)*width+(col-1)]+2*blurred[(row-1)*width+col]
-                +blurred[(row-1)*width+(col+1)]-blurred[(row+1)*width+(col-1)]
-                -2*blurred[(row+1)*width+col]-blurred[(row+1)*width+(col+1)];
-            magnitude[row*width+col]=(float)Math.sqrt(gx*gx+gy*gy);
-            direction[row*width+col]=(float)Math.toDegrees(Math.atan2(gy,gx));
-        }
-    }
-
-    private float[] nonMaximumSuppression(float[] magnitude, float[] direction, int width, int height) {
-        float[] out = new float[width*height];
-        for (int row=1;row<height-1;row++) for (int col=1;col<width-1;col++) {
-            float angle=direction[row*width+col]%180f; if (angle<0) angle+=180f;
-            float mag=magnitude[row*width+col], n1, n2;
-            if      (angle<22.5f||angle>=157.5f) { n1=magnitude[row*width+(col-1)]; n2=magnitude[row*width+(col+1)]; }
-            else if (angle<67.5f)  { n1=magnitude[(row+1)*width+(col-1)]; n2=magnitude[(row-1)*width+(col+1)]; }
-            else if (angle<112.5f) { n1=magnitude[(row-1)*width+col];     n2=magnitude[(row+1)*width+col]; }
-            else                   { n1=magnitude[(row-1)*width+(col-1)]; n2=magnitude[(row+1)*width+(col+1)]; }
-            out[row*width+col]=(mag>=n1&&mag>=n2)?mag:0f;
-        }
-        return out;
-    }
-
-    private byte[] applyDoubleThreshold(float[] suppressed, int width, int height, float lowT, float highT) {
-        byte[] edgeMap=new byte[width*height];
-        for (int i=0;i<suppressed.length;i++) {
-            if      (suppressed[i]>=highT) edgeMap[i]=2;
-            else if (suppressed[i]>=lowT)  edgeMap[i]=1;
-            else                           edgeMap[i]=0;
-        }
-        return edgeMap;
-    }
-
-    private void edgeHysteresis(byte[] edgeMap, int width, int height) {
-        boolean changed=true;
-        while (changed) {
-            changed=false;
-            for (int row=1;row<height-1;row++) for (int col=1;col<width-1;col++) {
-                if (edgeMap[row*width+col]==1) {
-                    boolean nearStrong=false;
-                    outer: for (int dr=-1;dr<=1;dr++) for (int dc=-1;dc<=1;dc++) {
-                        if (edgeMap[(row+dr)*width+(col+dc)]==2) { nearStrong=true; break outer; }
-                    }
-                    if (nearStrong) { edgeMap[row*width+col]=2; changed=true; }
-                }
-            }
-        }
-        for (int i=0;i<edgeMap.length;i++) if (edgeMap[i]==1) edgeMap[i]=0;
-    }
-
-    private void morphologicalClosing(byte[] edgeMap, int width, int height) {
-        byte[] dilated=new byte[width*height];
-        for (int row=1;row<height-1;row++) for (int col=1;col<width-1;col++) {
-            boolean hasEdge=false;
-            outer: for (int dr=-1;dr<=1;dr++) for (int dc=-1;dc<=1;dc++) {
-                if (edgeMap[(row+dr)*width+(col+dc)]==2) { hasEdge=true; break outer; }
-            }
-            dilated[row*width+col]=hasEdge?(byte)2:(byte)0;
-        }
-        byte[] eroded=new byte[width*height];
-        for (int row=1;row<height-1;row++) for (int col=1;col<width-1;col++) {
-            boolean allEdge=true;
-            outer: for (int dr=-1;dr<=1;dr++) for (int dc=-1;dc<=1;dc++) {
-                if (dilated[(row+dr)*width+(col+dc)]!=2) { allEdge=false; break outer; }
-            }
-            eroded[row*width+col]=allEdge?(byte)2:(byte)0;
-        }
-        System.arraycopy(eroded,0,edgeMap,0,edgeMap.length);
-    }
-
-    private java.util.List<int[]> traceContours(byte[] edgeMap, int width, int height) {
-        java.util.List<int[]> contours=new java.util.ArrayList<>();
-        boolean[] visited=new boolean[width*height];
-        for (int row=1;row<height-1;row++) for (int col=1;col<width-1;col++) {
-            int idx=row*width+col;
-            if (edgeMap[idx]==2&&!visited[idx]) {
-                java.util.List<int[]> points=new java.util.ArrayList<>();
-                java.util.Queue<int[]> queue=new java.util.LinkedList<>();
-                queue.add(new int[]{col,row}); visited[idx]=true;
-                while (!queue.isEmpty()) {
-                    int[] p=queue.poll(); points.add(p);
-                    int px=p[0],py=p[1];
-                    for (int dr=-1;dr<=1;dr++) for (int dc=-1;dc<=1;dc++) {
-                        if (dr==0&&dc==0) continue;
-                        int nr=py+dr,nc=px+dc;
-                        if (nr<0||nr>=height||nc<0||nc>=width) continue;
-                        int nIdx=nr*width+nc;
-                        if (edgeMap[nIdx]==2&&!visited[nIdx]) { visited[nIdx]=true; queue.add(new int[]{nc,nr}); }
-                    }
-                }
-                if (points.size()>=20) {
-                    int[] flat=new int[points.size()*2];
-                    for (int i=0;i<points.size();i++) { flat[i*2]=points.get(i)[0]; flat[i*2+1]=points.get(i)[1]; }
-                    contours.add(flat);
-                }
-            }
-        }
-        return contours;
-    }
-
-    private java.util.List<int[]> approximatePolygonDouglasPeucker(int[] points, double epsilon) {
-        if (points.length<4) return new java.util.ArrayList<>();
-        int n=points.length/2;
-        boolean[] keep=new boolean[n]; keep[0]=true; keep[n-1]=true;
-        dpRecursive(points,0,n-1,epsilon,keep);
-        java.util.List<int[]> result=new java.util.ArrayList<>();
-        for (int i=0;i<n;i++) if (keep[i]) result.add(new int[]{points[i*2],points[i*2+1]});
+        result.meanY = (float) sumY / count;
+        float lapMean = (float) sumLap / count;
+        // 분산 = E[X^2] - (E[X])^2
+        result.laplacianVariance = ((float) sumLapSq / count) - (lapMean * lapMean);
         return result;
     }
 
-    private void dpRecursive(int[] points, int start, int end, double epsilon, boolean[] keep) {
-        if (end<=start+1) return;
-        int x1=points[start*2],y1=points[start*2+1],x2=points[end*2],y2=points[end*2+1];
-        double lineLen=Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
-        double maxDist=0; int maxIdx=start;
-        for (int i=start+1;i<end;i++) {
-            int px=points[i*2],py=points[i*2+1];
-            double dist=lineLen<1e-6?Math.sqrt((px-x1)*(px-x1)+(py-y1)*(py-y1))
-                :Math.abs((y2-y1)*px-(x2-x1)*py+x2*y1-y2*x1)/lineLen;
-            if (dist>maxDist){maxDist=dist;maxIdx=i;}
+    // ============================================================
+    // updateMotionStability: 가이드박스 영역 밝기평균의 프레임간 변화로 안정 여부 판단
+    // (기존 checkLockStability를 가이드박스 기준으로 개선. 원리는 동일: 연속 N프레임
+    //  변화량이 임계 미만이면 안정으로 판단)
+    // ============================================================
+    private boolean updateMotionStability(float currentMeanY) {
+        if (prevGuideMeanY >= 0) {
+            float variance = Math.abs(currentMeanY - prevGuideMeanY);
+            if (variance < 2.0f) { // ⚠️ 잠정치, 기존 checkLockStability 값 그대로 유지
+                stableFrameCount++;
+                if (stableFrameCount >= LOCK_STABLE_FRAMES) {
+                    lockStable = true;
+                }
+            } else {
+                stableFrameCount = 0;
+                lockStable = false;
+            }
         }
-        if (maxDist>epsilon) { keep[maxIdx]=true; dpRecursive(points,start,maxIdx,epsilon,keep); dpRecursive(points,maxIdx,end,epsilon,keep); }
+        prevGuideMeanY = currentMeanY;
+        return lockStable;
     }
 
-    private java.util.List<int[][]> findQuadrilateralCandidates(java.util.List<int[]> contours, int width, int height) {
-        java.util.List<int[][]> quads=new java.util.ArrayList<>();
-        double frameArea=(double)width*height, minArea=frameArea*0.05;
-        java.util.List<int[]> sorted=new java.util.ArrayList<>(contours);
-        sorted.sort((a,b)->{
-            double aA=0,aB=0;
-            for(int i=0;i<a.length/2;i++){int j=(i+1)%(a.length/2);aA+=Math.abs(a[i*2]*(double)a[j*2+1]-a[j*2]*(double)a[i*2+1]);}
-            for(int i=0;i<b.length/2;i++){int j=(i+1)%(b.length/2);aB+=Math.abs(b[i*2]*(double)b[j*2+1]-b[j*2]*(double)b[i*2+1]);}
-            return Double.compare(aB/2,aA/2);
-        });
-        for (int[] contour:sorted) {
-            int n=contour.length/2;
-            double perimeter=0;
-            for(int i=0;i<n;i++){int next=(i+1)%n;int dx=contour[next*2]-contour[i*2],dy=contour[next*2+1]-contour[i*2+1];perimeter+=Math.sqrt(dx*dx+dy*dy);}
-            double area=0;
-            for(int i=0;i<n;i++){int j=(i+1)%n;area+=contour[i*2]*(double)contour[j*2+1];area-=contour[j*2]*(double)contour[i*2+1];}
-            area=Math.abs(area)/2.0;
-            double epsilon=0.04*perimeter;
-            java.util.List<int[]> approx=approximatePolygonDouglasPeucker(contour,epsilon);
-            if (area<minArea||approx.size()!=4) continue;
-            int[][] quad=new int[4][2];
-            for(int i=0;i<4;i++){quad[i][0]=approx.get(i)[0];quad[i][1]=approx.get(i)[1];}
-            quads.add(quad);
+    // GCS-AUTO-CAPTURE-001: JS에서 가이드박스 좌표 전달 (변경 없음)
+    @PluginMethod
+    public void setGuideBox(PluginCall call) {
+        float previewW = call.getFloat("previewW", 0f);
+        float previewH = call.getFloat("previewH", 0f);
+        float guideX   = call.getFloat("guideX",   0f);
+        float guideY   = call.getFloat("guideY",   0f);
+        float guideW   = call.getFloat("guideW",   0f);
+        float guideH   = call.getFloat("guideH",   0f);
+
+        if (previewW <= 0f || previewH <= 0f || guideW <= 0f || guideH <= 0f) {
+            Log.w("GeoCamAuto",
+                "[SET_GUIDE_BOX_FAIL] " +
+                "preview=" + previewW + "x" + previewH +
+                " guide=" + guideX + "," + guideY + "," + guideW + "," + guideH);
+            call.reject("Invalid guide box values");
+            return;
         }
-        return quads;
-    }
 
-    private int[][] orderCorners(int[][] quad) {
-        int[][] ordered=new int[4][2];
-        int[] sumArr=new int[4],diffArr=new int[4];
-        for(int i=0;i<4;i++){sumArr[i]=quad[i][0]+quad[i][1];diffArr[i]=quad[i][1]-quad[i][0];}
-        int tlIdx=0; for(int i=1;i<4;i++) if(sumArr[i]<sumArr[tlIdx]) tlIdx=i; ordered[0]=quad[tlIdx];
-        int brIdx=0; for(int i=1;i<4;i++) if(sumArr[i]>sumArr[brIdx]) brIdx=i; ordered[2]=quad[brIdx];
-        int trIdx=0; for(int i=1;i<4;i++) if(diffArr[i]<diffArr[trIdx]) trIdx=i; ordered[1]=quad[trIdx];
-        int blIdx=0; for(int i=1;i<4;i++) if(diffArr[i]>diffArr[blIdx]) blIdx=i; ordered[3]=quad[blIdx];
-        return ordered;
-    }
+        this.previewViewWidth  = previewW;
+        this.previewViewHeight = previewH;
+        this.guideBoxX         = guideX;
+        this.guideBoxY         = guideY;
+        this.guideBoxWidth     = guideW;
+        this.guideBoxHeight    = guideH;
 
-    private double dist(int[] a, int[] b) {
-        int dx=a[0]-b[0],dy=a[1]-b[1];
-        return Math.sqrt(dx*dx+dy*dy);
-    }
+        Log.d("GeoCamAuto",
+            "[SET_GUIDE_BOX_OK] " +
+            "preview=" + previewW + "x" + previewH +
+            " guide=" + guideX + "," + guideY + "," + guideW + "," + guideH);
 
-    private Bitmap yPlaneToBitmap(ByteBuffer yBuffer, int width, int height, int rowStride, int pixelStride) {
-        Bitmap bitmap=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);
-        int[] pixels=new int[width*height];
-        yBuffer.rewind();
-        for(int row=0;row<height;row++) for(int col=0;col<width;col++) {
-            int idx=row*rowStride+col*pixelStride;
-            if(idx<yBuffer.capacity()){int y=yBuffer.get(idx)&0xFF;pixels[row*width+col]=0xFF000000|(y<<16)|(y<<8)|y;}
-        }
-        bitmap.setPixels(pixels,0,width,0,0,width,height);
-        return bitmap;
+        call.resolve();
     }
 
     @Override
     protected void handleOnDestroy() {
         if (cameraExecutor != null) cameraExecutor.shutdown();
+    }
+
+    // [한글 주석] 디버그 로그 on/off 플래그 (기존 DEBUG_CROP_LOG 대체)
+    private static class DebugFlags {
+        static final boolean CROP_LOG = true;
     }
 }

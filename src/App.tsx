@@ -6,7 +6,6 @@ import { runEvidencePipeline } from './evidencePipeline'
 import ErrorBoundary from './components/ErrorBoundary'
 import {
   AuthLandingScreen,
-  SizeSelectScreen,
   MainMenuScreen,
   CertSelectScreen,
   CameraScreen,
@@ -26,12 +25,11 @@ import {
   ClaimScreen,
   ClaimBundleScreen,
 } from './screens'
-import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus, CardProfile } from './types/app.types'
-import { DEFAULT_CARD_PROFILE } from './types/app.types'
+import type { Screen, ScanMode, ScanContext, RecordInfo, ScanResultInfo, VerifyStatus } from './types/app.types'
 import './App.css'
 
 const PROTECTED_SCREENS: Screen[] = [
-  'mainMenu', 'certSelect', 'digitalVerify', 'sizeSelect', 'camera', 'qrScan', 'gallery', 'myCollection',
+  'mainMenu', 'certSelect', 'digitalVerify', 'camera', 'qrScan', 'gallery', 'myCollection',
   'settings', 'scanResult', 'result', 'records', 'preview', 'otpInput',
   'registerResult', 'claim', 'claimBundle',
 ]
@@ -77,7 +75,6 @@ function App() {
   const [claimToken, setClaimToken] = useState<string | null>(null)
   const [bundleClaimToken, setBundleClaimToken] = useState<string | null>(null)
   const [, setLayer2Debug] = useState<any>(null)
-  const [selectedCardProfile, setSelectedCardProfile] = useState<CardProfile>(DEFAULT_CARD_PROFILE)
 
   const isAuthenticated = Boolean(authToken)
 
@@ -148,8 +145,8 @@ function App() {
       setNetworkError(false); setVerifyStatus(null); setCameraError(null);
       setSessionToken(null); setNonce(null); setDinaId(null);
       setSignatureVerified(null); setScanResultInfo(null);
-      navigateToScreen('sizeSelect')
-    } catch (e) { console.error('safeGoCamera error:', e); navigateToScreen('sizeSelect') }
+      navigateToScreen('camera')
+    } catch (e) { console.error('safeGoCamera error:', e); navigateToScreen('camera') }
   }, [navigateToScreen]);
 
   const safeGoScan = useCallback(() => {
@@ -160,11 +157,6 @@ function App() {
       navigateToScreen('qrScan')
     } catch (e) { console.error('safeGoScan error:', e); navigateToScreen('qrScan') }
   }, [navigateToScreen]);
-
-  const handleProfileSelected = useCallback((profile: CardProfile) => {
-    setSelectedCardProfile(profile)
-    navigateToScreen('camera')
-  }, [navigateToScreen])
 
   const onGoCollection = useCallback(() => {
     navigateToScreen('myCollection')
@@ -189,7 +181,6 @@ function App() {
   }, []);
 
   const runGalleryPhysicalVerify = useCallback(async (imageDataUrl: string) => {
-    // LT-GAL-001: 갤러리 picker 닫힌 후 처리 (오버레이 방지)
     await new Promise(resolve => setTimeout(resolve, 300))
     setProcessing(true)
     setScanMode('camera')
@@ -300,9 +291,6 @@ function App() {
           {screen === 'digitalVerify' && (
             <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} />
           )}
-          {screen === 'sizeSelect' && (
-            <SizeSelectScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} onProfileSelected={handleProfileSelected} />
-          )}
           {screen === 'claim' && (
             <ClaimScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} claimToken={claimToken} authToken={authToken} userId={userId} />
           )}
@@ -310,7 +298,7 @@ function App() {
             <ClaimBundleScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} bundleClaimToken={bundleClaimToken} authToken={authToken} userId={userId} />
           )}
           {screen === 'camera' && (
-            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} selectedCardProfile={selectedCardProfile} authToken={authToken} />
+            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} authToken={authToken} />
           )}
           {screen === 'qrScan' && (
             <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />

@@ -1,7 +1,9 @@
-// CameraScreen.tsx v4.7
-// GCS-CAMERA-UNIFIED-001 STEP 3
-// 수정: captureInProgressRef 추가 → stopPreview Race Condition 해결
-// capturePhoto 완료 후 명시적 stopPreview → cleanup은 조건부 실행
+// CameraScreen.tsx v4.9
+// LT-AUTOCAP-002 STEP (2026-07-22)
+// 변경: selectedCardProfile 전체 제거, 가이드박스 비율을 54.0:85.6mm(1.5852) 고정값으로 교체
+//      SizeSelectScreen 폐기에 따라 handleBack() → certSelect로 변경
+//      헤더/가이드박스의 카드사이즈 표시 텍스트 제거
+// 이전(v4.8): GCS-AUTO-CAPTURE-001 STEP 1 - autoCaptureReady 리스너 분리
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -19,7 +21,11 @@ const DEBUG_CROP_LOG        = true
 const NEO_API_BASE          = 'https://neo-api.artionchain.com/api'
 void API_BASE_URL
 
-// ── CameraScreen v4.7 ───────────────────────────────────────────────────────
+// [한글 주석] LT-AUTOCAP-002: 카드 종류 선택 폐기, 54.0x85.6mm 고정 비율
+// (GeoStudio geocode-block-insert.service.ts CARD_W_MM/CARD_H_MM 인코더 고정값과 완전 일치)
+const CARD_ASPECT_H_OVER_W = 85.6 / 54.0
+
+// ── CameraScreen v4.9 ───────────────────────────────────────────────────────
 type DisplayCropParams = {
   bytes: Uint8Array
   previewW: number; previewH: number
@@ -32,7 +38,7 @@ type DisplayCropParams = {
 async function createDisplayCropUri({
   bytes, previewW, previewH, guideX, guideY, guideW, guideH, imageW, imageH, exifRotation,
 }: DisplayCropParams): Promise<string> {
-  const blob = new Blob([bytes], { type: 'image/jpeg' })
+  const blob = new Blob([bytes as BlobPart], { type: 'image/jpeg' })
   const objectUrl = URL.createObjectURL(blob)
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -63,7 +69,7 @@ const offsetY = 0
     const cropCtx = cropCanvas.getContext('2d')
     if (!cropCtx) throw new Error('[DISPLAY_CROP] canvas context failed')
     cropCtx.drawImage(image, left, top, width, height, 0, 0, width, height)
-    
+
     console.log('[DISPLAY_CROP_V2]', JSON.stringify({ decodedSource: { width: sourceW, height: sourceH }, preview: { width: previewW, height: previewH }, crop: { left, top, width, height } }))
     return cropCanvas.toDataURL('image/jpeg', 0.95)
   } finally {
@@ -74,7 +80,7 @@ const offsetY = 0
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
-  setErrorCode, setNetworkError, setProcessing, navigateToScreen, cameraError, setCameraError, selectedCardProfile,
+  setErrorCode, setNetworkError, setProcessing, navigateToScreen, cameraError, setCameraError,
 }: CameraScreenProps) => {
   const { t } = useTranslation()
 
@@ -120,17 +126,17 @@ const CameraScreen = ({
     return () => observer.disconnect()
   }, [])
 
-  // ── guideBox 계산 ─────────────────────────────────────────────────────────
+  // ── guideBox 계산 (LT-AUTOCAP-002: 54:85.6mm 고정 비율, 카드종류 선택 없음) ──
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
     if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
     const maxGuideH = vh * GUIDE_H_RATIO
     const maxGuideW = vw * GUIDE_W_MAX_RATIO
     let guideH = maxGuideH
-    let guideW = guideH / selectedCardProfile.aspectHOverW
+    let guideW = guideH / CARD_ASPECT_H_OVER_W
     if (guideW > maxGuideW) {
       guideW = maxGuideW
-      guideH = guideW * selectedCardProfile.aspectHOverW
+      guideH = guideW * CARD_ASPECT_H_OVER_W
     }
     return {
       x: Math.round((vw - guideW) / 2),
@@ -138,7 +144,7 @@ const CameraScreen = ({
       w: Math.round(guideW),
       h: Math.round(guideH),
     }
-  }, [selectedCardProfile, cameraViewSize])
+  }, [cameraViewSize])
 
   const safeAreaBox = useMemo(() => {
     if (!guideBox.w || !guideBox.h) return { x: 0, y: 0, w: 0, h: 0 }
@@ -152,9 +158,7 @@ const CameraScreen = ({
     }
   }, [guideBox])
 
-  // ── WebView 배경 투명 처리 (STEP 3-A-1) ─────────────────────────────────
-  // body / html / #root 전체 !important 적용 → CSS background shorthand 우선순위 극복
-  // cleanup에서 복원 → 다른 화면 배경 영향 없음
+  // ── WebView 배경 투명 처리 ────────────────────────────────────────────────
   useEffect(() => {
     const body = document.body
     const html = document.documentElement
@@ -162,10 +166,8 @@ const CameraScreen = ({
 
     body.style.setProperty('background', 'transparent', 'important')
     body.style.setProperty('background-color', 'transparent', 'important')
-
     html.style.setProperty('background', 'transparent', 'important')
     html.style.setProperty('background-color', 'transparent', 'important')
-
     root?.style.setProperty('background', 'transparent', 'important')
     root?.style.setProperty('background-color', 'transparent', 'important')
 
@@ -174,18 +176,15 @@ const CameraScreen = ({
     return () => {
       body.style.removeProperty('background')
       body.style.removeProperty('background-color')
-
       html.style.removeProperty('background')
       html.style.removeProperty('background-color')
-
       root?.style.removeProperty('background')
       root?.style.removeProperty('background-color')
-
       console.log('[GeoCam] WEB_HTML_TRANSPARENT_REMOVED')
     }
   }, [])
 
-  // ── CameraX Preview 시작/종료 ─────────────────────────────────────────────
+  // ── CameraX Preview 시작/종료 (카메라만 담당) ─────────────────────────────
   useEffect(() => {
     console.log('[UNIFIED-001] startPreview() 호출')
     ;(YuvCamera as any).startPreview()
@@ -211,8 +210,8 @@ const CameraScreen = ({
     }
   }, [])
 
-  // ── capturePhoto v4.7 ─────────────────────────────────────────────────────
-  const capturePhoto = useCallback(async (source: 'manual' = 'manual') => {
+  // ── capturePhoto v4.9 (로직 변경 없음, selectedCardProfile 참조만 제거) ────
+  const capturePhoto = useCallback(async (source: 'manual' | 'auto' = 'manual') => {
     const triggerTime = Date.now()
     console.log(`[CAPTURE] ENTER source=${source} t=${triggerTime}`)
 
@@ -246,10 +245,22 @@ const CameraScreen = ({
         capturedPhoto: { width: photoResult.width, height: photoResult.height, exifRotation: photoResult.exifRotation },
       }))
 
-      // 서버 전송 원본 경로 — crop/rotate/재인코딩 금지
       const uploadUri = Capacitor.convertFileSrc(photoResult.path)
 
-      console.log('[STEP3] 파일 읽기 시작')
+      // ── 즉시 화면 전환 (체감 촬영시간 0.8초) ────────────────────────────
+      setCapturedImage(uploadUri)
+
+      console.log('[CAPTURE] stopPreview() 즉시 호출')
+      await (YuvCamera as any).stopPreview()
+        .then((r: any) => console.log('[CAPTURE] stopPreview 완료:', r))
+        .catch((e: any) => console.warn('[CAPTURE] stopPreview warn:', e))
+
+      captureInProgressRef.current = false
+      setCapturing(false)
+      navigateToScreen('result')
+      // ── 화면 전환 완료, 백그라운드 업로드 시작 ───────────────────────────
+
+      console.log('[STEP3] 파일 읽기 시작 (백그라운드)')
       const fileData = await Filesystem.readFile({ path: photoResult.path })
       const base64Str = typeof fileData.data === 'string' ? fileData.data : ''
       const binaryStr = atob(base64Str)
@@ -272,8 +283,8 @@ const CameraScreen = ({
         setCapturedImage(croppedDisplayUri)
       } catch (displayCropError) {
         console.error('[DISPLAY_CROP_ERROR]', displayCropError)
-        setCapturedImage(uploadUri)
       }
+
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
       const clientSha256 = Array.from(new Uint8Array(hashBuf))
         .map(b => b.toString(16).padStart(2, '0')).join('')
@@ -285,7 +296,6 @@ const CameraScreen = ({
       formData.append('image', blob, 'geo_capture.jpg')
       formData.append('client_sha256', clientSha256)
       formData.append('client_file_size', String(photoResult.size))
-      // ── STEP 4-A: 촬영 메타데이터 전달 ──────────────────────────────────
       formData.append('preview_w',          String(cameraViewSize.w))
       formData.append('preview_h',          String(cameraViewSize.h))
       formData.append('guide_x',            String(guideBox.x))
@@ -303,10 +313,9 @@ const CameraScreen = ({
         exifRotation: photoResult.exifRotation ?? 0,
         scaleType: 'FILL_CENTER',
       }))
-      // ─────────────────────────────────────────────────────────────────────
 
       console.log('[STEP3] multipart 전송 시작')
-      const uploadRes = await fetch(`${NEO_API_BASE}/geocam/physical/verify-file`, {
+      const uploadRes = await fetch(`${NEO_API_BASE}/geocode-block/detect`, {
         method: 'POST',
         body: formData,
       })
@@ -334,15 +343,6 @@ const CameraScreen = ({
         setVerifyStatus('ABSENT')
       }
 
-      console.log('[CAPTURE] stopPreview() 명시적 호출 (navigate 전)')
-      await (YuvCamera as any).stopPreview()
-        .then((r: any) => console.log('[CAPTURE] stopPreview 완료:', r))
-        .catch((e: any) => console.warn('[CAPTURE] stopPreview warn:', e))
-
-      captureInProgressRef.current = false
-      setCapturing(false)
-      navigateToScreen('result')
-
     } catch (e) {
       console.error('[CAPTURE] error:', e)
 
@@ -358,8 +358,46 @@ const CameraScreen = ({
     }
   }, [cameraViewSize, guideBox, setCapturedImage, setVerifyStatus, setNetworkError, navigateToScreen, resetCaptureLock])
 
+  // ── setGuideBox: 가이드박스 확정 시 Java로 전달 (GCS-AUTO-CAPTURE-001) ───
+  // guideBox.w > 0 && cameraViewSize.w > 0 → Java setGuideBox 호출
+  // 화면 크기 변경 시 자동 갱신
+  useEffect(() => {
+    if (!guideBox.w || !guideBox.h || !cameraViewSize.w || !cameraViewSize.h) return
+    console.log('[SET_GUIDE_BOX] 전달:', JSON.stringify({ previewW: cameraViewSize.w, previewH: cameraViewSize.h, ...guideBox }))
+    ;(YuvCamera as any).setGuideBox({
+      previewW: cameraViewSize.w,
+      previewH: cameraViewSize.h,
+      guideX:   guideBox.x,
+      guideY:   guideBox.y,
+      guideW:   guideBox.w,
+      guideH:   guideBox.h,
+    }).catch((e: any) => console.warn('[SET_GUIDE_BOX] 실패:', e))
+  }, [cameraViewSize, guideBox])
+
+  // ── autoCaptureReady 리스너 (GCS-AUTO-CAPTURE-001 STEP 1) ─────────────────
+  // capturePhoto 선언 아래 별도 useEffect → 항상 최신 capturePhoto 참조
+  // cleanup에서 listener.remove() → 화면 종료 시 정리
+  useEffect(() => {
+    console.log('[AUTO-CAPTURE] autoCaptureReady 리스너 등록')
+    const listener = (YuvCamera as any).addListener('autoCaptureReady', () => {
+      console.log('[AUTO-CAPTURE] autoCaptureReady 이벤트 수신')
+      if (!captureInProgressRef.current) {
+        console.log('[AUTO-CAPTURE] 자동촬영 시작')
+        capturePhoto('auto')
+      } else {
+        console.log('[AUTO-CAPTURE] SKIP: captureInProgress=true')
+      }
+    })
+    return () => {
+      console.log('[AUTO-CAPTURE] autoCaptureReady 리스너 제거')
+      listener.remove()
+    }
+  }, [capturePhoto])
+
+  // [한글 주석] LT-AUTOCAP-002: SizeSelectScreen 폐기로 뒤로가기 목적지 변경
+  // (sizeSelect -> certSelect, 빅보스 확정 2026-07-22)
   const handleBack = useCallback(() => {
-    navigateToScreen('sizeSelect')
+    navigateToScreen('certSelect')
   }, [navigateToScreen])
 
   const handleGuideConfirm = useCallback(() => {
@@ -395,9 +433,6 @@ const CameraScreen = ({
           <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: '14px', fontWeight: '300', letterSpacing: '0.12em' }}>
             {isSignalOnlyMode ? '정품 신호 검출' : t('capture.title')}
           </span>
-          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '10px', letterSpacing: '0.08em', marginTop: '2px' }}>
-            {selectedCardProfile.name} · {selectedCardProfile.widthMm}×{selectedCardProfile.heightMm}mm
-          </div>
         </div>
         <button onClick={() => setShowGuideOverlay(true)} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: '15px' }}>
           ?
@@ -422,7 +457,7 @@ const CameraScreen = ({
           </div>
         )}
 
-        {/* 가이드박스 오버레이 */}
+        {/* 가이드박스 오버레이 (LT-AUTOCAP-002: 카드사이즈 텍스트 표시 제거) */}
         {guideBox.w > 0 && (
           <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
             <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
@@ -432,11 +467,6 @@ const CameraScreen = ({
             {safeAreaBox.w > 0 && (
               <div style={{ position: 'absolute', left: `${safeAreaBox.x - guideBox.x}px`, top: `${safeAreaBox.y - guideBox.y}px`, width: `${safeAreaBox.w}px`, height: `${safeAreaBox.h}px`, border: '1px dashed rgba(255,255,255,0.18)', borderRadius: '4px', pointerEvents: 'none' }} />
             )}
-            <div style={{ position: 'absolute', top: '-22px', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}>
-              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px', letterSpacing: '0.08em' }}>
-                {selectedCardProfile.widthMm}×{selectedCardProfile.heightMm}mm
-              </span>
-            </div>
           </div>
         )}
       </div>
@@ -496,12 +526,3 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
-
-
-
-
-
-
-
-
-

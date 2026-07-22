@@ -2,7 +2,8 @@ import type { CertSelectScreenProps } from '../types/app.types'
 
 // UI/UX 리팩 v3.5 (2026-06-28)
 // 서브 텍스트 → 옐로우(--color-inconclusive) 적용
-// v3.6 (2026-06-30) — LC-CAM-001 v5.2 §5 #1: 실물 탭 QR 생략 버그 수정 (sizeSelect 직행 → qrScan 복원)
+// v3.6 (2026-06-30) — LC-CAM-001 v5.2 §5 #1: 실물 탭 QR 생략 버그 수정 ('camera' 직행 → qrScan 복원)
+// v3.7 (2026-07-22) — LT-AUTOCAP-002: sizeSelect 폐기, 'camera' 직행으로 변경. 안내문구도 수정.
 
 const CertSelectScreen = ({
   safeGoHome,
@@ -63,7 +64,7 @@ const CertSelectScreen = ({
 
       {/* 탭 1 — 굿즈 정품 인증 */}
       <button
-        onClick={() => navigateToScreen('sizeSelect')}
+        onClick={() => navigateToScreen('camera')}
         style={{
           width: '100%',
           padding: '28px 22px',
@@ -104,7 +105,7 @@ const CertSelectScreen = ({
           lineHeight: '1.6',
           textAlign: 'center',
         }}>
-          카드 사이즈 선택 → 지오캠 촬영으로 정품인증 하세요.
+          지오캠 촬영으로 정품인증 하세요.
         </div>
       </button>
 

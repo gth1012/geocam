@@ -17,6 +17,8 @@ import type { ResultScreenProps } from '../types/app.types'
 //   PRESENT           → PHYSICAL VERIFIED (초록)
 //   INSUFFICIENT_DATA → RETRY (노란, 재촬영 유도)
 //   ABSENT            → INVALID (빨간)
+// GCS-AUTO-CAPTURE-001 UI (2026-07-19):
+// - verifyStatus === null → "검증 중" 스피너 표시
 
 const ResultScreen = ({
   safeGoHome,
@@ -50,10 +52,22 @@ const ResultScreen = ({
   const displayImage = capturedImage || previewImage
 
   const getStatusConfig = () => {
+    // ── 검증 중 (verifyStatus === null) ──────────────────────────────────
+    if (verifyStatus === null) {
+      return {
+        color: '#a78bfa', bgColor: 'rgba(167, 139, 250, 0.08)',
+        title: '검증 중',
+        subtitle: '정품 정보를 확인하고 있습니다.',
+        status: 'processing',
+        icon: null,
+      }
+    }
+
     if (networkError) {
       return {
         color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
         title: t('result.networkError'), subtitle: t('result.networkErrorDesc'),
+        status: 'error',
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -66,6 +80,7 @@ const ResultScreen = ({
       return {
         color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
         title: t('result.verifyFailed'), subtitle: t('result.verifyFailedDesc'),
+        status: 'error',
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -75,13 +90,14 @@ const ResultScreen = ({
       }
     }
 
-    // ── Camera 모드 전용 판정 (Layer2 실물 테스트용) ──────────────────────
+    // ── Camera 모드 전용 판정 ─────────────────────────────────────────────
     if (isCamera) {
       if (verifyStatus === 'PRESENT') {
         return {
           color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
           title: 'PHYSICAL VERIFIED',
           subtitle: 'GeoCode 신호가 확인됐습니다',
+          status: 'done',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
@@ -95,33 +111,7 @@ const ResultScreen = ({
           color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
           title: '재촬영',
           subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="22" stroke="#facc15" strokeWidth="2.5" />
-              <path d="M24 14v14" stroke="#facc15" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="24" cy="35" r="2.5" fill="#facc15" />
-            </svg>
-          )
-        }
-      }
-      if (verifyStatus === 'PASS_CONFIRMED') {
-        return {
-          color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
-          title: 'PHYSICAL VERIFIED',
-          subtitle: 'GeoCode 신호가 확인됐습니다',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
-              <path d="M14 24l7 7 13-13" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )
-        }
-      }
-      if (verifyStatus === 'SIGNAL_WEAK' || verifyStatus === 'RETRY') {
-        return {
-          color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
-          title: '재촬영',
-          subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
+          status: 'done',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#facc15" strokeWidth="2.5" />
@@ -136,6 +126,7 @@ const ResultScreen = ({
           color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
           title: '인증 불가',
           subtitle: 'GeoCode 신호가 감지되지 않았습니다',
+          status: 'done',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
               <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -151,6 +142,7 @@ const ResultScreen = ({
       return {
         color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
         title: t('result.genuine'), subtitle: t('result.genuineDesc'),
+        status: 'done',
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#4ade80" strokeWidth="2.5" />
@@ -163,6 +155,7 @@ const ResultScreen = ({
       return {
         color: '#fbbf24', bgColor: 'rgba(251, 191, 36, 0.08)',
         title: t('result.reproduction'), subtitle: t('result.reproductionDesc'),
+        status: 'done',
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#fbbf24" strokeWidth="2.5" />
@@ -176,6 +169,7 @@ const ResultScreen = ({
       return {
         color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
         title: t('result.insufficient'), subtitle: t('result.insufficientDesc'),
+        status: 'done',
         icon: (
           <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
             <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -188,6 +182,7 @@ const ResultScreen = ({
     return {
       color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
       title: t('result.verifyFailed'), subtitle: t('result.verifyFailedDesc'),
+      status: 'error',
       icon: (
         <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
           <circle cx="24" cy="24" r="22" stroke="#f87171" strokeWidth="2.5" />
@@ -198,6 +193,7 @@ const ResultScreen = ({
   }
 
   const config = getStatusConfig()
+  const isProcessing = config.status === 'processing'
 
   const handleRetry = useCallback(() => {
     setQrDetected(false); setQrData(null); setCapturedImage(null); setRecordInfo(null);
@@ -237,7 +233,15 @@ const ResultScreen = ({
       <div style={{ flex: '0 0 auto', overflowY: 'auto', padding: '12px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: config.bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {config.icon}
+            {isProcessing ? (
+              <>
+                <svg viewBox="0 0 40 40" style={{ width: '32px', height: '32px', animation: 'spin 1.5s linear infinite' }}>
+                  <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(167,139,250,0.2)" strokeWidth="3" />
+                  <circle cx="20" cy="20" r="16" fill="none" stroke="#a78bfa" strokeWidth="3" strokeDasharray="40 60" strokeLinecap="round" />
+                </svg>
+                <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+              </>
+            ) : config.icon}
           </div>
           <div style={{ flex: 1 }}>
             <h2 style={{ color: config.color, fontSize: '18px', fontWeight: '600', marginBottom: '1px', letterSpacing: '-0.02em' }}>{config.title}</h2>
@@ -268,25 +272,24 @@ const ResultScreen = ({
           )}
         </div>
         <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: '10px', textAlign: 'center', lineHeight: '1.3', margin: 0 }}>{t('common.disclaimer')}</p>
-        {/* LT-016: scanMode === 'camera' (Physical Verify) 결과에서 QR Register 버튼 숨김 */}
         {verifyStatus === 'PRESENT' && sessionToken && scanMode !== 'camera' && (
           <button onClick={handleRegister} disabled={registering} style={{ width: '100%', padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '600', background: registering ? 'rgba(74,222,128,0.3)' : 'rgba(74,222,128,0.15)', border: 'none', color: '#4ade80', cursor: registering ? 'default' : 'pointer' }}>
             {registering ? t('register.processing') : t('register.button')}
           </button>
         )}
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={handleRetry} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '500', background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.9)', cursor: 'pointer' }}>
-            {isCamera ? '다시 촬영' : t('common.retakePhoto')}
-          </button>
-          <button onClick={safeGoHome} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '400', background: 'rgba(255,255,255,0.03)', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>
-            {t('common.home')}
-          </button>
-        </div>
+        {!isProcessing && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={handleRetry} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '500', background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.9)', cursor: 'pointer' }}>
+              {isCamera ? '다시 촬영' : t('common.retakePhoto')}
+            </button>
+            <button onClick={safeGoHome} style={{ flex: 1, padding: '10px', borderRadius: '10px', fontSize: '13px', fontWeight: '400', background: 'rgba(255,255,255,0.03)', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>
+              {t('common.home')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 export default ResultScreen
-
-

@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 // ─────────────────────────────────────────────
 // Screen 타입 (Auth UX 리팩 v2.0)
 // UI/UX 리팩 v3.3 (2026-06-28) — certSelect 추가
+// LT-AUTOCAP-002 (2026-07-22) — sizeSelect 제거 (카드종류선택 폐기, 고정 가이드박스로 전환)
 // ─────────────────────────────────────────────
 export type Screen =
   // 비로그인 허용
@@ -10,7 +11,6 @@ export type Screen =
   | 'login'
   | 'register'
   // 보호 화면
-  | 'sizeSelect'
   | 'certSelect'
   | 'mainMenu'
   | 'digitalVerify'
@@ -33,29 +33,11 @@ export type Screen =
   | 'registerPending'
 
 
-// LC-CAM-001 v3.3: 카드 사이즈 프로파일
-export type CardProfileId = 'STANDARD' | 'GOODS' | 'LARGE' | 'MINI_POST' | 'CUSTOM'
+// [한글 주석] LT-AUTOCAP-002(2026-07-22)로 CardProfile 체계 전체 삭제됨.
+// 카드 종류 선택 자체가 폐기되고, 모든 카드가 54.0×85.6mm 고정 가이드박스로 통일됨
+// (GEO-BLOCK-V6.1-CIRCLE 인코더 고정값과 일치, 소스: geocode-block-insert.service.ts)
+// 기존 CardProfileId/CardProfile/CARD_PROFILES/DEFAULT_CARD_PROFILE/makeCustomProfile 삭제
 
-export interface CardProfile {
-  id: CardProfileId
-  name: string
-  widthMm: number
-  heightMm: number
-  aspectHOverW: number
-
-  aspectRatio?: number
-  aspectTolerance?: number
-  isCustom?: boolean
-}
-
-export const CARD_PROFILES: CardProfile[] = [
-  { id: 'STANDARD',  name: '표준형',      widthMm: 54,  heightMm: 85,  aspectHOverW: 85  / 54  },
-  { id: 'GOODS',     name: '굿즈형',       widthMm: 55,  heightMm: 85,  aspectHOverW: 85  / 55  },
-  { id: 'LARGE',     name: '대형',         widthMm: 70,  heightMm: 100, aspectHOverW: 100 / 70  },
-  { id: 'MINI_POST', name: '미니포스터형', widthMm: 100, heightMm: 150, aspectHOverW: 150 / 100 },
-]
-
-export const DEFAULT_CARD_PROFILE = CARD_PROFILES.find(p => p.id === 'GOODS')!
 export type ScanMode = 'camera' | 'scan'
 
 export type ScanStatus =
@@ -211,16 +193,10 @@ export interface ClaimBundleScreenProps {
   userId: string | null
 }
 
-export interface SizeSelectScreenProps {
-  safeGoHome: () => void
-  BackArrow: () => ReactElement
-  navigateToScreen: NavigateToScreen
-  onProfileSelected: (profile: CardProfile) => void
-}
+// [한글 주석] SizeSelectScreenProps 삭제됨 (LT-AUTOCAP-002, 화면 자체 폐기)
 
 export interface CameraScreenProps extends ScreenProps {
   authToken: string | null
-  selectedCardProfile: CardProfile
   sessionToken: string | null
   nonce: string | null
   dinaId: string | null
@@ -355,14 +331,3 @@ export interface SettingsScreenProps extends ScreenProps {
 }
 
 export interface RecordsScreenProps extends ScreenProps {}
-
-export const makeCustomProfile = (widthMm: number, heightMm: number): CardProfile => ({
-  id:              'CUSTOM',
-  name:            '직접입력',
-  widthMm,
-  heightMm,
-  aspectHOverW:    heightMm / widthMm,
-  aspectRatio:     widthMm  / heightMm,
-  aspectTolerance: 0.10,
-  isCustom:        true,
-})

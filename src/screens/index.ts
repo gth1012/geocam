@@ -1,6 +1,5 @@
 // Auth UX 리팩 v2.0 (2026-06-22)
 // UI/UX 리팩 v3.3 (2026-06-28) — CertSelectScreen 추가
-export { default as SizeSelectScreen } from './SizeSelectScreen'
 export { default as AuthLandingScreen } from './AuthLandingScreen'
 export { default as MainMenuScreen } from './MainMenuScreen'
 export { default as CertSelectScreen } from './CertSelectScreen'
