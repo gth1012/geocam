@@ -25,57 +25,12 @@ void API_BASE_URL
 // (GeoStudio geocode-block-insert.service.ts CARD_W_MM/CARD_H_MM 인코더 고정값과 완전 일치)
 const CARD_ASPECT_H_OVER_W = 85.6 / 54.0
 
+// ── 화면 전용 자유형 가이드 (STEP 3-13): 카드 규격 강제 없음 ────────────
+const VISUAL_MARGIN_RATIO = 0.06
+const VISUAL_MIN_W_RATIO  = 0.46
+const VISUAL_MIN_H_RATIO  = 0.58
+
 // ── CameraScreen v4.9 ───────────────────────────────────────────────────────
-type DisplayCropParams = {
-  bytes: Uint8Array
-  previewW: number; previewH: number
-  guideX: number;   guideY: number
-  guideW: number;   guideH: number
-  imageW: number;   imageH: number
-  exifRotation: number
-}
-
-async function createDisplayCropUri({
-  bytes, previewW, previewH, guideX, guideY, guideW, guideH, imageW, imageH, exifRotation,
-}: DisplayCropParams): Promise<string> {
-  const blob = new Blob([bytes as BlobPart], { type: 'image/jpeg' })
-  const objectUrl = URL.createObjectURL(blob)
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve(img)
-      img.onerror = () => reject(new Error('[DISPLAY_CROP] JPEG decode failed'))
-      img.src = objectUrl
-    })
-    console.log('[DISPLAY_SOURCE_FACT]', JSON.stringify({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight, imageW, imageH, exifRotation }))
-    const sourceW = image.naturalWidth
-    const sourceH = image.naturalHeight
-    const scale = Math.max(previewW / sourceW, previewH / sourceH)
-    const displayedW = sourceW * scale
-    const displayedH = sourceH * scale
-    const offsetX = (displayedW - previewW) / 2
-const offsetY = 0
-    const rawLeft   = Math.round((guideX + offsetX) / scale)
-    const rawTop    = Math.round((guideY + offsetY) / scale)
-    const rawWidth  = Math.round(guideW / scale)
-    const rawHeight = Math.round(guideH / scale)
-    const left   = Math.max(0, Math.min(rawLeft,   sourceW - 1))
-    const top    = Math.max(0, Math.min(rawTop,    sourceH - 1))
-    const width  = Math.max(1, Math.min(rawWidth,  sourceW - left))
-    const height = Math.max(1, Math.min(rawHeight, sourceH - top))
-    const cropCanvas = document.createElement('canvas')
-    cropCanvas.width = width
-    cropCanvas.height = height
-    const cropCtx = cropCanvas.getContext('2d')
-    if (!cropCtx) throw new Error('[DISPLAY_CROP] canvas context failed')
-    cropCtx.drawImage(image, left, top, width, height, 0, 0, width, height)
-
-    console.log('[DISPLAY_CROP_V2]', JSON.stringify({ decodedSource: { width: sourceW, height: sourceH }, preview: { width: previewW, height: previewH }, crop: { left, top, width, height } }))
-    return cropCanvas.toDataURL('image/jpeg', 0.95)
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
-}
 
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
@@ -157,6 +112,34 @@ const CameraScreen = ({
       h: safeH,
     }
   }, [guideBox])
+
+  // visualGuideBox: 네 모서리 브라켓 배치용 (화면 여백만 기준, 카드 비율 무관)
+  const visualGuideBox = useMemo(() => {
+    const { w: vw, h: vh } = cameraViewSize
+    if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
+    const marginX = vw * VISUAL_MARGIN_RATIO
+    const marginY = vh * VISUAL_MARGIN_RATIO
+    return {
+      x: Math.round(marginX),
+      y: Math.round(marginY),
+      w: Math.round(vw - marginX * 2),
+      h: Math.round(vh - marginY * 2),
+    }
+  }, [cameraViewSize])
+
+  // visualMinBox: 중앙 최소 크기 참고 표시(둥근 사각형), 화면 중앙 고정
+  const visualMinBox = useMemo(() => {
+    const { w: vw, h: vh } = cameraViewSize
+    if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
+    const minW = vw * VISUAL_MIN_W_RATIO
+    const minH = vh * VISUAL_MIN_H_RATIO
+    return {
+      x: Math.round((vw - minW) / 2),
+      y: Math.round((vh - minH) / 2),
+      w: Math.round(minW),
+      h: Math.round(minH),
+    }
+  }, [cameraViewSize])
 
   // ── WebView 배경 투명 처리 ────────────────────────────────────────────────
   useEffect(() => {
@@ -267,24 +250,6 @@ const CameraScreen = ({
       const bytes = new Uint8Array(binaryStr.length)
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
 
-      try {
-        const croppedDisplayUri = await createDisplayCropUri({
-          bytes,
-          previewW:     cameraViewSize.w,
-          previewH:     cameraViewSize.h,
-          guideX:       guideBox.x,
-          guideY:       guideBox.y,
-          guideW:       guideBox.w,
-          guideH:       guideBox.h,
-          imageW:       photoResult.width,
-          imageH:       photoResult.height,
-          exifRotation: photoResult.exifRotation ?? 0,
-        })
-        setCapturedImage(croppedDisplayUri)
-      } catch (displayCropError) {
-        console.error('[DISPLAY_CROP_ERROR]', displayCropError)
-      }
-
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
       const clientSha256 = Array.from(new Uint8Array(hashBuf))
         .map(b => b.toString(16).padStart(2, '0')).join('')
@@ -374,26 +339,6 @@ const CameraScreen = ({
     }).catch((e: any) => console.warn('[SET_GUIDE_BOX] 실패:', e))
   }, [cameraViewSize, guideBox])
 
-  // ── autoCaptureReady 리스너 (GCS-AUTO-CAPTURE-001 STEP 1) ─────────────────
-  // capturePhoto 선언 아래 별도 useEffect → 항상 최신 capturePhoto 참조
-  // cleanup에서 listener.remove() → 화면 종료 시 정리
-  useEffect(() => {
-    console.log('[AUTO-CAPTURE] autoCaptureReady 리스너 등록')
-    const listener = (YuvCamera as any).addListener('autoCaptureReady', () => {
-      console.log('[AUTO-CAPTURE] autoCaptureReady 이벤트 수신')
-      if (!captureInProgressRef.current) {
-        console.log('[AUTO-CAPTURE] 자동촬영 시작')
-        capturePhoto('auto')
-      } else {
-        console.log('[AUTO-CAPTURE] SKIP: captureInProgress=true')
-      }
-    })
-    return () => {
-      console.log('[AUTO-CAPTURE] autoCaptureReady 리스너 제거')
-      listener.remove()
-    }
-  }, [capturePhoto])
-
   // [한글 주석] LT-AUTOCAP-002: SizeSelectScreen 폐기로 뒤로가기 목적지 변경
   // (sizeSelect -> certSelect, 빅보스 확정 2026-07-22)
   const handleBack = useCallback(() => {
@@ -458,15 +403,16 @@ const CameraScreen = ({
         )}
 
         {/* 가이드박스 오버레이 (LT-AUTOCAP-002: 카드사이즈 텍스트 표시 제거) */}
-        {guideBox.w > 0 && (
-          <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
+        {visualGuideBox.w > 0 && (
+          <div style={{ position: 'absolute', left: `${visualGuideBox.x}px`, top: `${visualGuideBox.y}px`, width: `${visualGuideBox.w}px`, height: `${visualGuideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
             <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ top: 0, right: 0 }), borderTop: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderTopRightRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, left: 0 }), borderBottom: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderBottomLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, right: 0 }), borderBottom: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderBottomRightRadius: '8px' }} />
-            {safeAreaBox.w > 0 && (
-              <div style={{ position: 'absolute', left: `${safeAreaBox.x - guideBox.x}px`, top: `${safeAreaBox.y - guideBox.y}px`, width: `${safeAreaBox.w}px`, height: `${safeAreaBox.h}px`, border: '1px dashed rgba(255,255,255,0.18)', borderRadius: '4px', pointerEvents: 'none' }} />
+            {visualMinBox.w > 0 && (
+              <div style={{ position: 'absolute', left: `${visualMinBox.x - visualGuideBox.x}px`, top: `${visualMinBox.y - visualGuideBox.y}px`, width: `${visualMinBox.w}px`, height: `${visualMinBox.h}px`, border: '1.5px dashed rgba(255,255,255,0.35)', borderRadius: '16px', pointerEvents: 'none' }} />
             )}
+            <div style={{ position: 'absolute', left: `${visualGuideBox.w / 2 - 3}px`, top: `${visualGuideBox.h / 2 - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)', pointerEvents: 'none' }} />
           </div>
         )}
       </div>
@@ -474,7 +420,12 @@ const CameraScreen = ({
       {/* 하단 촬영 버튼 */}
       <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
-          {capturing ? '처리 중...' : '카드를 가이드에 맞춘 후 촬영'}
+          {capturing ? '처리 중...' : (
+            <>
+              카드 전체가 네 모서리 안에 보이게 맞춰주세요<br />
+              카드가 중앙 표시를 충분히 덮도록 가까이 촬영하세요
+            </>
+          )}
         </p>
         <button
           onClick={() => capturePhoto('manual')}
@@ -526,3 +477,5 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+
+
