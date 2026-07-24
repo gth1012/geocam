@@ -19,6 +19,3 @@ project(':capacitor-geolocation').projectDir = new File('../node_modules/@capaci
 
 include ':capacitor-preferences'
 project(':capacitor-preferences').projectDir = new File('../node_modules/@capacitor/preferences/android')
-
-include ':capacitor-kakao-login-plugin'
-project(':capacitor-kakao-login-plugin').projectDir = new File('../node_modules/capacitor-kakao-login-plugin/android')

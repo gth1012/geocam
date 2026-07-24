@@ -5,7 +5,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // physical/verify, physical/session/start는 CameraScreen.tsx에서
 // CapacitorHttp 플러그인을 명시적으로 직접 호출하도록 전환하여 네이티브 HTTP는 그쪽만 유지.
 const config: CapacitorConfig = {
-  appId: 'com.artion.legittag',
+  appId: 'com.arteon.geocam',
   appName: 'LegitTag',
   webDir: 'dist',
   server: {

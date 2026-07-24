@@ -18,7 +18,6 @@
     "@capacitor-community/http": "^1.4.1",
     "@capacitor/android": "^8.0.2",
     "@capacitor/camera": "^8.0.0",
-    "@capacitor/cli": "^7.4.5",
     "@capacitor/core": "^8.0.2",
     "@capacitor/device": "^8.0.0",
     "@capacitor/filesystem": "^8.1.2",
@@ -26,7 +25,6 @@
     "@capacitor/preferences": "^8.0.1",
     "@tailwindcss/vite": "^4.1.18",
     "@yudiel/react-qr-scanner": "^2.5.1",
-    "capacitor-kakao-login-plugin": "^3.0.0",
     "expo": "^54.0.33",
     "html5-qrcode": "^2.3.8",
     "i18next": "^25.8.13",
@@ -41,6 +39,7 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.0.2",
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
