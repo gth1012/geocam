@@ -1,10 +1,24 @@
-// CameraScreen.tsx v4.10
-// LT-GUIDEBOX-VISUAL-MISMATCH-001 (2026-08-04)
-// 변경: visualGuideBox/visualMinBox/safeAreaBox 전체 제거, 화면 표시를 guideBox 하나로 SSOT 통합
-//      (서버 crop 전송 / 자동촬영 품질판단(Java setGuideBox)은 기존부터 이미 guideBox 사용 중 — 무수정)
-//      guideBox 계산식/자동촬영 판단 로직/네이티브 전달 로직 절대 변경 없음
-// 이전(v4.9): selectedCardProfile 전체 제거, 가이드박스 비율을 54.0:85.6mm(1.5852) 고정값으로 교체
-//      SizeSelectScreen 폐기에 따라 handleBack() → certSelect로 변경
+// CameraScreen.tsx v4.11
+// SC-4 Preview 좌표계 버그 수정 (2026-08-04)
+// 원인: previewW/H로 cameraViewSize(하단 촬영버튼 영역만큼 잘린 flex 자식 div,
+//      360x595)를 사용했으나, 서버 calculateFillCenterCrop()과 네이티브
+//      Java computeGuideRectInFrame()은 이 값을 "실제 PreviewView 전체 크기"로
+//      취급함. 실제 PreviewView는 MATCH_PARENT(MainActivity.java)라 화면 전체를
+//      차지하므로 진짜 크기는 1080x2340px(DPR=3 환산 360x780dp) — 185dp 차이가
+//      FILL_CENTER offsetY 오계산 → crop top 약 483px 오차로 이어짐.
+//      (SC-4 round2 10장 실측: center displacement 평균 484.6px/23.96%,
+//       Python 시뮬레이션으로 780 적용 시 38.5px/1.91%까지 감소 사전검증 완료)
+// 수정: startPreview() 응답에 이미 포함되어 있던 viewPortW/viewPortH(네이티브
+//      실측값, 기존엔 로그만 찍고 버려지던 값)를 devicePixelRatio로 나눠
+//      nativePreviewSize로 저장, formData 전송 및 setGuideBox() 네이티브 전달에
+//      이 값을 사용하도록 교체. 780 하드코딩 없음(항상 실측값 사용).
+// 무수정: guideBox 계산식(cameraViewSize 그대로 사용, 시뮬레이션에서 오차제거
+//      확인된 상태 유지) / calculateFillCenterCrop()(서버, MATCH 검증 완료) /
+//      YuvCameraPlugin.java / JSX 렌더링 / Perspective / Cell / D안 로직
+// 이전(v4.10): LT-GUIDEBOX-VISUAL-MISMATCH-001 — visualGuideBox/visualMinBox/
+//      safeAreaBox 제거, 화면 표시를 guideBox 하나로 SSOT 통합
+// 이전(v4.9): selectedCardProfile 전체 제거, 가이드박스 비율을 54.0:85.6mm(1.5852)
+//      고정값으로 교체. SizeSelectScreen 폐기에 따라 handleBack() → certSelect로 변경
 //      헤더/가이드박스의 카드사이즈 표시 텍스트 제거
 // 이전(v4.8): GCS-AUTO-CAPTURE-001 STEP 1 - autoCaptureReady 리스너 분리
 
@@ -28,7 +42,7 @@ void API_BASE_URL
 // (GeoStudio geocode-block-insert.service.ts CARD_W_MM/CARD_H_MM 인코더 고정값과 완전 일치)
 const CARD_ASPECT_H_OVER_W = 85.6 / 54.0
 
-// ── CameraScreen v4.10 ──────────────────────────────────────────────────────
+// ── CameraScreen v4.11 ──────────────────────────────────────────────────────
 
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
@@ -48,6 +62,9 @@ const CameraScreen = ({
   const [capturing, setCapturing]               = useState(false)
   const [showGuideOverlay, setShowGuideOverlay] = useState(true)
   const [cameraViewSize, setCameraViewSize]     = useState({ w: 0, h: 0 })
+  // SC-4 수정: 네이티브 PreviewView 실제 크기 (startPreview() 응답의 viewPortW/H를
+  // devicePixelRatio로 환산, 780 등 하드코딩 없음 — 항상 기기 실측값)
+  const [nativePreviewSize, setNativePreviewSize] = useState({ w: 0, h: 0 })
 
   const isSignalOnlyMode = !dinaId && !qrData
   void sessionToken; void nonce; void runPipeline
@@ -82,6 +99,7 @@ const CameraScreen = ({
   // ── guideBox 계산 (LT-AUTOCAP-002: 54:85.6mm 고정 비율, 카드종류 선택 없음) ──
   // LT-GUIDEBOX-VISUAL-MISMATCH-001: 화면표시/서버전송/자동촬영판단 3곳 모두
   // 이 guideBox 하나만 참조하는 SSOT (Single Source of Truth) — 계산식 무수정
+  // (SC-4 수정 범위 밖: cameraViewSize 기준 그대로 유지, 시뮬레이션에서 오차제거 확인됨)
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
     if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
@@ -133,6 +151,17 @@ const CameraScreen = ({
     ;(YuvCamera as any).startPreview()
       .then((r: any) => {
         console.log('[UNIFIED-001] startPreview 완료:', JSON.stringify(r))
+        // SC-4 수정: 네이티브가 실측한 진짜 PreviewView 크기(viewPortW/H, px)를
+        // devicePixelRatio로 dp 환산해서 저장 — 하드코딩 없음, 항상 실측값 사용
+        if (r?.viewPortW && r?.viewPortH) {
+          const dpr = window.devicePixelRatio || 1
+          const nw = r.viewPortW / dpr
+          const nh = r.viewPortH / dpr
+          console.log('[SC4-FIX] nativePreviewSize 계산:', JSON.stringify({ viewPortW: r.viewPortW, viewPortH: r.viewPortH, dpr, nw, nh }))
+          setNativePreviewSize({ w: nw, h: nh })
+        } else {
+          console.warn('[SC4-FIX] startPreview 응답에 viewPortW/H 없음, nativePreviewSize 미설정')
+        }
         setPreviewReady(true)
         setCameraError(null)
       })
@@ -153,7 +182,7 @@ const CameraScreen = ({
     }
   }, [])
 
-  // ── capturePhoto v4.9 (로직 변경 없음, selectedCardProfile 참조만 제거) ────
+  // ── capturePhoto v4.11 (SC-4: preview_w/h 전송값만 nativePreviewSize로 교체) ─
   const capturePhoto = useCallback(async (source: 'manual' | 'auto' = 'manual') => {
     const triggerTime = Date.now()
     console.log(`[CAPTURE] ENTER source=${source} t=${triggerTime}`)
@@ -167,7 +196,8 @@ const CameraScreen = ({
     setCapturing(true)
 
     try {
-      console.log('[CAPTURE] previewView:', JSON.stringify({ w: cameraViewSize.w, h: cameraViewSize.h }))
+      console.log('[CAPTURE] previewView(cameraViewSize, guideBox기준):', JSON.stringify({ w: cameraViewSize.w, h: cameraViewSize.h }))
+      console.log('[CAPTURE] nativePreviewSize(서버전송기준):', JSON.stringify(nativePreviewSize))
       console.log('[CAPTURE] guideBox:', JSON.stringify(guideBox))
 
       const callTime = Date.now()
@@ -183,7 +213,7 @@ const CameraScreen = ({
       console.log('[CAPTURE] exifRotation:', photoResult.exifRotation)
 
       console.log('[CROP_CHECK]', JSON.stringify({
-        previewView:   { width: cameraViewSize.w, height: cameraViewSize.h },
+        previewView:   { width: nativePreviewSize.w, height: nativePreviewSize.h },
         guideBox,
         capturedPhoto: { width: photoResult.width, height: photoResult.height, exifRotation: photoResult.exifRotation },
       }))
@@ -221,8 +251,10 @@ const CameraScreen = ({
       formData.append('image', blob, 'geo_capture.jpg')
       formData.append('client_sha256', clientSha256)
       formData.append('client_file_size', String(photoResult.size))
-      formData.append('preview_w',          String(cameraViewSize.w))
-      formData.append('preview_h',          String(cameraViewSize.h))
+      // SC-4 수정: preview_w/h는 cameraViewSize(하단버튼만큼 잘린 영역) 대신
+      // nativePreviewSize(네이티브 PreviewView 실측 전체크기)를 전송
+      formData.append('preview_w',          String(nativePreviewSize.w))
+      formData.append('preview_h',          String(nativePreviewSize.h))
       formData.append('guide_x',            String(guideBox.x))
       formData.append('guide_y',            String(guideBox.y))
       formData.append('guide_w',            String(guideBox.w))
@@ -232,7 +264,7 @@ const CameraScreen = ({
       formData.append('exif_rotation',      String(photoResult.exifRotation ?? 0))
       formData.append('preview_scale_type', 'FILL_CENTER')
       console.log('[STEP4A] 메타데이터 전달:', JSON.stringify({
-        preview: { w: cameraViewSize.w, h: cameraViewSize.h },
+        preview: { w: nativePreviewSize.w, h: nativePreviewSize.h },
         guide:   { x: guideBox.x, y: guideBox.y, w: guideBox.w, h: guideBox.h },
         image:   { w: photoResult.width, h: photoResult.height },
         exifRotation: photoResult.exifRotation ?? 0,
@@ -281,23 +313,23 @@ const CameraScreen = ({
       setCapturing(false)
       navigateToScreen('result')
     }
-  }, [cameraViewSize, guideBox, setCapturedImage, setVerifyStatus, setNetworkError, navigateToScreen, resetCaptureLock])
+  }, [cameraViewSize, nativePreviewSize, guideBox, setCapturedImage, setVerifyStatus, setNetworkError, navigateToScreen, resetCaptureLock])
 
   // ── setGuideBox: 가이드박스 확정 시 Java로 전달 (GCS-AUTO-CAPTURE-001) ───
-  // guideBox.w > 0 && cameraViewSize.w > 0 → Java setGuideBox 호출
-  // 화면 크기 변경 시 자동 갱신
+  // SC-4 수정: previewW/H를 nativePreviewSize(네이티브 실측)로 교체.
+  // guideX/Y/W/H는 여전히 guideBox(cameraViewSize 기준) 그대로 — 무수정.
   useEffect(() => {
-    if (!guideBox.w || !guideBox.h || !cameraViewSize.w || !cameraViewSize.h) return
-    console.log('[SET_GUIDE_BOX] 전달:', JSON.stringify({ previewW: cameraViewSize.w, previewH: cameraViewSize.h, ...guideBox }))
+    if (!guideBox.w || !guideBox.h || !nativePreviewSize.w || !nativePreviewSize.h) return
+    console.log('[SET_GUIDE_BOX] 전달:', JSON.stringify({ previewW: nativePreviewSize.w, previewH: nativePreviewSize.h, ...guideBox }))
     ;(YuvCamera as any).setGuideBox({
-      previewW: cameraViewSize.w,
-      previewH: cameraViewSize.h,
+      previewW: nativePreviewSize.w,
+      previewH: nativePreviewSize.h,
       guideX:   guideBox.x,
       guideY:   guideBox.y,
       guideW:   guideBox.w,
       guideH:   guideBox.h,
     }).catch((e: any) => console.warn('[SET_GUIDE_BOX] 실패:', e))
-  }, [cameraViewSize, guideBox])
+  }, [nativePreviewSize, guideBox])
 
   // [한글 주석] LT-AUTOCAP-002: SizeSelectScreen 폐기로 뒤로가기 목적지 변경
   // (sizeSelect -> certSelect, 빅보스 확정 2026-07-22)
