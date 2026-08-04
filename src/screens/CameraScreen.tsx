@@ -1,6 +1,9 @@
-// CameraScreen.tsx v4.9
-// LT-AUTOCAP-002 STEP (2026-07-22)
-// 변경: selectedCardProfile 전체 제거, 가이드박스 비율을 54.0:85.6mm(1.5852) 고정값으로 교체
+// CameraScreen.tsx v4.10
+// LT-GUIDEBOX-VISUAL-MISMATCH-001 (2026-08-04)
+// 변경: visualGuideBox/visualMinBox/safeAreaBox 전체 제거, 화면 표시를 guideBox 하나로 SSOT 통합
+//      (서버 crop 전송 / 자동촬영 품질판단(Java setGuideBox)은 기존부터 이미 guideBox 사용 중 — 무수정)
+//      guideBox 계산식/자동촬영 판단 로직/네이티브 전달 로직 절대 변경 없음
+// 이전(v4.9): selectedCardProfile 전체 제거, 가이드박스 비율을 54.0:85.6mm(1.5852) 고정값으로 교체
 //      SizeSelectScreen 폐기에 따라 handleBack() → certSelect로 변경
 //      헤더/가이드박스의 카드사이즈 표시 텍스트 제거
 // 이전(v4.8): GCS-AUTO-CAPTURE-001 STEP 1 - autoCaptureReady 리스너 분리
@@ -25,12 +28,7 @@ void API_BASE_URL
 // (GeoStudio geocode-block-insert.service.ts CARD_W_MM/CARD_H_MM 인코더 고정값과 완전 일치)
 const CARD_ASPECT_H_OVER_W = 85.6 / 54.0
 
-// ── 화면 전용 자유형 가이드 (STEP 3-13): 카드 규격 강제 없음 ────────────
-const VISUAL_MARGIN_RATIO = 0.06
-const VISUAL_MIN_W_RATIO  = 0.46
-const VISUAL_MIN_H_RATIO  = 0.58
-
-// ── CameraScreen v4.9 ───────────────────────────────────────────────────────
+// ── CameraScreen v4.10 ──────────────────────────────────────────────────────
 
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
@@ -82,6 +80,8 @@ const CameraScreen = ({
   }, [])
 
   // ── guideBox 계산 (LT-AUTOCAP-002: 54:85.6mm 고정 비율, 카드종류 선택 없음) ──
+  // LT-GUIDEBOX-VISUAL-MISMATCH-001: 화면표시/서버전송/자동촬영판단 3곳 모두
+  // 이 guideBox 하나만 참조하는 SSOT (Single Source of Truth) — 계산식 무수정
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
     if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
@@ -98,46 +98,6 @@ const CameraScreen = ({
       y: Math.round((vh - guideH) / 2),
       w: Math.round(guideW),
       h: Math.round(guideH),
-    }
-  }, [cameraViewSize])
-
-  const safeAreaBox = useMemo(() => {
-    if (!guideBox.w || !guideBox.h) return { x: 0, y: 0, w: 0, h: 0 }
-    const safeW = guideBox.w * GUIDE_SAFE_AREA_RATIO
-    const safeH = guideBox.h * GUIDE_SAFE_AREA_RATIO
-    return {
-      x: guideBox.x + (guideBox.w - safeW) / 2,
-      y: guideBox.y + (guideBox.h - safeH) / 2,
-      w: safeW,
-      h: safeH,
-    }
-  }, [guideBox])
-
-  // visualGuideBox: 네 모서리 브라켓 배치용 (화면 여백만 기준, 카드 비율 무관)
-  const visualGuideBox = useMemo(() => {
-    const { w: vw, h: vh } = cameraViewSize
-    if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
-    const marginX = vw * VISUAL_MARGIN_RATIO
-    const marginY = vh * VISUAL_MARGIN_RATIO
-    return {
-      x: Math.round(marginX),
-      y: Math.round(marginY),
-      w: Math.round(vw - marginX * 2),
-      h: Math.round(vh - marginY * 2),
-    }
-  }, [cameraViewSize])
-
-  // visualMinBox: 중앙 최소 크기 참고 표시(둥근 사각형), 화면 중앙 고정
-  const visualMinBox = useMemo(() => {
-    const { w: vw, h: vh } = cameraViewSize
-    if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
-    const minW = vw * VISUAL_MIN_W_RATIO
-    const minH = vh * VISUAL_MIN_H_RATIO
-    return {
-      x: Math.round((vw - minW) / 2),
-      y: Math.round((vh - minH) / 2),
-      w: Math.round(minW),
-      h: Math.round(minH),
     }
   }, [cameraViewSize])
 
@@ -402,17 +362,14 @@ const CameraScreen = ({
           </div>
         )}
 
-        {/* 가이드박스 오버레이 (LT-AUTOCAP-002: 카드사이즈 텍스트 표시 제거) */}
-        {visualGuideBox.w > 0 && (
-          <div style={{ position: 'absolute', left: `${visualGuideBox.x}px`, top: `${visualGuideBox.y}px`, width: `${visualGuideBox.w}px`, height: `${visualGuideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
+        {/* 가이드박스 오버레이 (LT-GUIDEBOX-VISUAL-MISMATCH-001: guideBox SSOT 통합, visualGuideBox/visualMinBox 제거) */}
+        {guideBox.w > 0 && (
+          <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
             <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ top: 0, right: 0 }), borderTop: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderTopRightRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, left: 0 }), borderBottom: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderBottomLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, right: 0 }), borderBottom: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderBottomRightRadius: '8px' }} />
-            {visualMinBox.w > 0 && (
-              <div style={{ position: 'absolute', left: `${visualMinBox.x - visualGuideBox.x}px`, top: `${visualMinBox.y - visualGuideBox.y}px`, width: `${visualMinBox.w}px`, height: `${visualMinBox.h}px`, border: '1.5px dashed rgba(255,255,255,0.35)', borderRadius: '16px', pointerEvents: 'none' }} />
-            )}
-            <div style={{ position: 'absolute', left: `${visualGuideBox.w / 2 - 3}px`, top: `${visualGuideBox.h / 2 - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: `${guideBox.w / 2 - 3}px`, top: `${guideBox.h / 2 - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)', pointerEvents: 'none' }} />
           </div>
         )}
       </div>
@@ -477,5 +434,3 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
-
-
