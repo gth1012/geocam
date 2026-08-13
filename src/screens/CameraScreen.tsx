@@ -1,11 +1,18 @@
-// CameraScreen.tsx v4.11
-// SC-4 Preview 좌표계 버그 수정 (2026-08-04)
+// CameraScreen.tsx v4.12
+// GEOCAM-REFACTOR-V1 STEP2 (2026-08-13): 카드규격 토글 + 가이드박스 확대 + 노란색
+// - GUIDE_H_RATIO 0.55 -> 0.70 (카드 충족률 부족으로 인한 검출실패 문제 해결,
+//   오늘 세션 실측: 충족률 61~67%=FAIL, 68~77%=PASS 근거로 조정)
+// - CARD_ASPECT_H_OVER_W 하드코딩 삭제 -> CARD_TYPES 2종(종이/PVC) 토글로 대체
+//   (SizeSelectScreen 재도입 아님 - CameraScreen 내부 UI 토글만, 촬영 가이드
+//    비율 표시용으로만 사용. 서버 전송/좌표계산/GeoCode Search 전부 무변경)
+// - 가이드박스 색상 흰색 -> 노란색 (가시성 개선)
+// 이전(v4.11): SC-4 Preview 좌표계 버그 수정 (2026-08-04)
 // 원인: previewW/H로 cameraViewSize(하단 촬영버튼 영역만큼 잘린 flex 자식 div,
 //      360x595)를 사용했으나, 서버 calculateFillCenterCrop()과 네이티브
 //      Java computeGuideRectInFrame()은 이 값을 "실제 PreviewView 전체 크기"로
 //      취급함. 실제 PreviewView는 MATCH_PARENT(MainActivity.java)라 화면 전체를
 //      차지하므로 진짜 크기는 1080x2340px(DPR=3 환산 360x780dp) — 185dp 차이가
-//      FILL_CENTER offsetY 오계산 → crop top 약 483px 오차로 이어짐.
+//      FILL_CENTER offsetY 오계산 -> crop top 약 483px 오차로 이어짐.
 //      (SC-4 round2 10장 실측: center displacement 평균 484.6px/23.96%,
 //       Python 시뮬레이션으로 780 적용 시 38.5px/1.91%까지 감소 사전검증 완료)
 // 수정: startPreview() 응답에 이미 포함되어 있던 viewPortW/viewPortH(네이티브
@@ -31,18 +38,26 @@ import { registerPlugin, Capacitor } from '@capacitor/core'
 const YuvCamera = registerPlugin('YuvCamera')
 
 // ── 상수 ────────────────────────────────────────────────────────────────────
-const GUIDE_H_RATIO         = 0.55
+const GUIDE_H_RATIO         = 0.70
 const GUIDE_W_MAX_RATIO     = 0.88
 const GUIDE_SAFE_AREA_RATIO = 0.94
 const DEBUG_CROP_LOG        = true
 const NEO_API_BASE          = 'https://neo-api.artionchain.com/api'
 void API_BASE_URL
 
-// [한글 주석] LT-AUTOCAP-002: 카드 종류 선택 폐기, 54.0x85.6mm 고정 비율
-// (GeoStudio geocode-block-insert.service.ts CARD_W_MM/CARD_H_MM 인코더 고정값과 완전 일치)
-const CARD_ASPECT_H_OVER_W = 85.6 / 54.0
+// [한글 주석] GEOCAM-REFACTOR-V1 STEP2 (2026-08-13): 카드규격 2종 지원.
+// 촬영 가이드 UI 표시(비율 계산)용으로만 사용 — 서버 전송/좌표계산/GeoCode
+// Search와는 전혀 무관. SizeSelectScreen 재도입 아님(2026-07-22 폐기 유지),
+// CameraScreen 내부 토글만 추가.
+// 종이(K-POP 포토카드): 55 x 85mm / PVC(CR80, ISO/IEC 7810 ID-1): 53.98 x 85.60mm
+const CARD_TYPES = {
+  PAPER_KPOP: { label: '종이', w: 55, h: 85 },
+  PVC_CR80:   { label: 'PVC', w: 53.98, h: 85.60 },
+} as const
 
-// ── CameraScreen v4.11 ──────────────────────────────────────────────────────
+type CardTypeKey = keyof typeof CARD_TYPES
+
+// ── CameraScreen v4.12 ──────────────────────────────────────────────────────
 
 const CameraScreen = ({
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
@@ -65,6 +80,8 @@ const CameraScreen = ({
   // SC-4 수정: 네이티브 PreviewView 실제 크기 (startPreview() 응답의 viewPortW/H를
   // devicePixelRatio로 환산, 780 등 하드코딩 없음 — 항상 기기 실측값)
   const [nativePreviewSize, setNativePreviewSize] = useState({ w: 0, h: 0 })
+  // GEOCAM-REFACTOR-V1 STEP2: 카드규격 토글, 기본값 PVC(기존 실측/앱 기준과 동일해서 회귀위험 최소화)
+  const [selectedCardType, setSelectedCardType] = useState<CardTypeKey>('PVC_CR80')
 
   const isSignalOnlyMode = !dinaId && !qrData
   void sessionToken; void nonce; void runPipeline
@@ -96,9 +113,15 @@ const CameraScreen = ({
     return () => observer.disconnect()
   }, [])
 
-  // ── guideBox 계산 (LT-AUTOCAP-002: 54:85.6mm 고정 비율, 카드종류 선택 없음) ──
+  // GEOCAM-REFACTOR-V1 STEP2: 선택된 카드타입의 세로/가로 비율 (가이드박스 계산용)
+  const cardAspectHOverW = useMemo(() => {
+    const t = CARD_TYPES[selectedCardType]
+    return t.h / t.w
+  }, [selectedCardType])
+
+  // ── guideBox 계산 (STEP2: 카드타입 토글 반영, 카드종류 선택화면 없음) ──────
   // LT-GUIDEBOX-VISUAL-MISMATCH-001: 화면표시/서버전송/자동촬영판단 3곳 모두
-  // 이 guideBox 하나만 참조하는 SSOT (Single Source of Truth) — 계산식 무수정
+  // 이 guideBox 하나만 참조하는 SSOT (Single Source of Truth) — 계산식 구조 무수정
   // (SC-4 수정 범위 밖: cameraViewSize 기준 그대로 유지, 시뮬레이션에서 오차제거 확인됨)
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
@@ -106,10 +129,10 @@ const CameraScreen = ({
     const maxGuideH = vh * GUIDE_H_RATIO
     const maxGuideW = vw * GUIDE_W_MAX_RATIO
     let guideH = maxGuideH
-    let guideW = guideH / CARD_ASPECT_H_OVER_W
+    let guideW = guideH / cardAspectHOverW
     if (guideW > maxGuideW) {
       guideW = maxGuideW
-      guideH = guideW * CARD_ASPECT_H_OVER_W
+      guideH = guideW * cardAspectHOverW
     }
     return {
       x: Math.round((vw - guideW) / 2),
@@ -117,7 +140,7 @@ const CameraScreen = ({
       w: Math.round(guideW),
       h: Math.round(guideH),
     }
-  }, [cameraViewSize])
+  }, [cameraViewSize, cardAspectHOverW])
 
   // ── WebView 배경 투명 처리 ────────────────────────────────────────────────
   useEffect(() => {
@@ -342,7 +365,8 @@ const CameraScreen = ({
     resetCaptureLock('guide_confirm')
   }, [resetCaptureLock])
 
-  const guideColor = 'rgba(255,255,255,0.6)'
+  // GEOCAM-REFACTOR-V1 STEP2: 노란색으로 변경 (가시성 개선)
+  const guideColor = 'rgba(250,204,21,0.85)'
   const cornerStyle = (pos: object) => ({
     position: 'absolute' as const,
     width: '36px',
@@ -374,6 +398,28 @@ const CameraScreen = ({
         <button onClick={() => setShowGuideOverlay(true)} style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: '15px' }}>
           ?
         </button>
+      </div>
+
+      {/* 카드규격 토글 (GEOCAM-REFACTOR-V1 STEP2) - 촬영 가이드 UI 전용, 서버 전송값 아님 */}
+      <div style={{ position: 'absolute', top: 'calc(max(48px, env(safe-area-inset-top)) + 56px)', left: 0, right: 0, zIndex: 20, display: 'flex', justifyContent: 'center', gap: '8px' }}>
+        {(Object.keys(CARD_TYPES) as CardTypeKey[]).map((key) => (
+          <button
+            key={key}
+            onClick={() => setSelectedCardType(key)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: 400,
+              cursor: 'pointer',
+              background: selectedCardType === key ? 'rgba(250,204,21,0.18)' : 'rgba(0,0,0,0.45)',
+              border: selectedCardType === key ? '1px solid rgba(250,204,21,0.6)' : '1px solid rgba(255,255,255,0.1)',
+              color: selectedCardType === key ? '#facc15' : 'rgba(255,255,255,0.6)',
+            }}
+          >
+            {CARD_TYPES[key].label} {CARD_TYPES[key].w}×{CARD_TYPES[key].h}
+          </button>
+        ))}
       </div>
 
       {/* 카메라 영역 */}
