@@ -41,6 +41,9 @@ const YuvCamera = registerPlugin('YuvCamera')
 const GUIDE_H_RATIO         = 0.70
 const GUIDE_W_MAX_RATIO     = 0.88
 const GUIDE_SAFE_AREA_RATIO = 0.94
+// GEOCAM-REFACTOR-V1 STEP2 버그수정: 헤더+카드타입 토글이 차지하는 상단영역.
+// 가이드박스가 이 영역과 겹치지 않도록 제외하고 중앙정렬. 잠정치 - 실기기 미세조정 가능.
+const TOP_RESERVED           = 140
 const DEBUG_CROP_LOG        = true
 const NEO_API_BASE          = 'https://neo-api.artionchain.com/api'
 void API_BASE_URL
@@ -126,7 +129,8 @@ const CameraScreen = ({
   const guideBox = useMemo(() => {
     const { w: vw, h: vh } = cameraViewSize
     if (!vw || !vh) return { x: 0, y: 0, w: 0, h: 0 }
-    const maxGuideH = vh * GUIDE_H_RATIO
+    const availableH = Math.max(0, vh - TOP_RESERVED)
+    const maxGuideH = availableH * GUIDE_H_RATIO
     const maxGuideW = vw * GUIDE_W_MAX_RATIO
     let guideH = maxGuideH
     let guideW = guideH / cardAspectHOverW
@@ -136,7 +140,7 @@ const CameraScreen = ({
     }
     return {
       x: Math.round((vw - guideW) / 2),
-      y: Math.round((vh - guideH) / 2),
+      y: Math.round(TOP_RESERVED + (availableH - guideH) / 2),
       w: Math.round(guideW),
       h: Math.round(guideH),
     }
