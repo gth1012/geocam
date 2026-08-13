@@ -65,7 +65,13 @@ const ScanResultScreen = ({
       } else if (result.status === 'CLAIMED') {
         setScanResultInfo({ status: 'ALREADY_CLAIMED', message: undefined })
       } else {
-        setScanResultInfo({ status: 'ERROR', message: result.message || result.error })
+        // 서버가 에러를 객체로 줄 수도 있어서 무조건 문자열로 변환 (React error #31 방지, 2026-08-14)
+        const errMsg =
+          typeof result.message === 'string' ? result.message :
+          typeof result.error === 'string' ? result.error :
+          result.error?.message || result.error?.code || JSON.stringify(result.error) || '알 수 없는 오류가 발생했습니다.'
+        console.error('[ScanResultScreen] claim 실패 원본 응답:', JSON.stringify(result))
+        setScanResultInfo({ status: 'ERROR', message: errMsg })
       }
     } catch {
       setScanResultInfo({ status: 'ERROR', message: t('error.network') })
