@@ -37,8 +37,6 @@ const PROTECTED_SCREENS: Screen[] = [
 const AUTH_SCREENS: Screen[] = ['authLanding', 'login', 'register']
 
 const GEO_API_BASE = 'https://geo-api.artionchain.com/api'
-const TEST_CANDIDATE = 'C'
-const TEST_DINA_ID = 'TEST-DINA-LAYER2-001'
 
 function App() {
   const { i18n } = useTranslation();
