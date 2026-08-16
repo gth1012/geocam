@@ -80,6 +80,8 @@ const CameraScreen = ({
   const [capturing, setCapturing]               = useState(false)
   const [showGuideOverlay, setShowGuideOverlay] = useState(true)
   const [cameraViewSize, setCameraViewSize]     = useState({ w: 0, h: 0 })
+  // GEOCAM-REFACTOR-INTEGRATED-001: 수평계 (촬영 품질 안내 전용, 판정 사용 금지)
+  const [tiltDeg, setTiltDeg] = useState<number | null>(null)
   // SC-4 수정: 네이티브 PreviewView 실제 크기 (startPreview() 응답의 viewPortW/H를
   // devicePixelRatio로 환산, 780 등 하드코딩 없음 — 항상 기기 실측값)
   const [nativePreviewSize, setNativePreviewSize] = useState({ w: 0, h: 0 })
@@ -170,6 +172,28 @@ const CameraScreen = ({
       root?.style.removeProperty('background-color')
       console.log('[GeoCam] WEB_HTML_TRANSPARENT_REMOVED')
     }
+  }, [])
+
+  // ── 수평계 (devicemotion 중력가속도 기반, 촬영 품질 안내 전용) ─────────────────
+  // GEOCAM-REFACTOR-INTEGRATED-001: DeviceOrientationEvent(beta/gamma)는 평평한
+  // 자세 근처에서 짐벌락(Gimbal Lock)으로 축별 민감도가 달라지는 알려진 한계가 있음
+  // (W3C 스펙/MDN 확인됨). 대신 devicemotion의 중력가속도 벡터를 직접 써서
+  // 오일러각 계산을 거치지 않는 방식으로 전환 — 방향 상관없이 균일하게 반응.
+  // 중요: 이 값은 GeoCode 판정이나 서버 PASS/FAIL에 절대 사용하지 않음.
+  useEffect(() => {
+    const handleMotion = (event: DeviceMotionEvent) => {
+      const g = event.accelerationIncludingGravity
+      if (!g || g.x === null || g.y === null || g.z === null) return
+      // 폰이 카드를 위에서 내려다보며 평평히 놓인 자세 기준: 중력은 z축(-9.8 근처)에
+      // 몰려있어야 함. x, y 성분이 커질수록 기울어진 것 — 벡터 크기로 기울기 표현.
+      const tiltMagnitude = Math.sqrt(g.x * g.x + g.y * g.y)
+      // 라디안 -> 도(degree) 변환 (전체 중력벡터 대비 x,y 성분의 각도)
+      const totalG = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z) || 9.8
+      const tiltAngle = (Math.asin(Math.min(1, tiltMagnitude / totalG)) * 180) / Math.PI
+      setTiltDeg(Math.round(tiltAngle * 10) / 10)
+    }
+    window.addEventListener("devicemotion", handleMotion)
+    return () => window.removeEventListener("devicemotion", handleMotion)
   }, [])
 
   // ── CameraX Preview 시작/종료 (카메라만 담당) ─────────────────────────────
@@ -317,14 +341,20 @@ const CameraScreen = ({
       console.log('[STEP3] serverSize   :', uploadResult.serverFileSize)
       console.log('[STEP3] verdict      :', uploadResult.verdict)
 
+      // GEO-AUTH-001 verdict매핑버그수정(2026-08-16): 서버(GeoDetectCircleV7Service)는
+      // 'GEO_PASS'|'GEO_FAIL'|'GEO_UNCERTAIN'만 반환함 - 기존 'SIGNAL_PRESENT'/'SIGNAL_UNCERTAIN'
+      // 비교는 서버가 절대 내려주지 않는 값이라 항상 else(ABSENT)로 빠지던 버그
       if (uploadResult.transferIntegrity === false) {
         setVerifyStatus('INSUFFICIENT_DATA')
-      } else if (uploadResult.verdict === 'SIGNAL_PRESENT') {
+      } else if (uploadResult.verdict === 'GEO_PASS') {
         setVerifyStatus('PRESENT')
-      } else if (uploadResult.verdict === 'SIGNAL_UNCERTAIN') {
+      } else if (uploadResult.verdict === 'GEO_UNCERTAIN') {
         setVerifyStatus('INSUFFICIENT_DATA')
-      } else {
+      } else if (uploadResult.verdict === 'GEO_FAIL') {
         setVerifyStatus('ABSENT')
+      } else {
+        // 알 수 없는 verdict(UNKNOWN) - 재촬영 유도(INSUFFICIENT_DATA)로 처리
+        setVerifyStatus('INSUFFICIENT_DATA')
       }
 
     } catch (e) {
@@ -355,6 +385,12 @@ const CameraScreen = ({
       guideY:   guideBox.y,
       guideW:   guideBox.w,
       guideH:   guideBox.h,
+    }).then(() => {
+      // GEOCAM-REFACTOR-INTEGRATED-001: 가이드박스 중앙에 AF/AE 트리거
+      const focusX = guideBox.x + guideBox.w / 2
+      const focusY = guideBox.y + guideBox.h / 2
+      ;(YuvCamera as any).triggerAutoFocus({ x: focusX, y: focusY })
+        .catch((e: any) => console.warn('[AF_AE] triggerAutoFocus 실패:', e))
     }).catch((e: any) => console.warn('[SET_GUIDE_BOX] 실패:', e))
   }, [nativePreviewSize, guideBox])
 
@@ -452,6 +488,15 @@ const CameraScreen = ({
             <div style={{ ...cornerStyle({ bottom: 0, left: 0 }), borderBottom: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderBottomLeftRadius: '8px' }} />
             <div style={{ ...cornerStyle({ bottom: 0, right: 0 }), borderBottom: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderBottomRightRadius: '8px' }} />
             <div style={{ position: 'absolute', left: `${guideBox.w / 2 - 3}px`, top: `${guideBox.h / 2 - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)', pointerEvents: 'none' }} />
+            {/* 수평계 인디케이터 (촬영 품질 안내 전용, 판정 무관) — 가이드박스 중앙 배치 */}
+            {tiltDeg !== null && (
+              <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", zIndex: 16, padding: "6px 14px", borderRadius: "20px", background: "rgba(0,0,0,0.55)", border: `1px solid ${Math.abs(tiltDeg) <= 6 ? "rgba(74,222,128,0.6)" : "rgba(250,204,21,0.6)"}`, display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: Math.abs(tiltDeg) <= 6 ? "#4ade80" : "#facc15" }} />
+                <span style={{ color: Math.abs(tiltDeg) <= 6 ? "#4ade80" : "#facc15", fontSize: "12px", fontWeight: 400, whiteSpace: "nowrap" }}>
+                  {Math.abs(tiltDeg) <= 6 ? "수평 양호" : "기울어짐"} ({tiltDeg}°)
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
