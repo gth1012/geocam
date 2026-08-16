@@ -314,6 +314,11 @@ const CameraScreen = ({
       formData.append('image_h',            String(photoResult.height))
       formData.append('exif_rotation',      String(photoResult.exifRotation ?? 0))
       formData.append('preview_scale_type', 'FILL_CENTER')
+      // LT-DINA-CONTEXT-001 수정: 등록된 dina_id 있을 때만 물리검증 요청에 포함
+      // dina_id는 서버(geocode-block.ts)에서 optional 필드 — 없으면 UNREGISTERED로 정상처리(홈->Camera 단독촬영 경로 그대로 보존)
+      if (dinaId) {
+        formData.append('dina_id', dinaId)
+      }
       console.log('[STEP4A] 메타데이터 전달:', JSON.stringify({
         preview: { w: nativePreviewSize.w, h: nativePreviewSize.h },
         guide:   { x: guideBox.x, y: guideBox.y, w: guideBox.w, h: guideBox.h },
