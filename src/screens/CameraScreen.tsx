@@ -41,6 +41,9 @@ const YuvCamera = registerPlugin('YuvCamera')
 const GUIDE_H_RATIO         = 0.70
 const GUIDE_W_MAX_RATIO     = 0.88
 const GUIDE_SAFE_AREA_RATIO = 0.94
+// GEO-CAM-ARCHITECTURE-001 STEP 3-2: UI표시(6도)와 AutoCapture판정(3도) 기준 분리, 절대 통합 금지
+const UI_TILT_MAX_DEG = 8 // LT-GEOCAM-FINALIZE-002 제니팀장 LOCK: 6도도 실사용 HOLD 부족 확인 -> 8도로 재상향
+const AUTO_CAPTURE_TILT_MAX_DEG = 8 // LT-GEOCAM-FINALIZE-002 제니팀장 LOCK: UI/AutoCapture 동일값 유지, 8도로 재상향
 // GEOCAM-REFACTOR-V1 STEP2 버그수정: 헤더+카드타입 토글이 차지하는 상단영역.
 // 가이드박스가 이 영역과 겹치지 않도록 제외하고 중앙정렬. 잠정치 - 실기기 미세조정 가능.
 const TOP_RESERVED           = 140
@@ -191,6 +194,9 @@ const CameraScreen = ({
       const totalG = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z) || 9.8
       const tiltAngle = (Math.asin(Math.min(1, tiltMagnitude / totalG)) * 180) / Math.PI
       setTiltDeg(Math.round(tiltAngle * 10) / 10)
+      // NS-LEGITTAG-AUTOCAPTURE-STEP-A2 STEP3(수정판): native 4번째 촬영품질 게이트로 전달.
+      // 카드 위치 판단 아님 - 순수 기기 자세(tilt) 품질값만 전달. 실패해도 촬영 흐름 막지 않음.
+      ;(YuvCamera as any).setTiltStatus({ tiltOk: Math.abs(tiltAngle) <= AUTO_CAPTURE_TILT_MAX_DEG, tiltDeg: tiltAngle }).catch(() => {})
     }
     window.addEventListener("devicemotion", handleMotion)
     return () => window.removeEventListener("devicemotion", handleMotion)
@@ -313,6 +319,7 @@ const CameraScreen = ({
       formData.append('image_w',            String(photoResult.width))
       formData.append('image_h',            String(photoResult.height))
       formData.append('exif_rotation',      String(photoResult.exifRotation ?? 0))
+        formData.append('tilt_deg',           tiltDeg !== null ? String(tiltDeg) : '') // NS-LEGITTAG-AUTOCAPTURE-STEP-A2: 진단용 metadata, 좌표보정 아님
       formData.append('preview_scale_type', 'FILL_CENTER')
       // LT-DINA-CONTEXT-001 수정: 등록된 dina_id 있을 때만 물리검증 요청에 포함
       // dina_id는 서버(geocode-block.ts)에서 optional 필드 — 없으면 UNREGISTERED로 정상처리(홈->Camera 단독촬영 경로 그대로 보존)
@@ -376,6 +383,18 @@ const CameraScreen = ({
       navigateToScreen('result')
     }
   }, [cameraViewSize, nativePreviewSize, guideBox, setCapturedImage, setVerifyStatus, setNetworkError, navigateToScreen, resetCaptureLock])
+
+  // ── GCS-AUTO-CAPTURE-001 재연결: 네이티브 autoCaptureReady -> capturePhoto(auto) ──
+  // 4중게이트(밝기/포커스/모션/기울기) 전부 통과 시 네이티브가 이 이벤트를 쏜다.
+  // capturePhoto는 기존에 이미 auto 모드를 지원하므로 그대로 재사용(무수정).
+  useEffect(() => {
+    let listenerHandle: any = null
+    ;(YuvCamera as any).addListener('autoCaptureReady', () => {
+      console.log('[AUTO-CAPTURE] JS 리스너 수신 -> capturePhoto(auto) 호출')
+      capturePhoto('auto')
+    }).then((handle: any) => { listenerHandle = handle })
+    return () => { listenerHandle?.remove?.() }
+  }, [capturePhoto])
 
   // ── setGuideBox: 가이드박스 확정 시 Java로 전달 (GCS-AUTO-CAPTURE-001) ───
   // SC-4 수정: previewW/H를 nativePreviewSize(네이티브 실측)로 교체.
@@ -495,10 +514,10 @@ const CameraScreen = ({
             <div style={{ position: 'absolute', left: `${guideBox.w / 2 - 3}px`, top: `${guideBox.h / 2 - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)', pointerEvents: 'none' }} />
             {/* 수평계 인디케이터 (촬영 품질 안내 전용, 판정 무관) — 가이드박스 중앙 배치 */}
             {tiltDeg !== null && (
-              <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", zIndex: 16, padding: "6px 14px", borderRadius: "20px", background: "rgba(0,0,0,0.55)", border: `1px solid ${Math.abs(tiltDeg) <= 6 ? "rgba(74,222,128,0.6)" : "rgba(250,204,21,0.6)"}`, display: "flex", alignItems: "center", gap: "6px" }}>
-                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: Math.abs(tiltDeg) <= 6 ? "#4ade80" : "#facc15" }} />
-                <span style={{ color: Math.abs(tiltDeg) <= 6 ? "#4ade80" : "#facc15", fontSize: "12px", fontWeight: 400, whiteSpace: "nowrap" }}>
-                  {Math.abs(tiltDeg) <= 6 ? "수평 양호" : "기울어짐"} ({tiltDeg}°)
+              <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", zIndex: 16, padding: "6px 14px", borderRadius: "20px", background: "rgba(0,0,0,0.55)", border: `1px solid ${Math.abs(tiltDeg) <= UI_TILT_MAX_DEG ? "rgba(74,222,128,0.6)" : "rgba(250,204,21,0.6)"}`, display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: Math.abs(tiltDeg) <= UI_TILT_MAX_DEG ? "#4ade80" : "#facc15" }} />
+                <span style={{ color: Math.abs(tiltDeg) <= UI_TILT_MAX_DEG ? "#4ade80" : "#facc15", fontSize: "12px", fontWeight: 400, whiteSpace: "nowrap" }}>
+                  {Math.abs(tiltDeg) <= UI_TILT_MAX_DEG ? "수평 양호" : "기울어짐"} ({tiltDeg}°)
                 </span>
               </div>
             )}

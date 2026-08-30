@@ -18,6 +18,8 @@ package com.arteon.geocam;
 //     제니팀장 2026-07-22 피드백 반영)
 
 import android.util.Log;
+import java.util.Arrays;
+import android.os.SystemClock;
 import android.util.Rational;
 
 import androidx.annotation.NonNull;
@@ -44,6 +46,10 @@ import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import androidx.camera.core.Camera;
+import androidx.camera.core.FocusMeteringAction;
+import androidx.camera.core.MeteringPoint;
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory;
 
 @CapacitorPlugin(name = "YuvCamera")
 public class YuvCameraPlugin extends Plugin {
@@ -56,8 +62,21 @@ public class YuvCameraPlugin extends Plugin {
     private ProcessCameraProvider previewCameraProvider;
     private ImageCapture unifiedImageCapture;
 
+    // GEOCAM-REFACTOR-INTEGRATED-001: AF/AE 초점제어용 카메라 컨트롤 핸들
+    private Camera previewCamera;
+
     // GCS-AUTO-CAPTURE-001: 자동촬영 상태
     private boolean autoCaptureNotified = false;
+
+    // NS-LEGITTAG-AUTOCAPTURE-STEP-A2 STEP3(수정판): JS(devicemotion, ±6도 기준)에서
+    // 전달받는 촬영자세 품질값. 카드 위치/경계 판단 아님 - 순수 자세(tilt) 품질게이트.
+    // 기본값 false: JS가 최초 tilt 값을 아직 전달하기 전에는 자동촬영 차단.
+    private volatile boolean tiltOk = false;
+
+    // GEO-CAM-ARCHITECTURE-001 STEP 3-3: tiltDeg 원본값 + hold timer 관련 필드
+    private volatile double latestTiltDeg = Double.NaN;
+    private long tiltHoldStartMs = 0L;
+    private static final long AUTO_CAPTURE_HOLD_MS = 2500L; // ±3도 연속유지 시간(ms)
 
     // [한글 주석] 모션안정성 상태 (checkMotionStability에서 사용, 가이드박스 영역 기준)
     private static final int LOCK_STABLE_FRAMES = 5; // ⚠️ 잠정치, 실측 후 조정
@@ -107,6 +126,8 @@ public class YuvCameraPlugin extends Plugin {
 
                         // 자동촬영 상태 리셋
                         autoCaptureNotified = false;
+                        tiltOk = false;
+                        tiltHoldStartMs = 0L;
                         stableFrameCount = 0;
                         prevGuideMeanY = -1f;
                         lockStable = false;
@@ -146,7 +167,7 @@ public class YuvCameraPlugin extends Plugin {
                             .setViewPort(viewPort)
                             .build();
 
-                        previewCameraProvider.bindToLifecycle(
+                        previewCamera = previewCameraProvider.bindToLifecycle(
                             ProcessLifecycleOwner.get(),
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             useCaseGroup
@@ -211,6 +232,8 @@ public class YuvCameraPlugin extends Plugin {
                 }
                 unifiedImageCapture = null;
                 autoCaptureNotified = false;
+                tiltOk = false;
+                tiltHoldStartMs = 0L;
 
                 MainActivity activity = (MainActivity) getActivity();
                 activity.hideCameraPreview();
@@ -352,15 +375,33 @@ public class YuvCameraPlugin extends Plugin {
             boolean focusOk      = sample.laplacianVariance >= FOCUS_MIN_VARIANCE;
             boolean motionOk     = updateMotionStability(sample.meanY);
 
+            // LT-GEOCAM-FINALIZE-002 STEP 4: Contrast Gate + GuideFit Gate 판정
+            ContrastGuideFitResult cgResult = evaluateContrastAndGuideFit(yBuf, rowStride, pixelStride, guideRect, frameW, frameH);
+            boolean contrastOk = cgResult.contrastOk;
+            boolean guideFitOk = cgResult.guideFitOk;
+            // LT-GEOCAM-FINALIZE-002 STEP 5: hold timer는 이제 tiltOk 단독이 아니라
+            // 전체 촬영조건(브라이트니스+포커스+모션+틸트+컨트라스트+가이드핏)이
+            // 동시에 유지될 때만 진행된다.
+            boolean readyForHold = brightnessOk && focusOk && motionOk && tiltOk && contrastOk && guideFitOk;
+
+            // 순수 측정/로그 전용. 게이트 연결 없음, 촬영 차단 없음, threshold 없음.
+
+            // GEO-CAM-ARCHITECTURE-001 STEP 3-4: tiltOk ±3도 연속 2.5초 유지 확인
+            if (!readyForHold) {
+                tiltHoldStartMs = 0L;
+            } else if (tiltHoldStartMs == 0L) {
+                tiltHoldStartMs = SystemClock.elapsedRealtime();
+            }
+            long heldMs = readyForHold ? (SystemClock.elapsedRealtime() - tiltHoldStartMs) : 0L;
+            boolean holdComplete = heldMs >= AUTO_CAPTURE_HOLD_MS;
+
             if (DebugFlags.CROP_LOG) {
                 Log.d("GeoCamAuto", "[QUALITY_GATE]"
                     + " brightness=" + String.format("%.1f", sample.meanY) + "(" + brightnessOk + ")"
-                    + " focusVar=" + String.format("%.1f", sample.laplacianVariance) + "(" + focusOk + ")"
-                    + " motionStable=" + motionOk
                     + " guideRect=" + guideRect[0] + "," + guideRect[1] + "," + guideRect[2] + "," + guideRect[3]);
             }
 
-            if (brightnessOk && focusOk && motionOk && !autoCaptureNotified) {
+            if (readyForHold && holdComplete && !autoCaptureNotified) {
                 autoCaptureNotified = true;
                 JSObject result = new JSObject();
                 result.put("qualityReady", true);
@@ -445,6 +486,122 @@ public class YuvCameraPlugin extends Plugin {
     // sampleGuideRegion: 가이드박스 영역 내부에서 밝기평균 + 포커스(Laplacian분산) 계산
     // 성능을 위해 SAMPLE_STEP 간격으로 격자 샘플링
     // ============================================================
+    // TOO_FAR/SIZE_OK/TOO_CLOSE가 실제로 어떤 수치 패턴으로 나타나는지 측정만 한다.
+    // AutoCapture Gate에 연결하지 않는다. 촬영 차단하지 않는다. threshold 만들지 않는다.
+    // GEO-CAM-ARCHITECTURE-001 STEP 2-B: GuideBox Edge Position POC
+    // 평균 밝기로 크기를 추측하지 않는다. GuideBox 4변 각각에서 여러 지점
+    // 수직/수평 교차 스캔으로 실제 카드 edge 좌표를 찾고 median으로 대표값을
+    // 잡는다. AutoCapture Gate에 연결하지 않는다. threshold/sizeOk 없음.
+    private static final int EDGE_SCAN_RANGE_PX = 40; // 측정범위(판정기준 아님)
+    private static final int EDGE_GRAD_STEP = 3;
+
+    // 단일 지점에서 GuideBox 변에 수직으로 가로지르는 1D 스캔.
+    // axis='V': fixedCoord=x 고정, guideLinePos 기준 y를 위아래로 스캔(TOP/BOTTOM).
+    // axis='H': fixedCoord=y 고정, guideLinePos 기준 x를 좌우로 스캔(LEFT/RIGHT).
+    // 반환: [최대 gradient 위치, 그 gradient 크기]
+    // "이 변 전체에서 가장 많은 구간이 동시에 지지하는 위치가 어디냐"로 판단.
+    // 카드 내부 콘텐츠 선(얼굴/머리카락/패턴)은 일부 구간에서만 강하고,
+    // 카드 실제 외곽선은 변 전체에 걸쳐 길게 이어진다는 물리적 특성을 이용.
+    // EDGE_SEGMENT_SUPPORT_MIN_GRAD는 측정용 내부 파라미터(최종판정 threshold 아님).
+    private static final int EDGE_SEGMENT_COUNT = 12;
+    private static final float EDGE_SEGMENT_SUPPORT_MIN_GRAD = 15f;
+
+    // 반환: [bestOffsetAbsPos, supportRatio(0~1), meanGradientAtBest]
+    // LT-GEOCAM-FINALIZE-002 STEP 4: Contrast Gate + GuideFit Gate 상수
+    private static final float CONTRAST_SUPPORT_MIN = 0.5f;
+    private static final float CONTRAST_GRADIENT_MIN = 30f;
+    private static final int CONTRAST_MIN_RELIABLE_SIDES = 3;
+
+    private static final float GUIDEFIT_TOP_MIN    = -5f,  GUIDEFIT_TOP_MAX    = 24f;
+    private static final float GUIDEFIT_RIGHT_MIN  = -41f, GUIDEFIT_RIGHT_MAX  = -9f;
+    private static final float GUIDEFIT_BOTTOM_MIN = -26f, GUIDEFIT_BOTTOM_MAX = 7f;
+    private static final float GUIDEFIT_LEFT_MIN   = -5f,  GUIDEFIT_LEFT_MAX   = 26f;
+
+    private static class ContrastGuideFitResult {
+        boolean contrastOk;
+        boolean guideFitOk;
+    }
+
+    private ContrastGuideFitResult evaluateContrastAndGuideFit(
+        ByteBuffer yBuf, int rowStride, int pixelStride,
+        int[] guideRect, int frameW, int frameH
+    ) {
+        int left = guideRect[0], top = guideRect[1], w = guideRect[2], h = guideRect[3];
+        int right = left + w, bottom = top + h;
+
+        float[] t = findConsistentEdge(yBuf, rowStride, pixelStride, frameW, frameH, 'V', top,    left, right, EDGE_SCAN_RANGE_PX);
+        float[] r = findConsistentEdge(yBuf, rowStride, pixelStride, frameW, frameH, 'H', right,  top, bottom, EDGE_SCAN_RANGE_PX);
+        float[] b = findConsistentEdge(yBuf, rowStride, pixelStride, frameW, frameH, 'V', bottom, left, right, EDGE_SCAN_RANGE_PX);
+        float[] l = findConsistentEdge(yBuf, rowStride, pixelStride, frameW, frameH, 'H', left,   top, bottom, EDGE_SCAN_RANGE_PX);
+
+        int reliableCount = 0;
+        if (t[1] >= CONTRAST_SUPPORT_MIN && t[2] >= CONTRAST_GRADIENT_MIN) reliableCount++;
+        if (r[1] >= CONTRAST_SUPPORT_MIN && r[2] >= CONTRAST_GRADIENT_MIN) reliableCount++;
+        if (b[1] >= CONTRAST_SUPPORT_MIN && b[2] >= CONTRAST_GRADIENT_MIN) reliableCount++;
+        if (l[1] >= CONTRAST_SUPPORT_MIN && l[2] >= CONTRAST_GRADIENT_MIN) reliableCount++;
+
+        ContrastGuideFitResult result = new ContrastGuideFitResult();
+        result.contrastOk = reliableCount >= CONTRAST_MIN_RELIABLE_SIDES;
+
+        float topOffset    = t[0] - top;
+        float rightOffset  = r[0] - right;
+        float bottomOffset = b[0] - bottom;
+        float leftOffset   = l[0] - left;
+
+        boolean topFit    = topOffset    >= GUIDEFIT_TOP_MIN    && topOffset    <= GUIDEFIT_TOP_MAX;
+        boolean rightFit  = rightOffset  >= GUIDEFIT_RIGHT_MIN  && rightOffset  <= GUIDEFIT_RIGHT_MAX;
+        boolean bottomFit = bottomOffset >= GUIDEFIT_BOTTOM_MIN && bottomOffset <= GUIDEFIT_BOTTOM_MAX;
+        boolean leftFit   = leftOffset   >= GUIDEFIT_LEFT_MIN   && leftOffset   <= GUIDEFIT_LEFT_MAX;
+
+        result.guideFitOk = topFit && rightFit && bottomFit && leftFit;
+
+        return result;
+    }
+
+    private float[] findConsistentEdge(
+        ByteBuffer yBuf, int rowStride, int pixelStride, int frameW, int frameH,
+        char axis, int guideLinePos, int spanStart, int spanEnd, int range
+    ) {
+        int bestOffset = guideLinePos;
+        int bestSupportCount = -1;
+        float bestSumGrad = 0f;
+
+        for (int p = guideLinePos - range + EDGE_GRAD_STEP; p < guideLinePos + range - EDGE_GRAD_STEP; p++) {
+            int supportCount = 0;
+            float sumGrad = 0f;
+            for (int s = 0; s < EDGE_SEGMENT_COUNT; s++) {
+                float frac = (s + 0.5f) / EDGE_SEGMENT_COUNT;
+                int fixedCoord = spanStart + Math.round((spanEnd - spanStart) * frac);
+                int v0, v1;
+                if (axis == 'V') {
+                    int y0 = p - EDGE_GRAD_STEP, y1 = p + EDGE_GRAD_STEP;
+                    if (y0 < 1 || y1 >= frameH - 1 || fixedCoord < 1 || fixedCoord >= frameW - 1) continue;
+                    v0 = yBuf.get(y0 * rowStride + fixedCoord * pixelStride) & 0xFF;
+                    v1 = yBuf.get(y1 * rowStride + fixedCoord * pixelStride) & 0xFF;
+                } else {
+                    int x0 = p - EDGE_GRAD_STEP, x1 = p + EDGE_GRAD_STEP;
+                    if (x0 < 1 || x1 >= frameW - 1 || fixedCoord < 1 || fixedCoord >= frameH - 1) continue;
+                    v0 = yBuf.get(fixedCoord * rowStride + x0 * pixelStride) & 0xFF;
+                    v1 = yBuf.get(fixedCoord * rowStride + x1 * pixelStride) & 0xFF;
+                }
+                int grad = Math.abs(v1 - v0);
+                if (grad > EDGE_SEGMENT_SUPPORT_MIN_GRAD) {
+                    supportCount++;
+                    sumGrad += grad;
+                }
+            }
+            if (supportCount > bestSupportCount || (supportCount == bestSupportCount && sumGrad > bestSumGrad)) {
+                bestSupportCount = supportCount;
+                bestSumGrad = sumGrad;
+                bestOffset = p;
+            }
+        }
+
+        float supportRatio = bestSupportCount >= 0 ? (float) bestSupportCount / EDGE_SEGMENT_COUNT : 0f;
+        float meanGrad = bestSupportCount > 0 ? bestSumGrad / bestSupportCount : 0f;
+        return new float[]{ (float) bestOffset, supportRatio, meanGrad };
+    }
+
     private GateSampleResult sampleGuideRegion(
         ByteBuffer yBuf, int rowStride, int pixelStride,
         int[] guideRect, int frameW, int frameH
@@ -522,6 +679,16 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // GCS-AUTO-CAPTURE-001: JS에서 가이드박스 좌표 전달 (변경 없음)
+    // NS-LEGITTAG-AUTOCAPTURE-STEP-A2 STEP3(수정판): JS devicemotion 기반 tiltOk 전달.
+    // 카드 위치 판단 아님 - 순수 기기 자세(tilt) 품질게이트만 갱신한다.
+    @PluginMethod
+    public void setTiltStatus(PluginCall call) {
+        tiltOk = call.getBoolean("tiltOk", false);
+        Double newTiltDeg = call.getDouble("tiltDeg");
+        if (newTiltDeg != null) { latestTiltDeg = newTiltDeg; }
+        call.resolve();
+    }
+
     @PluginMethod
     public void setGuideBox(PluginCall call) {
         float previewW = call.getFloat("previewW", 0f);
@@ -553,6 +720,49 @@ public class YuvCameraPlugin extends Plugin {
             " guide=" + guideX + "," + guideY + "," + guideW + "," + guideH);
 
         call.resolve();
+    }
+
+    // ============================================================
+    // GEOCAM-REFACTOR-INTEGRATED-001: AF/AE 초점제어
+    // JS에서 가이드박스 중앙 좌표를 넘겨받아 그 지점에 초점+노출 맞춤
+    // ============================================================
+    @PluginMethod
+    public void triggerAutoFocus(PluginCall call) {
+        if (previewCamera == null) {
+            call.reject("triggerAutoFocus: camera not ready. startPreview() 먼저 호출 필요");
+            return;
+        }
+        MainActivity activity = (MainActivity) getActivity();
+        PreviewView previewView = activity.getCameraPreviewView();
+        if (previewView == null) {
+            call.reject("triggerAutoFocus: PreviewView not found");
+            return;
+        }
+        float x = call.getFloat("x", previewView.getWidth() / 2f);
+        float y = call.getFloat("y", previewView.getHeight() / 2f);
+
+        getActivity().runOnUiThread(() -> {
+            try {
+                SurfaceOrientedMeteringPointFactory factory =
+                    new SurfaceOrientedMeteringPointFactory(previewView.getWidth(), previewView.getHeight());
+                MeteringPoint point = factory.createPoint(x, y);
+                FocusMeteringAction action = new FocusMeteringAction.Builder(
+                    point,
+                    FocusMeteringAction.FLAG_AF | FocusMeteringAction.FLAG_AE
+                ).setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS).build();
+
+                previewCamera.getCameraControl().startFocusAndMetering(action)
+                    .addListener(() -> Log.d(TAG, "[triggerAutoFocus] 완료 x=" + x + " y=" + y),
+                        ContextCompat.getMainExecutor(getContext()));
+
+                JSObject result = new JSObject();
+                result.put("triggered", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                Log.e(TAG, "[triggerAutoFocus] error: " + e.getMessage());
+                call.reject("triggerAutoFocus error: " + e.getMessage());
+            }
+        });
     }
 
     @Override
