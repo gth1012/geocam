@@ -62,7 +62,7 @@ const ScanResultScreen = ({
       const result = await response.json()
       if (response.ok && result.status === 'CLAIMED') {
         setScanResultInfo({ status: 'CLAIMED', message: undefined })
-      } else if (result.status === 'CLAIMED') {
+      } else if (result.status === 'ALREADY_CLAIMED' || (response.status === 409 && (result.error?.code === 'ALREADY_CLAIMED' || result.error === 'ALREADY_CLAIMED'))) {
         setScanResultInfo({ status: 'ALREADY_CLAIMED', message: undefined })
       } else {
         // 서버가 에러를 객체로 줄 수도 있어서 무조건 문자열로 변환 (React error #31 방지, 2026-08-14)
@@ -115,8 +115,8 @@ const ScanResultScreen = ({
             <path d="M15 24l6 6 12-12" stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         ),
-        title: '인증완료',
-        subtitle: '최초 인증이 완료되었습니다.\n내 컬렉션에서 확인하세요.',
+        title: '정품 인증된 카드입니다',
+        subtitle: '최초 등록이 완료된 카드입니다.',
         titleColor: '#4ade80',
         showClaim: false,
         showCollection: true,
@@ -134,8 +134,8 @@ const ScanResultScreen = ({
             <path d="M15 24l6 6 12-12" stroke="#a78bfa" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         ),
-        title: status === 'ALREADY_CLAIMED' ? t('register.alreadyClaimed') : t('register.pending'),
-        subtitle: status === 'ALREADY_CLAIMED' ? t('register.alreadyClaimedDesc') : t('register.pendingDesc'),
+        title: status === 'ALREADY_CLAIMED' ? '정품 인증된 카드입니다' : t('register.pending'),
+        subtitle: status === 'ALREADY_CLAIMED' ? '이미 최초 등록이 완료된 카드입니다.' : t('register.pendingDesc'),
         titleColor: '#a78bfa',
         showClaim: false,
         showCollection: true,
@@ -173,10 +173,10 @@ const ScanResultScreen = ({
           <circle cx="24" cy="34" r="2" fill="#fbbf24" />
         </svg>
       ),
-      title: '최초 인증 대기',
-      subtitle: '공식 발행 기록이 확인되었습니다.\n인증하기를 눌러 최초 인증을 완료하세요.',
+      title: '등록 상태 확인 필요',
+      subtitle: '등록 상태를 확인하지 못했습니다. 다시 스캔해 주세요.',
       titleColor: '#fbbf24',
-      showClaim: true,
+      showClaim: false,
       showCollection: false,
     }
   }
@@ -227,7 +227,7 @@ const ScanResultScreen = ({
         </div>
 
         {/* 타이틀 */}
-        <h1 style={{ color: config.titleColor, fontSize: '28px', fontWeight: '700', margin: 0, textAlign: 'center' }}>
+        <h1 style={{ color: (scanResultInfo?.status === 'CLAIMED' || scanResultInfo?.status === 'ALREADY_CLAIMED') ? '#f87171' : config.titleColor, fontSize: '28px', fontWeight: '700', margin: 0, textAlign: 'center' }}>
           {config.title}
         </h1>
 
