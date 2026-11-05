@@ -76,7 +76,7 @@ public class YuvCameraPlugin extends Plugin {
     // GEO-CAM-ARCHITECTURE-001 STEP 3-3: tiltDeg 원본값 + hold timer 관련 필드
     private volatile double latestTiltDeg = Double.NaN;
     private long tiltHoldStartMs = 0L;
-    private static final long AUTO_CAPTURE_HOLD_MS = 2500L; // ±3도 연속유지 시간(ms)
+    private static final long AUTO_CAPTURE_HOLD_MS = 1500L; // AutoCapture(자동촬영) 전체 조건 연속유지 시간 1.5초
 
     // [한글 주석] 모션안정성 상태 (checkMotionStability에서 사용, 가이드박스 영역 기준)
     private static final int LOCK_STABLE_FRAMES = 5; // ⚠️ 잠정치, 실측 후 조정
@@ -386,7 +386,7 @@ public class YuvCameraPlugin extends Plugin {
 
             // 순수 측정/로그 전용. 게이트 연결 없음, 촬영 차단 없음, threshold 없음.
 
-            // GEO-CAM-ARCHITECTURE-001 STEP 3-4: tiltOk ±3도 연속 2.5초 유지 확인
+            // GEO-CAM-ARCHITECTURE-001 STEP 3-4: AutoCapture(자동촬영) 전체 조건 연속 1.5초 유지 확인
             if (!readyForHold) {
                 tiltHoldStartMs = 0L;
             } else if (tiltHoldStartMs == 0L) {
@@ -775,3 +775,4 @@ public class YuvCameraPlugin extends Plugin {
         static final boolean CROP_LOG = true;
     }
 }
+

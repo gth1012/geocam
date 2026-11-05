@@ -240,9 +240,9 @@ const CameraScreen = ({
   }, [])
 
   // ── capturePhoto v4.11 (SC-4: preview_w/h 전송값만 nativePreviewSize로 교체) ─
-  const capturePhoto = useCallback(async (source: 'manual' | 'auto' = 'manual') => {
+  const capturePhoto = useCallback(async () => {
     const triggerTime = Date.now()
-    console.log(`[CAPTURE] ENTER source=${source} t=${triggerTime}`)
+    console.log(`[CAPTURE] ENTER source=auto t=${triggerTime}`)
 
     if (captureLockedRef.current) {
       console.log('[CAPTURE] SKIP_ALREADY_LOCKED')
@@ -291,13 +291,36 @@ const CameraScreen = ({
       // ── 화면 전환 완료, 백그라운드 업로드 시작 ───────────────────────────
 
       console.log('[STEP3] 파일 읽기 시작 (백그라운드)')
-      const fileData = await Filesystem.readFile({ path: photoResult.path })
+      const verifyStartedAt = Date.now()
+      const verifyTimeoutMs = 60000
+      const verifyAbortController = new AbortController()
+      function awaitVerify<T>(promise: Promise<T>): Promise<T> {
+        const remainingMs = verifyTimeoutMs - (Date.now() - verifyStartedAt)
+        if (remainingMs <= 0) {
+          verifyAbortController.abort()
+          return Promise.reject(new Error(`VERIFY_TIMEOUT_${verifyTimeoutMs}MS`))
+        }
+
+        return new Promise<T>((resolve, reject) => {
+          const timeoutId = window.setTimeout(() => {
+            verifyAbortController.abort()
+            reject(new Error(`VERIFY_TIMEOUT_${verifyTimeoutMs}MS`))
+          }, remainingMs)
+
+          promise.then(
+            value => { window.clearTimeout(timeoutId); resolve(value) },
+            error => { window.clearTimeout(timeoutId); reject(error) },
+          )
+        })
+      }
+      console.log(`[STEP3] verify timeout: ${verifyTimeoutMs}ms`)
+      const fileData = await awaitVerify(Filesystem.readFile({ path: photoResult.path }))
       const base64Str = typeof fileData.data === 'string' ? fileData.data : ''
       const binaryStr = atob(base64Str)
       const bytes = new Uint8Array(binaryStr.length)
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
 
-      const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
+      const hashBuf = await awaitVerify(crypto.subtle.digest('SHA-256', bytes))
       const clientSha256 = Array.from(new Uint8Array(hashBuf))
         .map(b => b.toString(16).padStart(2, '0')).join('')
       console.log('[STEP3] clientSha256 :', clientSha256)
@@ -335,17 +358,18 @@ const CameraScreen = ({
       }))
 
       console.log('[STEP3] multipart 전송 시작')
-      const uploadRes = await fetch(`${NEO_API_BASE}/geocode-block/detect`, {
+      const uploadRes = await awaitVerify(fetch(`${NEO_API_BASE}/geocode-block/detect`, {
         method: 'POST',
         body: formData,
-      })
+        signal: verifyAbortController.signal,
+      }))
 
       if (!uploadRes.ok) {
-        const errBody = await uploadRes.json().catch(() => ({}))
+        const errBody = await awaitVerify(uploadRes.json()).catch(() => ({}))
         throw new Error(`verify-file error: ${uploadRes.status} ${JSON.stringify(errBody)}`)
       }
 
-      const uploadResult = await uploadRes.json()
+      const uploadResult = await awaitVerify(uploadRes.json())
       console.log('[STEP3] 서버 응답    :', JSON.stringify(uploadResult))
       console.log('[STEP3] transferIntegrity:', uploadResult.transferIntegrity)
       console.log('[STEP3] clientSha256 :', uploadResult.clientSha256)
@@ -391,7 +415,7 @@ const CameraScreen = ({
     let listenerHandle: any = null
     ;(YuvCamera as any).addListener('autoCaptureReady', () => {
       console.log('[AUTO-CAPTURE] JS 리스너 수신 -> capturePhoto(auto) 호출')
-      capturePhoto('auto')
+      capturePhoto()
     }).then((handle: any) => { listenerHandle = handle })
     return () => { listenerHandle?.remove?.() }
   }, [capturePhoto])
@@ -525,9 +549,9 @@ const CameraScreen = ({
         )}
       </div>
 
-      {/* 하단 촬영 버튼 */}
+      {/* 하단 자동촬영 안내 */}
       <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
+        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', lineHeight: '1.4', minHeight: '31px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
           {capturing ? '처리 중...' : (
             <>
               카드 전체가 네 모서리 안에 보이게 맞춰주세요<br />
@@ -535,16 +559,6 @@ const CameraScreen = ({
             </>
           )}
         </p>
-        <button
-          onClick={() => capturePhoto('manual')}
-          disabled={!previewReady || capturing}
-          style={{ width: '72px', height: '72px', borderRadius: '50%', background: previewReady && !capturing ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.2)', border: '3px solid rgba(255,255,255,0.2)', cursor: previewReady && !capturing ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.1s' }}
-        >
-          {capturing
-            ? <svg width="28" height="28" viewBox="0 0 32 32" fill="none" style={{ animation: 'spin 1s linear infinite' }}><circle cx="16" cy="16" r="14" stroke="#0a0a0c" strokeWidth="2" strokeDasharray="8 4" /></svg>
-            : <div style={{ width: '54px', height: '54px', borderRadius: '50%', background: previewReady ? '#0a0a0c' : 'rgba(0,0,0,0.2)' }} />
-          }
-        </button>
       </div>
 
       {/* 촬영 가이드 오버레이 */}
@@ -585,3 +599,4 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+

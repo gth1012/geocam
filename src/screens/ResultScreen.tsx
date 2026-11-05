@@ -95,8 +95,8 @@ const ResultScreen = ({
       if (verifyStatus === 'PRESENT') {
         return {
           color: '#4ade80', bgColor: 'rgba(74, 222, 128, 0.08)',
-          title: 'PHYSICAL VERIFIED',
-          subtitle: 'GeoCode 신호가 확인됐습니다',
+          title: '정품 확인 완료',
+          subtitle: '공식 인증 정보가 확인되었습니다.',
           status: 'done',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
@@ -109,8 +109,8 @@ const ResultScreen = ({
       if (verifyStatus === 'INSUFFICIENT_DATA') {
         return {
           color: '#facc15', bgColor: 'rgba(250, 204, 21, 0.08)',
-          title: '재촬영',
-          subtitle: '다시 촬영해주세요 — 카드를 평평하게, 조명을 밝게',
+          title: '판정 불가',
+          subtitle: '촬영 상태를 확인한 뒤 다시 촬영해주세요.',
           status: 'done',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
@@ -124,8 +124,8 @@ const ResultScreen = ({
       if (verifyStatus === 'ABSENT') {
         return {
           color: '#f87171', bgColor: 'rgba(248, 113, 113, 0.08)',
-          title: '인증 불가',
-          subtitle: 'GeoCode 신호가 감지되지 않았습니다',
+          title: '정품 확인 실패',
+          subtitle: '공식 인증 정보를 확인할 수 없습니다.',
           status: 'done',
           icon: (
             <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
