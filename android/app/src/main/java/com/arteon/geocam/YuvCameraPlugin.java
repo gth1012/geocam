@@ -219,7 +219,7 @@ public class YuvCameraPlugin extends Plugin {
     public void load() {
         captureDiagnostics = new CaptureDiagnostics(getContext());
         cameraExecutor = Executors.newSingleThreadExecutor();
-        cornerPocTracker = new CornerPocTracker(result -> notifyListeners("cornerPoc", result), getContext().getExternalFilesDir("corner_replay"));
+        cornerPocTracker = new CornerPocTracker(result -> notifyListeners("cornerPoc", result), getContext().getExternalFilesDir("corner_replay"), getContext());
         // [한글 주석] OpenCV 초기화 제거됨 (컨투어 로직 삭제로 더 이상 불필요, LT-AUTOCAP-002 v1.2)
     }
 

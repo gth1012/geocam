@@ -71,7 +71,7 @@ public final class CornerPocDetector {
             int n=0; for(double[] r:pts) if(Math.abs(r[1]-a*r[0]-b)<=tol)n++;
             if(n>best){best=n;bestA=a;bestB=b;}
         }
-        if(best<44)return null; // at least 44 of the 72 independent scan lines
+        if(best<36)return null; // POC support 36; RGB fallback is verified separately
         for(int pass=0;pass<2;pass++){
             double sx=0,sy=0,sxx=0,sxy=0; int n=0;
             for(double[] p:pts)if(Math.abs(p[1]-bestA*p[0]-bestB)<=tol){n++;sx+=p[0];sy+=p[1];sxx+=p[0]*p[0];sxy+=p[0]*p[1];}
@@ -80,7 +80,7 @@ public final class CornerPocDetector {
         }
         int n=0;double lo=Double.POSITIVE_INFINITY,hi=-lo,err=0;
         for(double[] p:pts){double e=p[1]-bestA*p[0]-bestB;if(Math.abs(e)<=tol){n++;lo=Math.min(lo,p[0]);hi=Math.max(hi,p[0]);err+=e*e;}}
-        if(n<44 || hi-lo<span*0.60 || Math.sqrt(err/n)>tol*0.85)return null;
+        if(n<36 || hi-lo<span*0.60 || Math.sqrt(err/n)>tol*0.85)return null;
         // A similarly supported distinct edge is ambiguous: do not guess a border.
         for(int i=0;i<pts.size();i+=3)for(int j=i+8;j<pts.size();j+=7){
             double[] p=pts.get(i),q=pts.get(j);
@@ -88,7 +88,7 @@ public final class CornerPocDetector {
             double a=(q[1]-p[1])/(q[0]-p[0]),b=p[1]-a*p[0];
             if(Math.abs(a)>.55 || Math.abs((a-bestA)*(lo+hi)/2+b-bestB)<Math.max(tol*3,span*.04))continue;
             int rival=0;for(double[] r:pts)if(Math.abs(r[1]-a*r[0]-b)<=tol)rival++;
-            if(rival>=Math.max(44,n*.90))return null;
+            if(rival>=Math.max(36,n*.90))return null;
         }
         return new double[]{bestA,bestB};
     }

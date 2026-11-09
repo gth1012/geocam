@@ -9,7 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** POC side channel. Never writes existing gate, guide, hold or capture state. */
+/** Camera geometry authority for POC. Existing freshness/hold/AF checks remain. */
 final class CornerPocTracker {
     interface Sink { void send(JSObject result); }
     private static final class Config {
@@ -22,6 +22,7 @@ final class CornerPocTracker {
     private final AtomicBoolean busy=new AtomicBoolean(false);
     private final Sink sink;
     private final CornerReplayRecorder replay;
+    private final ColorCornerPocModel colorModel;
     private volatile Config config;
     private volatile boolean tiltAllowed=false;
     private volatile long tiltEpoch=0;
@@ -45,7 +46,7 @@ final class CornerPocTracker {
         if(!near)invalidateCapture();
         captureStableFrames++;captureFrameMs=sampledAt;capturePrevious=points;
     }
-    CornerPocTracker(Sink sink, java.io.File replayRoot){this.sink=sink;this.replay=new CornerReplayRecorder(replayRoot);}
+    CornerPocTracker(Sink sink, java.io.File replayRoot, android.content.Context context){this.sink=sink;this.replay=new CornerReplayRecorder(replayRoot);this.colorModel=new ColorCornerPocModel(context);worker.execute(()->colorModel.warmup());}
     synchronized void tilt(boolean allowed){
         if(tiltAllowed!=allowed){tiltEpoch++;invalidateCapture();}
         tiltAllowed=allowed;
@@ -60,7 +61,7 @@ final class CornerPocTracker {
         android.util.Log.i("CornerDiag","CONFIG enabled preview="+vw+"x"+vh+" guide="+x+","+y+","+w+","+h);
     }
     synchronized void reset(){invalidateCapture();config=null;tiltAllowed=false;tiltEpoch++;}
-    void close(){reset();worker.shutdownNow();}
+    void close(){reset();try{worker.execute(()->colorModel.close());}finally{worker.shutdown();}}
     void offer(ImageProxy image){
         Config c=config;long now=SystemClock.elapsedRealtime();long epoch=tiltEpoch;
         if(now-diagnosticLastMs>=1000){diagnosticLastMs=now;android.util.Log.i("CornerDiag","FRAME config="+(c!=null)+" tilt="+tiltAllowed+" busy="+busy.get());}
@@ -71,14 +72,31 @@ final class CornerPocTracker {
             Rect crop=image.getCropRect();ImageProxy.PlaneProxy p=image.getPlanes()[0];
             CornerPocDetector.Frame f=CornerPocDetector.snapshot(p.getBuffer().duplicate(),p.getRowStride(),p.getPixelStride(),
                 crop.left,crop.top,crop.width(),crop.height(),image.getImageInfo().getRotationDegrees(),c.vw,c.vh);
+            int[] colorCopy=null;
+            try {
+                ImageProxy.PlaneProxy[] planes=image.getPlanes();
+                if(planes.length!=3)throw new IllegalStateException("RGB_REQUIRES_YUV420_3_PLANES");
+                colorCopy=CornerYuvRgb.snapshot(planes[0].getBuffer().duplicate(),planes[0].getRowStride(),planes[0].getPixelStride(),
+                    planes[1].getBuffer().duplicate(),planes[1].getRowStride(),planes[1].getPixelStride(),
+                    planes[2].getBuffer().duplicate(),planes[2].getRowStride(),planes[2].getPixelStride(),
+                    crop.left,crop.top,crop.width(),crop.height(),image.getImageInfo().getRotationDegrees(),f.w,f.h);
+            }catch(Exception rgbError){android.util.Log.e("CornerHybrid","RGB_COPY_FAILED",rgbError);}
+            final int[] ownedRgb=colorCopy;
             double copyMs=(SystemClock.elapsedRealtimeNanos()-copyStart)/1e6;
             worker.execute(()->{
                 try{
+                    if(config!=c||!tiltAllowed||tiltEpoch!=epoch)return;
                     long started=SystemClock.elapsedRealtimeNanos();
                     double[][] corners=CornerPocDetector.detect(f,c.x,c.y,c.w,c.h);
+                    boolean rgbTried=corners==null;
+                    if(rgbTried){try{corners=colorModel.predict(f,ownedRgb,c.x,c.y,c.w,c.h);}catch(Exception modelError){android.util.Log.e("CornerHybrid","RGB_DETECT_FAILED",modelError);}}
+                    android.util.Log.i("CornerHybrid","RESULT version="+ColorCornerPocModel.VERSION+" frame="+id+" source="+(rgbTried?"RGB_MODEL_EDGE":"EDGE36")+" found="+(corners!=null)+" sharpness="+(rgbTried?colorModel.lastSharpness:Float.NaN)+" rgbCopied="+(ownedRgb!=null)+" ageMs="+(SystemClock.elapsedRealtime()-now));
                     double detectMs=(SystemClock.elapsedRealtimeNanos()-started)/1e6;
                     android.util.Log.i("CornerDiag","RESULT frame="+id+" found="+(corners!=null)+" ageMs="+(SystemClock.elapsedRealtime()-now)+" copyMs="+copyMs+" detectMs="+detectMs+" configCurrent="+(config==c)+" tilt="+tiltAllowed+" epochCurrent="+(tiltEpoch==epoch));
-                    if(config!=c||!tiltAllowed||tiltEpoch!=epoch||SystemClock.elapsedRealtime()-now>250)return;
+                    if(config!=c||!tiltAllowed||tiltEpoch!=epoch||SystemClock.elapsedRealtime()-now>=250){
+                        synchronized(CornerPocTracker.this){if(config==c&&tiltEpoch==epoch)invalidateCapture();}
+                        android.util.Log.i("CornerHybrid","FRAME_REJECTED_STALE_OR_CHANGED frame="+id);return;
+                    }
                     JSObject out=new JSObject();out.put("token",c.token);out.put("frameId",id);
                     out.put("capturedAt",capturedAt);out.put("status",corners==null?"NOT_FOUND":"VALID");
                     out.put("copyMs",copyMs);out.put("detectMs",detectMs);

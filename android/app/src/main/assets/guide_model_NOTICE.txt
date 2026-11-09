@@ -1,0 +1,4 @@
+Camera-only experimental model. Source: https://huggingface.co/HanClinto/cornelius
+Model license: AGPL-3.0; see guide_model_LICENSE.txt.
+Model SHA256: 650da3cc3e9ac778c6951de631f824ec1e63bdabf3aaa39a35d7435af625612e
+No network inference. No authenticity/code reader logic. Not a production release.
