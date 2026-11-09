@@ -1,6 +1,7 @@
+import { createRequestGate, parseDisplayResponse, displayError, type DisplayState, type DisplayError } from './verification/display'
 import './i18n';
 import { useTranslation } from 'react-i18next';
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { runEvidencePipeline } from './evidencePipeline'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -74,9 +75,36 @@ function App() {
   const [bundleClaimToken, setBundleClaimToken] = useState<string | null>(null)
   const [, setLayer2Debug] = useState<any>(null)
 
+  const displayGate = useRef(createRequestGate())
+  const [displayState, setDisplayState] = useState<DisplayState>({ kind: 'idle' })
+  const isDisplayCurrent = useCallback((id: number) => displayGate.current.current(id), [])
+  const cancelDisplay = useCallback(() => {
+    displayGate.current.cancel()
+    setDisplayState({ kind: 'idle' })
+    setProcessing(false)
+  }, [])
+  const beginDisplay = useCallback(() => {
+    const id = displayGate.current.begin()
+    setDisplayState({ kind: 'processing' })
+    setProcessing(true); setError(null); setErrorCode(null); setNetworkError(false)
+    setVerifyStatus(null); setConfidence(null); setMatchScore(null); setRecordInfo(null)
+    setSignatureVerified(null)
+    return id
+  }, [])
+  const beginCameraDisplay = useCallback(() => {
+    setScanMode('camera')
+    return beginDisplay()
+  }, [beginDisplay])
+  const publishDisplay = useCallback((id: number, state: DisplayState) => {
+    if (!displayGate.current.current(id)) return
+    setDisplayState(state)
+    setProcessing(false)
+  }, [])
+
   const isAuthenticated = Boolean(authToken)
 
   const navigateToScreen = useCallback((targetScreen: Screen) => {
+    if (targetScreen !== 'result' || !authToken) cancelDisplay()
     const authenticated = Boolean(authToken)
     if (PROTECTED_SCREENS.includes(targetScreen) && !authenticated) {
       setScreen('authLanding')
@@ -87,7 +115,7 @@ function App() {
       return
     }
     setScreen(targetScreen)
-  }, [authToken])
+  }, [authToken, cancelDisplay])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -173,69 +201,85 @@ function App() {
     setScreen('mainMenu'); setShowWelcomeModal(true);
   }, []);
 
-  const onLogout = useCallback(() => {
+  const onLogout = useCallback(async () => {
+    cancelDisplay()
+    if (authToken) {
+      const controller = new AbortController()
+      const timer = window.setTimeout(() => controller.abort(), 10000)
+      try {
+        const response = await fetch('https://neo-api.artionchain.com/api/user/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          signal: controller.signal,
+        })
+        if (!response.ok && response.status !== 401) throw new Error('Logout unavailable')
+      } catch {
+        window.alert('로그아웃을 완료하지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.')
+        return
+      } finally {
+        window.clearTimeout(timer)
+      }
+    }
     setAuthToken(null); setUserId(null); setUserNickname(null);
     setScreen('authLanding');
-  }, []);
+  }, [cancelDisplay, authToken]);
 
-  const runGalleryPhysicalVerify = useCallback(async (imageDataUrl: string) => {
-    await new Promise(resolve => setTimeout(resolve, 300))
-    setProcessing(true)
-    setScanMode('camera')
-    setCapturedImage(imageDataUrl)
-    try {
-      const NEO_API = 'https://neo-api.artionchain.com/api/geocam'
-      const res = await fetch(`${NEO_API}/physical/detect-signal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_data: imageDataUrl }),
-      })
-      const result = await res.json()
-      if (result.verdict === 'SIGNAL_PRESENT') {
-        setVerifyStatus('PRESENT')
-      } else if (result.verdict === 'SIGNAL_UNCERTAIN') {
-        setVerifyStatus('INSUFFICIENT_DATA')
-      } else {
-        setVerifyStatus('ABSENT')
-      }
-    } catch (e) {
-      console.error('[GalleryVerify] error:', e)
-      setNetworkError(true)
-      setVerifyStatus('INSUFFICIENT_DATA')
-    }
-    setProcessing(false)
+  const runGalleryPhysicalVerify = useCallback(async (imageDataUrl: string, request: number) => {
+    if (!isDisplayCurrent(request)) return
+    setScanMode('camera'); setCapturedImage(imageDataUrl)
     navigateToScreen('result')
-  }, [navigateToScreen])
+    let failure: DisplayError = 'NETWORK'
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 60000)
+    try {
+      const res = await fetch('https://neo-api.artionchain.com/api/geocam/physical/detect-signal', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_data: imageDataUrl }), signal: controller.signal,
+      })
+      if (!isDisplayCurrent(request)) return
+      if (!res.ok) { publishDisplay(request, displayError('HTTP', res.status)); return }
+      failure = 'JSON'
+      const result: unknown = await res.json()
+      // This endpoint must supply the same final contract; legacy SIGNAL_PRESENT is insufficient.
+      publishDisplay(request, parseDisplayResponse(result))
+    } catch {
+      publishDisplay(request, displayError(controller.signal.aborted ? 'NETWORK' : failure))
+    } finally { window.clearTimeout(timer) }
+  }, [isDisplayCurrent, publishDisplay, navigateToScreen])
 
   const openGalleryPicker = useCallback(async () => {
+    const request = beginDisplay()
     try {
-      const image = await Camera.getPhoto({
-        quality: 100, allowEditing: false,
-        resultType: CameraResultType.Uri, source: CameraSource.Photos
-      })
-      if (image.webPath) {
-        setQrDetected(false); setQrData(null); setCapturedImage(null);
-        setRecordInfo(null); setError(null); setProcessing(false);
-        setNetworkError(false); setVerifyStatus(null); setCameraError(null);
-        const response = await fetch(image.webPath)
-        const blob = await response.blob()
+      const image = await Camera.getPhoto({ quality: 100, allowEditing: false,
+        resultType: CameraResultType.Uri, source: CameraSource.Photos })
+      if (!isDisplayCurrent(request)) return
+      if (!image.webPath) { cancelDisplay(); return }
+      setQrDetected(false); setQrData(null); setCapturedImage(null); setCameraError(null)
+      const response = await fetch(image.webPath)
+      if (!response.ok) throw new Error('IMAGE_READ_FAILED')
+      const blob = await response.blob()
+      const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
-        reader.onload = () => {
-          const dataUrl = reader.result as string
-          runGalleryPhysicalVerify(dataUrl)
-        }
+        reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('IMAGE_READ_FAILED'))
+        reader.onerror = () => reject(new Error('IMAGE_READ_FAILED'))
+        reader.onabort = () => reject(new Error('IMAGE_READ_ABORTED'))
         reader.readAsDataURL(blob)
-      }
-    } catch (e: any) {
-      console.error('[GalleryPicker] error:', e)
-      if (e?.message?.includes('cancel') || e?.message?.includes('Cancel')) return
+      })
+      await runGalleryPhysicalVerify(dataUrl, request)
+    } catch (e: unknown) {
+      if (!isDisplayCurrent(request)) return
+      if (e instanceof Error && /cancel/i.test(e.message)) { cancelDisplay(); return }
+      publishDisplay(request, displayError('CAPTURE'))
+      navigateToScreen('result')
     }
-  }, [runGalleryPhysicalVerify]);
+  }, [beginDisplay, isDisplayCurrent, cancelDisplay, publishDisplay, navigateToScreen, runGalleryPhysicalVerify])
 
   const runPipeline = async (qrRaw: string | null, imageUri: string) => {
-    setProcessing(true); setError(null); setErrorCode(null); setNetworkError(false); setMatchScore(null);
+    const request = beginDisplay()
     try {
       const result = await runEvidencePipeline({ qrRaw, imageUri, geoBucket: null, deviceFingerprintHash: getDeviceFingerprint() });
+      if (!isDisplayCurrent(request)) return
+      publishDisplay(request, result.displayState)
       if (result.error_code) setErrorCode(result.error_code);
       if (result.sessionToken) setSessionToken(result.sessionToken);
       if (result.nonce) setNonce(result.nonce);
@@ -244,13 +288,15 @@ function App() {
       if (result.confidence !== undefined && result.confidence !== null) setConfidence(result.confidence);
       if (result.ok && result.recordId && result.packHash) {
         setRecordInfo({ recordId: result.recordId, packHash: result.packHash, createdAt: new Date().toISOString() });
-        setVerifyStatus(result.verify_status || 'PRESENT');
+        setVerifyStatus(result.verify_status || null);
       } else {
         setError(result.error || 'PIPELINE_ERROR');
         setVerifyStatus(result.verify_status || 'INSUFFICIENT_DATA');
       }
       navigateToScreen('result')
     } catch (err) {
+      if (!isDisplayCurrent(request)) return
+      publishDisplay(request, displayError('PIPELINE'))
       if (err instanceof Error && (err.message.includes('fetch') || err.message.includes('network'))) {
         setNetworkError(true);
       }
@@ -258,7 +304,7 @@ function App() {
       setVerifyStatus('INSUFFICIENT_DATA');
       navigateToScreen('result')
     }
-    finally { setProcessing(false); }
+    finally { if (isDisplayCurrent(request)) setProcessing(false); }
   }
 
   const commonProps = { safeGoHome, safeGoCamera, safeGoScan, openGalleryPicker, runPipeline, getDeviceFingerprint, BackArrow , navigateToScreen};
@@ -287,7 +333,7 @@ function App() {
             <CertSelectScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} openGalleryPicker={openGalleryPicker} />
           )}
           {screen === 'digitalVerify' && (
-            <DigitalVerifyScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} />
+            <DigitalVerifyScreen authToken={authToken} safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} />
           )}
           {screen === 'claim' && (
             <ClaimScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} claimToken={claimToken} authToken={authToken} userId={userId} />
@@ -296,7 +342,7 @@ function App() {
             <ClaimBundleScreen safeGoHome={safeGoHome} BackArrow={BackArrow} navigateToScreen={navigateToScreen} bundleClaimToken={bundleClaimToken} authToken={authToken} userId={userId} />
           )}
           {screen === 'camera' && (
-            <CameraScreen {...commonProps} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} authToken={authToken} />
+            <CameraScreen {...commonProps} beginDisplay={beginCameraDisplay} isDisplayCurrent={isDisplayCurrent} publishDisplay={publishDisplay} sessionToken={sessionToken} nonce={nonce} dinaId={dinaId} qrData={qrData} setCapturedImage={setCapturedImage} setConfidence={setConfidence} setMatchScore={setMatchScore} setVerifyStatus={setVerifyStatus} setRecordInfo={setRecordInfo} setErrorCode={setErrorCode} setNetworkError={setNetworkError} setProcessing={setProcessing} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} authToken={authToken} />
           )}
           {screen === 'qrScan' && (
             <ScanScreen {...commonProps} setQrData={setQrData} setQrDetected={setQrDetected} setProcessing={setProcessing} setNetworkError={setNetworkError} setErrorCode={setErrorCode} setSessionToken={setSessionToken} setNonce={setNonce} setDinaId={setDinaId} setScanResultInfo={setScanResultInfo} setScanMode={setScanMode} navigateToScreen={navigateToScreen} cameraError={cameraError} setCameraError={setCameraError} scanContext={scanContext} />
@@ -305,7 +351,7 @@ function App() {
             <ScanResultScreen {...commonProps} processing={processing} scanResultInfo={scanResultInfo} dinaId={dinaId} networkError={networkError} setScanResultInfo={setScanResultInfo} navigateToScreen={navigateToScreen} authToken={authToken} />
           )}
           {screen === 'result' && (
-            <ResultScreen {...commonProps} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />
+            <ResultScreen {...commonProps} displayState={displayState} scanMode={scanMode} errorCode={errorCode} verifyStatus={verifyStatus} capturedImage={capturedImage} previewImage={previewImage} matchScore={matchScore} confidence={confidence} signatureVerified={signatureVerified} recordInfo={recordInfo} networkError={networkError} sessionToken={sessionToken} dinaId={dinaId} nonce={nonce} registering={registering} setRegistering={setRegistering} setRegisterStatus={setRegisterStatus} setRegisterError={setRegisterError} navigateToScreen={navigateToScreen} setQrDetected={setQrDetected} setQrData={setQrData} setCapturedImage={setCapturedImage} setRecordInfo={setRecordInfo} setError={setError} setProcessing={setProcessing} setVerifyStatus={setVerifyStatus} />
           )}
           {screen === 'records' && <RecordsScreen {...commonProps} />}
           {screen === 'gallery' && <GalleryScreen safeGoHome={safeGoHome} />}

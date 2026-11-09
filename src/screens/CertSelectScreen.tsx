@@ -96,7 +96,7 @@ const CertSelectScreen = ({
           color: '#a78bfa',
           letterSpacing: '0.04em',
         }}>
-          굿즈 정품 인증
+          포토카드 정품확인
         </div>
         <div style={{
           fontSize: '12px',
@@ -105,7 +105,7 @@ const CertSelectScreen = ({
           lineHeight: '1.6',
           textAlign: 'center',
         }}>
-          지오캠 촬영으로 정품인증 하세요.
+          촬영으로 정품 확인하세요
         </div>
       </button>
 

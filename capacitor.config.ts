@@ -15,7 +15,7 @@ const config: CapacitorConfig = {
   },
   android: {
     loggingBehavior: 'debug',
-    webContentsDebuggingEnabled: true
+    webContentsDebuggingEnabled: false
   },
   plugins: {
     CapacitorHttp: {

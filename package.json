@@ -6,13 +6,14 @@
   "homepage": "https://gth1012.github.io/geocam",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/display-authority-check.cjs && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "display:check": "node scripts/display-authority-check.cjs"
   },
   "dependencies": {
     "@capacitor-community/http": "^1.4.1",

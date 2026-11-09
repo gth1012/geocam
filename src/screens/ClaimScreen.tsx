@@ -63,7 +63,7 @@ export default function ClaimScreen({ safeGoHome, BackArrow, navigateToScreen, c
   }
 
   const handleClaim = async () => {
-    if (!claimToken || !userId) {
+    if (!claimToken || !authToken || !userId) {
       navigateToScreen('login')
       return
     }
@@ -72,13 +72,18 @@ export default function ClaimScreen({ safeGoHome, BackArrow, navigateToScreen, c
     try {
       const res = await fetch(`${NEO_API}/api/capsule/claim/complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ token: claimToken, consumer_id: userId }),
       })
       const data = await res.json()
 
       if (!res.ok) {
         const msgMap: Record<string, string> = {
+          UNAUTHORIZED: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+          CONSUMER_REQUIRED: '소비자 계정으로 로그인해 주세요.',
+          CONSUMER_MISMATCH: '로그인 계정과 수령자가 다릅니다. 다시 로그인해 주세요.',
+          ACCOUNT_UNAVAILABLE: '사용 가능한 계정인지 확인해 주세요.',
+          AUTH_LOOKUP_UNAVAILABLE: '계정 확인이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.',
           TOKEN_ALREADY_USED: '이미 사용된 Claim 링크입니다.',
           TOKEN_REVOKED: '취소된 Claim 링크입니다.',
           TOKEN_EXPIRED: '만료된 Claim 링크입니다.',

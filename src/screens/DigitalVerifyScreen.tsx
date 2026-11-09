@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react'
-import { Device } from '@capacitor/device'
 import type { DigitalVerifyScreenProps, DigitalVerifyStatus, DigitalVerifyResult } from '../types/app.types'
 
 // Auth UX 리팩 v2.0 (2026-06-22): setScreen → navigateToScreen (현재 미사용)
@@ -45,7 +44,7 @@ const STATUS_CONFIG: Record<NonNullable<DigitalVerifyStatus>, { color: string; b
   },
 }
 
-const DigitalVerifyScreen = ({ safeGoHome, BackArrow, navigateToScreen }: DigitalVerifyScreenProps) => {
+const DigitalVerifyScreen = ({ safeGoHome, BackArrow, navigateToScreen, authToken }: DigitalVerifyScreenProps) => {
   // navigateToScreen은 현재 미사용 — 추후 확장용
   void navigateToScreen
 
@@ -145,25 +144,24 @@ const DigitalVerifyScreen = ({ safeGoHome, BackArrow, navigateToScreen }: Digita
 
   const handleOwnershipRegister = async () => {
     if (!result?.asset?.dina_id) return
+    if (!authToken) {
+      setOwnershipError('로그인이 필요합니다.')
+      return
+    }
     setOwnershipLoading(true)
     setOwnershipError(null)
     try {
-      const deviceInfo = await Device.getId()
-      const ownerId = deviceInfo.identifier
-
-      const response = await fetch(`${NEO_API_URL}/api/geocam/ownership/register`, {
+      const response = await fetch(`${NEO_API_URL}/api/geocam/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
           dina_id: result.asset.dina_id,
-          owner_id: ownerId,
-          asset_id: result.asset.dina_id,
         }),
       })
       const data = await response.json()
 
       if (!response.ok) {
-        setOwnershipError(data.error || '등록 실패')
+        setOwnershipError(typeof data.error === 'string' ? data.error : data.error?.message || data.error?.code || '등록 실패')
         return
       }
       setOwnershipDone(true)

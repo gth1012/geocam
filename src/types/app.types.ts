@@ -1,3 +1,4 @@
+import type { DisplayState } from '../verification/display'
 import type { ReactElement } from 'react'
 
 // ─────────────────────────────────────────────
@@ -170,6 +171,7 @@ export interface HomeScreenProps {
 }
 
 export interface DigitalVerifyScreenProps {
+  authToken: string | null
   safeGoHome: () => void
   BackArrow: () => ReactElement
   navigateToScreen: NavigateToScreen
@@ -196,6 +198,9 @@ export interface ClaimBundleScreenProps {
 // [한글 주석] SizeSelectScreenProps 삭제됨 (LT-AUTOCAP-002, 화면 자체 폐기)
 
 export interface CameraScreenProps extends ScreenProps {
+  beginDisplay: () => number
+  isDisplayCurrent: (id: number) => boolean
+  publishDisplay: (id: number, state: DisplayState) => void
   authToken: string | null
   sessionToken: string | null
   nonce: string | null
@@ -242,6 +247,7 @@ export interface ScanResultScreenProps extends ScreenProps {
 }
 
 export interface ResultScreenProps extends ScreenProps {
+  displayState: DisplayState
   scanMode: ScanMode
   errorCode: string | null
   verifyStatus: VerifyStatus

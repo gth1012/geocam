@@ -49,13 +49,128 @@ import java.util.concurrent.Executors;
 import androidx.camera.core.Camera;
 import androidx.camera.core.FocusMeteringAction;
 import androidx.camera.core.MeteringPoint;
-import androidx.camera.core.SurfaceOrientedMeteringPointFactory;
+import androidx.camera.core.FocusMeteringResult;
+import com.google.common.util.concurrent.ListenableFuture;
 
 @CapacitorPlugin(name = "YuvCamera")
 public class YuvCameraPlugin extends Plugin {
 
     private static final String TAG = "YuvCameraPlugin";
+    // 1235: serialize quality snapshots, permit consumption and config changes.
+    private final Object captureGateLock = new Object();
+    private String captureSession = java.util.UUID.randomUUID().toString();
+    private String capturePermit = "";
+    private long permitAtMs, permitCornerEpoch, qualityAtMs;
+    private long qualityCornerEpoch = -1;
+    private boolean qualityReady, captureSubmitted;
+    private String focusedPermit = "";
+    private long focusSucceededAt;
+    static boolean focusPermitValid(String requested, String focused, long now, long succeeded) {
+        return requested != null && !requested.isEmpty() && requested.equals(focused)
+            && now >= succeeded && now - succeeded < 2250;
+    }
+    // AF completion never extends the old 250 ms capture permit.
+    private void awaitFocusedQuality(PluginCall call, Camera camera, String original,
+            long epoch, long succeeded, JSObject result) {
+        synchronized (captureGateLock) {
+            long now = SystemClock.elapsedRealtime();
+            long[] corner = cornerPocTracker == null ? null : cornerPocTracker.captureState(now);
+            boolean same = camera == previewCamera && !captureSubmitted
+                && original.equals(capturePermit) && corner != null && corner[0] == epoch && tiltOk;
+            if (!same || now - succeeded >= 2000) {
+                result.put("captureReady", false);
+                result.put("reason", same ? "POST_AF_QUALITY_TIMEOUT" : "POST_AF_CONDITIONS_CHANGED");
+                Log.i(TAG, "[AF_CAPTURE_GATE] " + result.toString());
+                camera.getCameraControl().cancelFocusAndMetering();
+                call.resolve(result); return;
+            }
+            if (qualityReady && qualityCornerEpoch == epoch && qualityAtMs > succeeded
+                    && now >= qualityAtMs && now - qualityAtMs < 250 && corner[1] > succeeded) {
+                capturePermit = captureSession + ":" + java.util.UUID.randomUUID().toString();
+                permitAtMs = now; permitCornerEpoch = epoch;
+                focusedPermit = capturePermit; focusSucceededAt = succeeded;
+                result.put("captureReady", true); result.put("permit", capturePermit);
+                Log.i(TAG, "[AF_CAPTURE_GATE] READY qualityAgeMs=" + (now-qualityAtMs));
+                call.resolve(result); return;
+            }
+        }
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            () -> awaitFocusedQuality(call, camera, original, epoch, succeeded, result), 40);
+    }
+    private void resetCaptureSession() {
+        synchronized (captureGateLock) {
+            captureSession = java.util.UUID.randomUUID().toString();
+            focusedPermit = ""; focusSucceededAt = 0;
+            capturePermit = ""; qualityReady = false; qualityAtMs = 0;
+            captureSubmitted = false; autoCaptureNotified = false;
+            tiltHoldStartMs = 0; lastAnalysisMs = 0; observedCornerEpoch = -1;
+        }
+    }
+    // Pure checks are exercised by the accompanying JVM regression runner.
+    static boolean permitValid(String requested, String current, long now,
+            long issuedAt, long sampledAt, boolean ready, boolean tilt,
+            boolean submitted, long expectedEpoch, long qualityEpoch, long[] corner) {
+        return requested != null && !requested.isEmpty() && requested.equals(current)
+            && !submitted && ready && tilt && now >= issuedAt && now-issuedAt < 250
+            && now >= sampledAt && now-sampledAt < 250 && corner != null
+            && expectedEpoch == qualityEpoch && corner[0] == expectedEpoch;
+    }
+    @PluginMethod
+    public void rearmAutoCapture(PluginCall call) {
+        synchronized (captureGateLock) {
+            if (!captureSubmitted && capturePermit.equals(call.getString("permit", ""))) {
+                capturePermit = ""; autoCaptureNotified = false;
+            }
+        }
+        call.resolve();
+    }
+
+    static String captureFileSha256(java.io.File file) throws Exception {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+            byte[] buffer = new byte[65536]; int count;
+            while ((count = in.read(buffer)) != -1) digest.update(buffer, 0, count);
+        }
+        StringBuilder hex = new StringBuilder(64);
+        for (byte b : digest.digest()) hex.append(String.format(java.util.Locale.ROOT, "%02x", b & 255));
+        return hex.toString();
+    }
+    @PluginMethod
+    public void recordCaptureTrace(PluginCall call) {
+        String stage = call.getString("stage", "");
+        String captureId = call.getString("captureId", "");
+        String savedHash = call.getString("savedSha256", "");
+        String readHash = call.getString("readSha256", "");
+        if (!(stage.equals("UPLOAD_READY") || stage.equals("SERVER_RESPONSE"))
+                || !captureId.matches("geo_capture_[0-9]+\\.jpg")
+                || !savedHash.matches("[0-9a-f]{64}") || !readHash.matches("[0-9a-f]{64}")) {
+            call.reject("INVALID_CAPTURE_TRACE"); return;
+        }
+        JSObject record = new JSObject();
+        record.put("stage", stage); record.put("captureId", captureId);
+        record.put("savedSha256", savedHash); record.put("readSha256", readHash);
+        record.put("hashesMatch", savedHash.equals(readHash));
+        String requestId = call.getString("requestId", "");
+        if (requestId.matches("[0-9a-fA-F-]{36}")) record.put("requestId", requestId);
+        if (stage.equals("SERVER_RESPONSE")) {
+            String serverHash = call.getString("serverSha256", "");
+            boolean present = serverHash != null && serverHash.matches("[0-9a-fA-F]{64}");
+            record.put("serverHashReported", present);
+            if (present) {
+                record.put("serverSha256", serverHash.toLowerCase(java.util.Locale.ROOT));
+                record.put("clientServerHashesMatch", readHash.equalsIgnoreCase(serverHash));
+            }
+            record.put("serverHashSource", "SERVER_RESPONSE_NOT_INDEPENDENT_R2_READ");
+        }
+        // Record only bounded diagnostic fields, never the image or full server response.
+        Log.i(TAG, "[CAPTURE_BYTES] " + record.toString());
+        captureDiagnostics.trace(record);
+        call.resolve();
+    }
+
+    private CaptureDiagnostics captureDiagnostics;
     private ExecutorService cameraExecutor;
+    private CornerPocTracker cornerPocTracker;
     private ImageAnalysis imageAnalysis;
 
     // GCS-CAMERA-UNIFIED-001: 촬영 세션 (startPreview/stopPreview/capturePhotoFile 전용)
@@ -66,7 +181,7 @@ public class YuvCameraPlugin extends Plugin {
     private Camera previewCamera;
 
     // GCS-AUTO-CAPTURE-001: 자동촬영 상태
-    private boolean autoCaptureNotified = false;
+    private volatile boolean autoCaptureNotified = false;
 
     // NS-LEGITTAG-AUTOCAPTURE-STEP-A2 STEP3(수정판): JS(devicemotion, ±6도 기준)에서
     // 전달받는 촬영자세 품질값. 카드 위치/경계 판단 아님 - 순수 자세(tilt) 품질게이트.
@@ -76,7 +191,9 @@ public class YuvCameraPlugin extends Plugin {
     // GEO-CAM-ARCHITECTURE-001 STEP 3-3: tiltDeg 원본값 + hold timer 관련 필드
     private volatile double latestTiltDeg = Double.NaN;
     private long tiltHoldStartMs = 0L;
-    private static final long AUTO_CAPTURE_HOLD_MS = 2500L; // ±3도 연속유지 시간(ms)
+    private long lastAnalysisMs = 0L;
+    private long observedCornerEpoch = -1L;
+    private static final long AUTO_CAPTURE_HOLD_MS = 1000L; // 전체 촬영조건 연속유지 시간 1초
 
     // [한글 주석] 모션안정성 상태 (checkMotionStability에서 사용, 가이드박스 영역 기준)
     private static final int LOCK_STABLE_FRAMES = 5; // ⚠️ 잠정치, 실측 후 조정
@@ -100,7 +217,9 @@ public class YuvCameraPlugin extends Plugin {
 
     @Override
     public void load() {
+        captureDiagnostics = new CaptureDiagnostics(getContext());
         cameraExecutor = Executors.newSingleThreadExecutor();
+        cornerPocTracker = new CornerPocTracker(result -> notifyListeners("cornerPoc", result), getContext().getExternalFilesDir("corner_replay"));
         // [한글 주석] OpenCV 초기화 제거됨 (컨투어 로직 삭제로 더 이상 불필요, LT-AUTOCAP-002 v1.2)
     }
 
@@ -110,6 +229,8 @@ public class YuvCameraPlugin extends Plugin {
     // ============================================================
     @PluginMethod
     public void startPreview(PluginCall call) {
+        resetCaptureSession();
+        if (cornerPocTracker != null) cornerPocTracker.reset();
         getActivity().runOnUiThread(() -> {
             try {
                 MainActivity activity = (MainActivity) getActivity();
@@ -137,9 +258,19 @@ public class YuvCameraPlugin extends Plugin {
                         preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
                         // 2. ImageCapture UseCase
-                        unifiedImageCapture = new ImageCapture.Builder()
-                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                            .build();
+                        ImageCapture.Builder captureBuilder = new ImageCapture.Builder()
+                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY);
+                        // S24 촬영 세션에 HDR 요청값 0 적용. 사진 연결 결과값은 진단 로그로 확인.
+                        java.util.List<androidx.camera.core.CameraInfo> backCameras =
+                            CameraSelector.DEFAULT_BACK_CAMERA.filter(previewCameraProvider.getAvailableCameraInfos());
+                        if (backCameras.isEmpty()) throw new IllegalStateException("TRIAL_NO_BACK_CAMERA");
+                        androidx.camera.core.CameraInfo selectedInfo = backCameras.get(0);
+                        CameraSelector trialSelector = selectedInfo.getCameraSelector();
+                        HdrCaptureProfile trial = new HdrCaptureProfile(getContext(), selectedInfo, captureBuilder);
+                        new androidx.camera.camera2.interop.Camera2Interop.Extender<>(captureBuilder)
+                            .setSessionCaptureCallback(captureDiagnostics.newBinding(trial));
+                        Log.i(TAG, "[PROCESSING_TRIAL] " + trial.info().toString());
+                        unifiedImageCapture = captureBuilder.build();
 
                         // 3. ImageAnalysis UseCase (자동촬영 품질게이트용)
                         imageAnalysis = new ImageAnalysis.Builder()
@@ -169,7 +300,7 @@ public class YuvCameraPlugin extends Plugin {
 
                         previewCamera = previewCameraProvider.bindToLifecycle(
                             ProcessLifecycleOwner.get(),
-                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            trialSelector,
                             useCaseGroup
                         );
 
@@ -224,6 +355,8 @@ public class YuvCameraPlugin extends Plugin {
     // ============================================================
     @PluginMethod
     public void stopPreview(PluginCall call) {
+        resetCaptureSession();
+        if (cornerPocTracker != null) cornerPocTracker.reset();
         getActivity().runOnUiThread(() -> {
             try {
                 if (previewCameraProvider != null) {
@@ -231,6 +364,7 @@ public class YuvCameraPlugin extends Plugin {
                     previewCameraProvider = null;
                 }
                 unifiedImageCapture = null;
+                previewCamera = null;
                 autoCaptureNotified = false;
                 tiltOk = false;
                 tiltHoldStartMs = 0L;
@@ -250,7 +384,7 @@ public class YuvCameraPlugin extends Plugin {
     }
 
     // ============================================================
-    // capturePhotoFile (변경 없음)
+    // capturePhotoFile: 1235 permit recheck immediately before takePicture
     // ============================================================
     @PluginMethod
     public void capturePhotoFile(PluginCall call) {
@@ -260,6 +394,7 @@ public class YuvCameraPlugin extends Plugin {
         }
 
         final ImageCapture imageCapture = unifiedImageCapture;
+        final String requestedPermit = call.getString("permit", "");
         File outputDir  = getContext().getCacheDir();
         File outputFile = new File(outputDir, "geo_capture_" + System.currentTimeMillis() + ".jpg");
 
@@ -269,14 +404,48 @@ public class YuvCameraPlugin extends Plugin {
         Log.d(TAG, "[capturePhotoFile] takePicture 시작 (unified session)");
 
         getActivity().runOnUiThread(() -> {
-            imageCapture.takePicture(
-                outputOptions,
+            synchronized (captureGateLock) {
+            long now = SystemClock.elapsedRealtime();
+            long[] corner = cornerPocTracker == null ? null : cornerPocTracker.captureState(now);
+            if (!focusPermitValid(requestedPermit, focusedPermit, now, focusSucceededAt)
+                    || imageCapture != unifiedImageCapture || !permitValid(requestedPermit, capturePermit,
+                    now, permitAtMs, qualityAtMs, qualityReady, tiltOk, captureSubmitted,
+                    permitCornerEpoch, qualityCornerEpoch, corner)) {
+                JSObject deferred = new JSObject();
+                deferred.put("deferred", true);
+                deferred.put("reason", "CAPTURE_CONDITIONS_CHANGED_OR_EXPIRED");
+                Log.i(TAG, "[CAPTURE_RECHECK] deferred permit=" + requestedPermit);
+                call.resolve(deferred);
+                return;
+            }
+            focusedPermit = "";
+            captureSubmitted = true; // one permit can request only one picture
+            Log.i(TAG, "[CAPTURE_RECHECK] accepted ageMs=" + (now-permitAtMs)
+                + " qualityAgeMs=" + (now-qualityAtMs) + " cornerEpoch=" + corner[0]);
+            try {
+            captureDiagnostics.begin(outputFile.getName());
+            androidx.camera.core.CaptureTimestampPoc.takePicture(
+                imageCapture, outputOptions, cameraExecutor,
                 ContextCompat.getMainExecutor(getContext()),
+                getContext().getExternalFilesDir("capture_diag"),
+                (timestamp, inputHash, crop, rotation) -> captureDiagnostics.imageEvidence(
+                    outputFile.getName(), timestamp, inputHash, crop, rotation),
                 new ImageCapture.OnImageSavedCallback() {
                     @Override
                     public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
                         try {
+                            long hashStartedAt = SystemClock.elapsedRealtime();
+                            String savedSha256 = captureFileSha256(outputFile);
                             long fileSize = outputFile.length();
+                            JSObject savedTrace = new JSObject();
+                            savedTrace.put("stage", "JPEG_SAVED");
+                            savedTrace.put("captureId", outputFile.getName());
+                            savedTrace.put("savedSha256", savedSha256);
+                            savedTrace.put("bytes", fileSize);
+                            savedTrace.put("hashElapsedMs", SystemClock.elapsedRealtime()-hashStartedAt);
+                            Log.i(TAG, "[CAPTURE_BYTES] " + savedTrace.toString());
+                            captureDiagnostics.trace(savedTrace);
+                            captureDiagnostics.saved(outputFile, savedSha256);
                             String absolutePath = outputFile.getAbsolutePath();
                             String uri = outputFileResults.getSavedUri() != null
                                 ? outputFileResults.getSavedUri().toString()
@@ -320,6 +489,8 @@ public class YuvCameraPlugin extends Plugin {
                             }
 
                             JSObject result = new JSObject();
+                            result.put("captureId", outputFile.getName());
+                            result.put("savedSha256", savedSha256);
                             result.put("path",         absolutePath);
                             result.put("uri",          uri);
                             result.put("size",         fileSize);
@@ -337,11 +508,14 @@ public class YuvCameraPlugin extends Plugin {
 
                     @Override
                     public void onError(@NonNull ImageCaptureException exception) {
+                        captureDiagnostics.error(outputFile.getName(), exception.toString());
                         Log.e(TAG, "[capturePhotoFile] takePicture ERROR: " + exception.getMessage());
                         call.reject("capturePhotoFile takePicture failed: " + exception.getMessage());
                     }
                 }
             );
+            } catch (Exception e) { captureDiagnostics.error(outputFile.getName(), e.toString()); call.reject("capturePhotoFile request failed: " + e.getMessage()); }
+            }
         });
     }
 
@@ -350,14 +524,21 @@ public class YuvCameraPlugin extends Plugin {
     // (1)밝기 AND (2)포커스 AND (3)모션안정 → 전부 통과 시에만 autoCaptureReady
     // ============================================================
     private void analyzeFrame(@NonNull ImageProxy image) {
+        synchronized (captureGateLock) {
         try {
+            qualityReady = false; // exceptions/null ROI never leave a usable stale quality result
             int frameW = image.getWidth();
             int frameH = image.getHeight();
             int rotationDegrees = image.getImageInfo().getRotationDegrees();
 
             // [한글 주석] 가이드박스 → 프레임 좌표 변환 (기존 STEP A/B 로직 재사용)
-            int[] guideRect = computeGuideRectInFrame(frameW, frameH, rotationDegrees);
+            android.graphics.Rect crop = image.getCropRect();
+            int[] guideRect = computeGuideRectInFrame(crop.width(), crop.height(), rotationDegrees);
+            if (guideRect != null) { guideRect[0] += crop.left; guideRect[1] += crop.top; }
             if (guideRect == null) {
+                tiltHoldStartMs = 0L;
+                lastAnalysisMs = 0L;
+                observedCornerEpoch = -1L;
                 // 가이드박스 미설정 시 게이트 판단 불가, 대기
                 return;
             }
@@ -375,25 +556,21 @@ public class YuvCameraPlugin extends Plugin {
             boolean focusOk      = sample.laplacianVariance >= FOCUS_MIN_VARIANCE;
             boolean motionOk     = updateMotionStability(sample.meanY);
 
-            // LT-GEOCAM-FINALIZE-002 STEP 4: Contrast Gate + GuideFit Gate 판정
-            ContrastGuideFitResult cgResult = evaluateContrastAndGuideFit(yBuf, rowStride, pixelStride, guideRect, frameW, frameH);
-            boolean contrastOk = cgResult.contrastOk;
-            boolean guideFitOk = cgResult.guideFitOk;
-            // LT-GEOCAM-FINALIZE-002 STEP 5: hold timer는 이제 tiltOk 단독이 아니라
-            // 전체 촬영조건(브라이트니스+포커스+모션+틸트+컨트라스트+가이드핏)이
-            // 동시에 유지될 때만 진행된다.
-            boolean readyForHold = brightnessOk && focusOk && motionOk && tiltOk && contrastOk && guideFitOk;
-
-            // 순수 측정/로그 전용. 게이트 연결 없음, 촬영 차단 없음, threshold 없음.
-
-            // GEO-CAM-ARCHITECTURE-001 STEP 3-4: tiltOk ±3도 연속 2.5초 유지 확인
-            if (!readyForHold) {
-                tiltHoldStartMs = 0L;
-            } else if (tiltHoldStartMs == 0L) {
-                tiltHoldStartMs = SystemClock.elapsedRealtime();
-            }
-            long heldMs = readyForHold ? (SystemClock.elapsedRealtime() - tiltHoldStartMs) : 0L;
+            // POC: geometry comes from four-corner tracking; quality gates remain.
+            long nowMs = SystemClock.elapsedRealtime();
+            long[] cornerState = cornerPocTracker == null ? null : cornerPocTracker.captureState(nowMs);
+            boolean frameGap = lastAnalysisMs == 0L || nowMs < lastAnalysisMs || nowMs - lastAnalysisMs >= 250L;
+            lastAnalysisMs = nowMs;
+            boolean readyForHold = brightnessOk && focusOk && motionOk && tiltOk && cornerState != null;
+            long cornerEpoch = cornerState == null ? -1L : cornerState[0];
+            if (!readyForHold || frameGap || cornerEpoch != observedCornerEpoch) tiltHoldStartMs = 0L;
+            observedCornerEpoch = cornerEpoch;
+            if (readyForHold && tiltHoldStartMs == 0L) tiltHoldStartMs = nowMs;
+            // Only a newly sampled corner frame can advance the hold duration.
+            long heldMs = readyForHold ? Math.max(0L, cornerState[1] - tiltHoldStartMs) : 0L;
             boolean holdComplete = heldMs >= AUTO_CAPTURE_HOLD_MS;
+            qualityAtMs = nowMs; qualityReady = readyForHold && holdComplete;
+            qualityCornerEpoch = cornerEpoch;
 
             if (DebugFlags.CROP_LOG) {
                 Log.d("GeoCamAuto", "[QUALITY_GATE]"
@@ -401,37 +578,48 @@ public class YuvCameraPlugin extends Plugin {
                     + " guideRect=" + guideRect[0] + "," + guideRect[1] + "," + guideRect[2] + "," + guideRect[3]);
             }
 
-            if (readyForHold && holdComplete && !autoCaptureNotified) {
+            if (qualityReady && !autoCaptureNotified && !captureSubmitted) {
                 autoCaptureNotified = true;
                 JSObject result = new JSObject();
+                capturePermit = captureSession + ":" + java.util.UUID.randomUUID().toString();
+                permitAtMs = nowMs; permitCornerEpoch = cornerEpoch;
+                result.put("permit", capturePermit);
                 result.put("qualityReady", true);
+                result.put("cornerTracked", true);
+                result.put("heldMs", heldMs);
+                Log.d(TAG, "[CORNER_CAPTURE_POC] heldMs=" + heldMs + " cornerEpoch=" + cornerEpoch);
                 notifyListeners("autoCaptureReady", result);
                 Log.d(TAG, "[AUTO-CAPTURE] autoCaptureReady 전달 (품질게이트 3종 통과)");
             }
         } catch (Exception e) {
+            tiltHoldStartMs = 0L;
+            lastAnalysisMs = 0L;
+            observedCornerEpoch = -1L;
             Log.e(TAG, "analyzeFrame error: " + e.getMessage());
         } finally {
+            // CORNER_POC: sample the next geometry result before closing this image.
+            try {
+                if (cornerPocTracker != null && !captureSubmitted) cornerPocTracker.offer(image);
+            } catch (Exception ignored) { }
             image.close();
+        }
         }
     }
 
     // ============================================================
     // computeGuideRectInFrame: JS 가이드박스 좌표 → 프레임(Y플레인) 좌표 변환
-    // (기존 detectCardBoundaryOpenCV STEP A/B 로직 그대로 유지, 컨투어 부분만 제거)
+    // CropRect-local FILL_CENTER inverse; add crop origin at caller. 180 branch deferred.
     // 반환: {left, top, width, height} 또는 가이드박스 미설정 시 null
     // ============================================================
     private int[] computeGuideRectInFrame(int frameW, int frameH, int rotationDegrees) {
-        float pvW = previewViewWidth;
-        float pvH = previewViewHeight;
-        float jsX = guideBoxX;
-        float jsY = guideBoxY;
-        float jsW = guideBoxWidth;
-        float jsH = guideBoxHeight;
-
-        if (pvW <= 0f || pvH <= 0f || jsW <= 0f || jsH <= 0f) {
-            return null;
-        }
-
+        return guideRectForCrop(frameW, frameH, rotationDegrees,
+            previewViewWidth, previewViewHeight, guideBoxX, guideBoxY, guideBoxWidth, guideBoxHeight);
+    }
+    static int[] guideRectForCrop(int frameW, int frameH, int rotationDegrees,
+            float pvW, float pvH, float jsX, float jsY, float jsW, float jsH) {
+        if (frameW <= 0 || frameH <= 0 || !Float.isFinite(pvW) || !Float.isFinite(pvH)
+            || !Float.isFinite(jsX) || !Float.isFinite(jsY) || !Float.isFinite(jsW)
+            || !Float.isFinite(jsH) || pvW <= 0 || pvH <= 0 || jsW <= 0 || jsH <= 0) return null;
         float rotatedFrameW, rotatedFrameH;
         if (rotationDegrees == 90 || rotationDegrees == 270) {
             rotatedFrameW = frameH;
@@ -473,7 +661,7 @@ public class YuvCameraPlugin extends Plugin {
         int width  = Math.min(frameW - left, Math.round(aWidth));
         int height = Math.min(frameH - top,  Math.round(aHeight));
 
-        return new int[]{ left, top, width, height };
+        return width > 2 && height > 2 ? new int[]{ left, top, width, height } : null;
     }
 
     // [한글 주석] 샘플링 결과 묶음 (밝기평균 + Laplacian분산)
@@ -616,16 +804,18 @@ public class YuvCameraPlugin extends Plugin {
         long sumLapSq = 0;
         long sumLap = 0;
         int count = 0;
+        int base = yBuf.position();
 
         for (int y = startY; y < bottom; y += SAMPLE_STEP) {
             for (int x = startX; x < right; x += SAMPLE_STEP) {
-                int idxC = y * rowStride + x * pixelStride;
-                int idxL = y * rowStride + (x - 1) * pixelStride;
-                int idxR = y * rowStride + (x + 1) * pixelStride;
-                int idxU = (y - 1) * rowStride + x * pixelStride;
-                int idxD = (y + 1) * rowStride + x * pixelStride;
+                int idxC = base + y * rowStride + x * pixelStride;
+                int idxL = base + y * rowStride + (x - 1) * pixelStride;
+                int idxR = base + y * rowStride + (x + 1) * pixelStride;
+                int idxU = base + (y - 1) * rowStride + x * pixelStride;
+                int idxD = base + (y + 1) * rowStride + x * pixelStride;
 
-                if (idxD >= yBuf.capacity() || idxR >= yBuf.capacity()) continue;
+                if (idxU < base || idxL < base || idxD >= yBuf.limit() || idxR >= yBuf.limit())
+                    throw new IllegalArgumentException("QUALITY_PLANE_BOUNDS");
 
                 int c = yBuf.get(idxC) & 0xFF;
                 int l = yBuf.get(idxL) & 0xFF;
@@ -683,14 +873,22 @@ public class YuvCameraPlugin extends Plugin {
     // 카드 위치 판단 아님 - 순수 기기 자세(tilt) 품질게이트만 갱신한다.
     @PluginMethod
     public void setTiltStatus(PluginCall call) {
+        synchronized (captureGateLock) {
+        if (!call.getBoolean("tiltOk", false)) { qualityReady = false; tiltHoldStartMs = 0; }
+
         tiltOk = call.getBoolean("tiltOk", false);
         Double newTiltDeg = call.getDouble("tiltDeg");
         if (newTiltDeg != null) { latestTiltDeg = newTiltDeg; }
+        if (cornerPocTracker != null) cornerPocTracker.tilt(tiltOk);
         call.resolve();
+            }
     }
 
     @PluginMethod
     public void setGuideBox(PluginCall call) {
+        synchronized (captureGateLock) {
+        qualityReady = false; tiltHoldStartMs = 0;
+
         float previewW = call.getFloat("previewW", 0f);
         float previewH = call.getFloat("previewH", 0f);
         float guideX   = call.getFloat("guideX",   0f);
@@ -698,7 +896,9 @@ public class YuvCameraPlugin extends Plugin {
         float guideW   = call.getFloat("guideW",   0f);
         float guideH   = call.getFloat("guideH",   0f);
 
-        if (previewW <= 0f || previewH <= 0f || guideW <= 0f || guideH <= 0f) {
+        if (!Float.isFinite(previewW) || !Float.isFinite(previewH) || !Float.isFinite(guideX)
+                || !Float.isFinite(guideY) || !Float.isFinite(guideW) || !Float.isFinite(guideH)
+                || previewW <= 0f || previewH <= 0f || guideW <= 0f || guideH <= 0f) {
             Log.w("GeoCamAuto",
                 "[SET_GUIDE_BOX_FAIL] " +
                 "preview=" + previewW + "x" + previewH +
@@ -720,54 +920,124 @@ public class YuvCameraPlugin extends Plugin {
             " guide=" + guideX + "," + guideY + "," + guideW + "," + guideH);
 
         call.resolve();
+            }
     }
 
     // ============================================================
     // GEOCAM-REFACTOR-INTEGRATED-001: AF/AE 초점제어
     // JS에서 가이드박스 중앙 좌표를 넘겨받아 그 지점에 초점+노출 맞춤
     // ============================================================
+    static float[] focusPoint(float x, float y, float cssW, float cssH,
+            int webW, int webH, int webX, int webY, int previewX, int previewY,
+            int previewW, int previewH) {
+        if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(cssW)
+            || !Float.isFinite(cssH) || cssW <= 0 || cssH <= 0 || webW <= 0 || webH <= 0)
+            throw new IllegalArgumentException("INVALID_FOCUS_VIEWPORT");
+        float px = x * webW / cssW + webX - previewX;
+        float py = y * webH / cssH + webY - previewY;
+        if (px < 0 || py < 0 || px >= previewW || py >= previewH)
+            throw new IllegalArgumentException("FOCUS_OUTSIDE_PREVIEW");
+        return new float[]{px, py};
+    }
     @PluginMethod
     public void triggerAutoFocus(PluginCall call) {
-        if (previewCamera == null) {
-            call.reject("triggerAutoFocus: camera not ready. startPreview() 먼저 호출 필요");
-            return;
-        }
-        MainActivity activity = (MainActivity) getActivity();
-        PreviewView previewView = activity.getCameraPreviewView();
-        if (previewView == null) {
-            call.reject("triggerAutoFocus: PreviewView not found");
-            return;
-        }
-        float x = call.getFloat("x", previewView.getWidth() / 2f);
-        float y = call.getFloat("y", previewView.getHeight() / 2f);
-
         getActivity().runOnUiThread(() -> {
             try {
-                SurfaceOrientedMeteringPointFactory factory =
-                    new SurfaceOrientedMeteringPointFactory(previewView.getWidth(), previewView.getHeight());
-                MeteringPoint point = factory.createPoint(x, y);
-                FocusMeteringAction action = new FocusMeteringAction.Builder(
-                    point,
-                    FocusMeteringAction.FLAG_AF | FocusMeteringAction.FLAG_AE
-                ).setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS).build();
-
-                previewCamera.getCameraControl().startFocusAndMetering(action)
-                    .addListener(() -> Log.d(TAG, "[triggerAutoFocus] 완료 x=" + x + " y=" + y),
-                        ContextCompat.getMainExecutor(getContext()));
-
-                JSObject result = new JSObject();
-                result.put("triggered", true);
-                call.resolve(result);
-            } catch (Exception e) {
-                Log.e(TAG, "[triggerAutoFocus] error: " + e.getMessage());
-                call.reject("triggerAutoFocus error: " + e.getMessage());
-            }
+                Camera camera = previewCamera;
+                PreviewView pv = ((MainActivity)getActivity()).getCameraPreviewView();
+                android.webkit.WebView web = getBridge().getWebView();
+                if (camera == null || pv == null || web == null) { call.reject("FOCUS_CAMERA_NOT_READY"); return; }
+                final String original = call.getString("permit", "");
+                final long focusEpoch;
+                synchronized (captureGateLock) {
+                    long now = SystemClock.elapsedRealtime();
+                    long[] corner = cornerPocTracker == null ? null : cornerPocTracker.captureState(now);
+                    if (!permitValid(original, capturePermit, now, permitAtMs, qualityAtMs,
+                            qualityReady, tiltOk, captureSubmitted, permitCornerEpoch, qualityCornerEpoch, corner)) {
+                        JSObject deferred = new JSObject(); deferred.put("captureReady", false);
+                        deferred.put("reason", "AF_START_CONDITIONS_CHANGED"); call.resolve(deferred); return;
+                    }
+                    focusEpoch = corner[0]; focusedPermit = "";
+                }
+                int[] wl = new int[2], pl = new int[2];
+                web.getLocationOnScreen(wl); pv.getLocationOnScreen(pl);
+                float[] p = focusPoint(call.getFloat("x", Float.NaN), call.getFloat("y", Float.NaN),
+                    call.getFloat("viewportW", 0f), call.getFloat("viewportH", 0f),
+                    web.getWidth(), web.getHeight(), wl[0], wl[1], pl[0], pl[1], pv.getWidth(), pv.getHeight());
+                MeteringPoint point = pv.getMeteringPointFactory().createPoint(p[0], p[1]);
+                FocusMeteringAction action = new FocusMeteringAction.Builder(point,
+                    FocusMeteringAction.FLAG_AF | FocusMeteringAction.FLAG_AE)
+                    .setAutoCancelDuration(10, java.util.concurrent.TimeUnit.SECONDS).build();
+                FocusMeteringAction afOnly = new FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF).build();
+                final boolean supported = camera.getCameraInfo().isFocusMeteringSupported(action);
+                final boolean afSupported = camera.getCameraInfo().isFocusMeteringSupported(afOnly);
+                final long started = SystemClock.elapsedRealtime();
+                final java.util.concurrent.atomic.AtomicBoolean delivered = new java.util.concurrent.atomic.AtomicBoolean();
+                final java.util.function.BiConsumer<String, Boolean> finish = (status, success) -> {
+                    if (!delivered.compareAndSet(false, true)) return;
+                    JSObject result = new JSObject();
+                    result.put("status", status); result.put("triggered", supported);
+                    result.put("afSupported", afSupported); result.put("focusSuccessful", success);
+                    result.put("elapsedMs", SystemClock.elapsedRealtime()-started);
+                    result.put("nativeX", p[0]); result.put("nativeY", p[1]);
+                    result.put("webWidth", web.getWidth()); result.put("webHeight", web.getHeight());
+                    result.put("previewWidth", pv.getWidth()); result.put("previewHeight", pv.getHeight());
+                    result.put("originDeltaX", wl[0]-pl[0]); result.put("originDeltaY", wl[1]-pl[1]);
+                    Log.i(TAG, "[AF_RESULT] " + result.toString());
+                    if (success) {
+                        awaitFocusedQuality(call, camera, original, focusEpoch, SystemClock.elapsedRealtime(), result);
+                    } else {
+                        result.put("captureReady", false);
+                        camera.getCameraControl().cancelFocusAndMetering();
+                        // Restart the existing one-second stable hold before another attempt.
+                        synchronized (captureGateLock) {
+                            if (original.equals(capturePermit)) { qualityReady = false; tiltHoldStartMs = 0; }
+                        }
+                        call.resolve(result);
+                    }
+                };
+                if (!supported || !afSupported) { finish.accept("UNSUPPORTED", false); return; }
+                final ListenableFuture<FocusMeteringResult> future = camera.getCameraControl().startFocusAndMetering(action);
+                android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+                Runnable timeout = () -> { finish.accept("TIMEOUT", false); future.cancel(true); };
+                handler.postDelayed(timeout, 5000);
+                future.addListener(() -> {
+                    handler.removeCallbacks(timeout);
+                    try {
+                        FocusMeteringResult r = future.get();
+                        boolean success = afSupported && r.isFocusSuccessful();
+                        finish.accept(!afSupported ? "AF_UNSUPPORTED_AE_COMPLETED" : success ? "SUCCESS" : "NOT_FOCUSED", success);
+                    } catch (java.util.concurrent.CancellationException e) { finish.accept("CANCELLED", false); }
+                    catch (java.util.concurrent.ExecutionException e) {
+                        finish.accept(e.getCause() instanceof androidx.camera.core.CameraControl.OperationCanceledException
+                            ? "CANCELLED" : "ERROR", false);
+                    } catch (InterruptedException e) { Thread.currentThread().interrupt(); finish.accept("INTERRUPTED", false); }
+                    catch (RuntimeException e) { finish.accept("ERROR", false); }
+                }, ContextCompat.getMainExecutor(getContext()));
+            } catch (Exception e) { call.reject("triggerAutoFocus error: " + e.getMessage()); }
         });
+    }
+
+    @PluginMethod
+    public void setCornerPocConfig(PluginCall call) {
+        synchronized (captureGateLock) {
+
+        try {
+            if (cornerPocTracker == null) { call.reject("CORNER_POC_NOT_READY"); return; }
+            cornerPocTracker.configure(call.getString("token", ""), call.getBoolean("enabled", false),
+                call.getDouble("previewW", 0.0), call.getDouble("previewH", 0.0),
+                call.getDouble("guideX", 0.0), call.getDouble("guideY", 0.0),
+                call.getDouble("guideW", 0.0), call.getDouble("guideH", 0.0));
+            call.resolve();
+        } catch (Exception e) { call.reject("CORNER_POC_CONFIG_FAILED"); }
+            }
     }
 
     @Override
     protected void handleOnDestroy() {
+        if (cornerPocTracker != null) cornerPocTracker.close();
         if (cameraExecutor != null) cameraExecutor.shutdown();
+        if (captureDiagnostics != null) captureDiagnostics.close();
     }
 
     // [한글 주석] 디버그 로그 on/off 플래그 (기존 DEBUG_CROP_LOG 대체)
@@ -775,3 +1045,4 @@ public class YuvCameraPlugin extends Plugin {
         static final boolean CROP_LOG = true;
     }
 }
+

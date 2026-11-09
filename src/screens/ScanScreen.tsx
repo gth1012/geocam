@@ -101,7 +101,7 @@ const ScanScreen = ({
       if (result.status === 'UNCLAIMED') {
         setScanResultInfo({ status: 'UNCLAIMED', message: result.series_id || undefined })
       } else if (result.status === 'CLAIMED') {
-        setScanResultInfo({ status: 'CLAIMED', message: undefined })
+        setScanResultInfo({ status: 'ALREADY_CLAIMED', message: undefined })
       } else {
         setScanResultInfo({ status: 'ERROR', message: t('error.dinaNotFound') })
       }

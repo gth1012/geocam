@@ -1,3 +1,5 @@
+import { requestScanStart } from './verification/scanStart'
+import { parseDisplayResponse, displayError, type DisplayState, type DisplayError } from './verification/display'
 /**
  * Evidence Pipeline (E2E Orchestrator)
  * Phase 2-A / Step 6
@@ -33,6 +35,7 @@ export interface PipelineInput {
 }
 
 export interface PipelineOutput {
+  displayState: DisplayState
   ok: boolean;
   recordId?: string;
   packHash?: string;
@@ -98,9 +101,10 @@ async function imageUriToBase64(imageUri: string): Promise<string> {
  * 호환성: result_legacy 필드 (구 4-state) 추가 보존, 단 status는 3-state 우선
  */
 export interface ServerVerifyResult {
+  displayState?: DisplayState
   success: boolean;
   isAuthentic: boolean;
-  status: VerifyStatusV2 | 'ERROR' | 'ACTIVATED' | 'SHIPPED';
+  status: VerifyStatusV2 | 'ERROR' | 'ACTIVATED' | 'SHIPPED' | 'UNCLAIMED' | 'CLAIMED';
   confidence?: number;
   // 이미지 유사도 점수 필드 제거 (W2 정정)
   sessionToken?: string;
@@ -127,41 +131,15 @@ export async function checkAssetStatus(
   dinaCode: string,
   deviceId: string
 ): Promise<ServerVerifyResult> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 15000)
   try {
-    console.log('[checkAssetStatus] Checking:', dinaCode);
+    const start = await requestScanStart(API_BASE_URL, dinaCode, deviceId, controller.signal)
+    if (!start.ok) return { success: false, isAuthentic: false, status: 'INSUFFICIENT_DATA', error: start.errorCode, error_code: start.errorCode, httpStatus: start.httpStatus, displayState: start.displayState }
+    // Registry/session readiness alone is never proof of physical authenticity.
+    return { success: true, isAuthentic: false, status: start.session.status,
+      sessionToken: start.session.session_token, nonce: start.session.nonce, dinaId: start.session.dina_id }
 
-    const startRes = await fetch(API_BASE_URL + '/geocam/scan/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        qr_payload: dinaCode,
-        device_id: deviceId,
-      })
-    });
-
-    const startData = await startRes.json();
-    console.log('[checkAssetStatus] Response:', startData.success, startData.asset_status);
-
-    if (!startData.success) {
-      return {
-        success: false,
-        isAuthentic: false,
-        status: 'INSUFFICIENT_DATA',
-        error: startData.error || 'SCAN_START_FAILED',
-        error_code: startData.error,
-      };
-    }
-
-    // 자산 상태에 따라 결과 반환
-    const assetStatus = startData.asset_status;
-    return {
-      success: true,
-      isAuthentic: assetStatus === 'SHIPPED' || assetStatus === 'ACTIVATED',
-      status: assetStatus || 'INSUFFICIENT_DATA',
-      sessionToken: startData.session_token,
-      dinaId: startData.asset_info?.dina_id,
-      assetInfo: startData.asset_info,
-    };
   } catch (err) {
     console.error('[checkAssetStatus] Error:', err);
     const httpStatus = (err as any)?.status || 0;
@@ -175,7 +153,7 @@ export async function checkAssetStatus(
       error_code: errorCode,
       httpStatus,
     };
-  }
+  } finally { window.clearTimeout(timeout) }
 }
 
 /**
@@ -190,33 +168,18 @@ export async function verifyWithServer(
   deviceId: string,
   imageData: string
 ): Promise<ServerVerifyResult> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 60000)
+  let displayFailure: DisplayError = 'NETWORK'
   try {
     console.log('[verifyWithServer] Starting scan for:', dinaCode);
 
     // Step 1: scan/start - 세션 발급
-    const startRes = await fetch(API_BASE_URL + '/geocam/scan/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        qr_payload: dinaCode,
-        device_id: deviceId,
-      })
-    });
-
-    const startData = await startRes.json();
-    console.log('[verifyWithServer] scan/start response:', startData.success, startData.asset_status);
-
-    if (!startData.success) {
-      return {
-        success: false,
-        isAuthentic: false,
-        status: 'INSUFFICIENT_DATA',
-        error: startData.error || 'SCAN_START_FAILED'
-      };
-    }
-
-    // Step 2: Gate A 서명 생성 (nonce + dina_id + timestamp)
-    const dinaId = startData.asset_info?.dina_id || dinaCode;
+    const start = await requestScanStart(API_BASE_URL, dinaCode, deviceId, controller.signal)
+    if (!start.ok) return { success: false, isAuthentic: false, status: 'INSUFFICIENT_DATA', error: start.errorCode, error_code: start.errorCode, httpStatus: start.httpStatus, displayState: start.displayState }
+    const startData = start.session
+    displayFailure = 'PIPELINE'
+    const dinaId = startData.dina_id
     let gateA: { signature: string; public_key: string; client_timestamp: number } | null = null;
     try {
       gateA = await signForGateA(startData.nonce, dinaId);
@@ -247,8 +210,10 @@ export async function verifyWithServer(
 
     // Step 4: verify - 이미지 검증 (Gate A + B + C 포함)
     // W2 정정: 클라이언트 confidence 제거 (D1 LOCK)
+    displayFailure = 'NETWORK'
     const verifyRes = await fetch(API_BASE_URL + '/geocam/verify', {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session_token: startData.session_token,
@@ -271,7 +236,10 @@ export async function verifyWithServer(
       })
     });
 
+    if (!verifyRes.ok) return { success: false, isAuthentic: false, status: 'ERROR', displayState: displayError('HTTP', verifyRes.status) };
+    displayFailure = 'JSON'
     const verifyData = await verifyRes.json();
+    displayFailure = 'PIPELINE'
     console.log('[verifyWithServer] verify response:', verifyData.success, verifyData.result, verifyData.confidence, 'trust:', verifyData.trust_level);
 
     // WRITE_GATE_FAILED 감지: trust_level이 L1이고 gate_results에 실패 항목 존재
@@ -284,16 +252,17 @@ export async function verifyWithServer(
       }
     }
 
+    const finalDisplay = parseDisplayResponse(verifyData)
     // W2 정정: NeoStudio toScanResultV2 응답 (result = 3-state)
     return {
+      displayState: finalDisplay,
       success: verifyData.success,
-      isAuthentic: verifyData.result === 'PRESENT',
+      isAuthentic: finalDisplay.kind === 'result' && finalDisplay.status === 'AUTHENTIC',
       status: verifyData.result || 'INSUFFICIENT_DATA',
       confidence: verifyData.confidence,
       sessionToken: startData.session_token,
       nonce: startData.nonce,
-      dinaId: verifyData.matched_dina_id || startData.asset_info?.dina_id,
-      assetInfo: startData.asset_info,
+      dinaId: verifyData.matched_dina_id || startData.dina_id,
       is_conflict: verifyData.is_conflict,
       reason_code: verifyData.reason_code,
       error: verifyData.error,
@@ -312,8 +281,9 @@ export async function verifyWithServer(
       error: errorCode,
       error_code: errorCode,
       httpStatus,
+      displayState: displayError(controller.signal.aborted ? 'NETWORK' : displayFailure),
     };
-  }
+  } finally { window.clearTimeout(timeout) }
 }
 
 /**
@@ -399,7 +369,8 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
     // 1. QR 파싱
     const qrResult = parseQr(input.qrRaw);
     if (isError(qrResult)) {
-      return { ok: false, error: 'QR_PARSE_FAILED: ' + qrResult.error, qr_status: 'invalid', verify_status: 'INSUFFICIENT_DATA' };
+      return {
+      displayState: displayError('PIPELINE'), ok: false, error: 'QR_PARSE_FAILED: ' + qrResult.error, qr_status: 'invalid', verify_status: 'INSUFFICIENT_DATA' };
     }
     const qrStatus = qrResult.status;
     const dinaCode = isMissing(qrResult) ? null : qrResult.dina_code;
@@ -431,17 +402,11 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
       console.log('[Pipeline] Server verify:', serverResult.status, '| confidence:', serverResult.confidence);
     }
 
-    // 서버 에러코드 전파 (BATCH_NOT_SHIPPED, BATCH_TEMPORARILY_LOCKED, RATE_LIMIT_EXCEEDED 등)
-    if (serverResult && !serverResult.success && serverResult.error_code) {
-      const code = serverResult.error_code;
-      if (code === 'BATCH_NOT_SHIPPED' || code === 'BATCH_TEMPORARILY_LOCKED' || code === 'RATE_LIMIT_EXCEEDED') {
-        return {
-          ok: false,
-          error: code,
-          error_code: code,
-          verify_status: 'INSUFFICIENT_DATA',
-        };
-      }
+    // A rejected session must not continue into verification/evidence signing.
+    if (serverResult && !serverResult.success) {
+      return { displayState: serverResult.displayState ?? displayError('PIPELINE'), ok: false,
+        error: serverResult.error || 'VERIFICATION_NOT_COMPLETED', error_code: serverResult.error_code,
+        verify_status: 'INSUFFICIENT_DATA' }
     }
 
     // 5. W2 정정: 최종 verify_status 결정 (서버 단독 - D1 LOCK)
@@ -503,9 +468,10 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
 
     const recordId = generateUuid();
     // W2 정정: ok 판정 = PRESENT만 (구 4-state → 신규 'PRESENT'만)
-    const isOk = verifyStatus === 'PRESENT';
+    const isOk = serverResult?.displayState?.kind === 'result' && serverResult.displayState.status === 'AUTHENTIC';
 
     return {
+      displayState: serverResult?.displayState ?? displayError('CONTRACT'),
       ok: isOk,
       recordId,
       packHash,
@@ -522,6 +488,7 @@ export async function runEvidencePipeline(input: PipelineInput): Promise<Pipelin
   } catch (err) {
     console.error('[Pipeline] Error:', err);
     return {
+      displayState: displayError('PIPELINE'),
       ok: false,
       error: 'PIPELINE_ERROR: ' + (err instanceof Error ? err.message : String(err)),
       verify_status: 'INSUFFICIENT_DATA',     // W2 정정: 4-state → 3-state

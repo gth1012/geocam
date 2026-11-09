@@ -1,3 +1,4 @@
+import { parsePhysicalDisplayResponse, displayError, type DisplayError } from '../verification/display'
 // CameraScreen.tsx v4.12
 // GEOCAM-REFACTOR-V1 STEP2 (2026-08-13): 카드규격 토글 + 가이드박스 확대 + 노란색
 // - GUIDE_H_RATIO 0.55 -> 0.70 (카드 충족률 부족으로 인한 검출실패 문제 해결,
@@ -31,6 +32,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useCornerPoc } from './useCornerPoc'
 import { API_BASE_URL } from '../api/client'
 import { Filesystem } from '@capacitor/filesystem'
 import type { CameraScreenProps } from '../types/app.types'
@@ -66,6 +68,7 @@ type CardTypeKey = keyof typeof CARD_TYPES
 // ── CameraScreen v4.12 ──────────────────────────────────────────────────────
 
 const CameraScreen = ({
+  beginDisplay, isDisplayCurrent, publishDisplay,
   safeGoHome, runPipeline, BackArrow, sessionToken, nonce, dinaId, qrData, authToken,
   setCapturedImage, setConfidence, setMatchScore, setVerifyStatus, setRecordInfo,
   setErrorCode, setNetworkError, setProcessing, navigateToScreen, cameraError, setCameraError,
@@ -150,6 +153,11 @@ const CameraScreen = ({
       h: Math.round(guideH),
     }
   }, [cameraViewSize, cardAspectHOverW])
+  const cornerPoc = useCornerPoc({
+    enabled: previewReady && !showGuideOverlay, // keep fresh corners until takePicture is accepted
+    preview: nativePreviewSize,
+    guide: guideBox,
+  })
 
   // ── WebView 배경 투명 처리 ────────────────────────────────────────────────
   useEffect(() => {
@@ -194,6 +202,7 @@ const CameraScreen = ({
       const totalG = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z) || 9.8
       const tiltAngle = (Math.asin(Math.min(1, tiltMagnitude / totalG)) * 180) / Math.PI
       setTiltDeg(Math.round(tiltAngle * 10) / 10)
+      cornerPoc.setTiltAllowed(Math.abs(tiltAngle) <= AUTO_CAPTURE_TILT_MAX_DEG)
       // NS-LEGITTAG-AUTOCAPTURE-STEP-A2 STEP3(수정판): native 4번째 촬영품질 게이트로 전달.
       // 카드 위치 판단 아님 - 순수 기기 자세(tilt) 품질값만 전달. 실패해도 촬영 흐름 막지 않음.
       ;(YuvCamera as any).setTiltStatus({ tiltOk: Math.abs(tiltAngle) <= AUTO_CAPTURE_TILT_MAX_DEG, tiltDeg: tiltAngle }).catch(() => {})
@@ -240,9 +249,9 @@ const CameraScreen = ({
   }, [])
 
   // ── capturePhoto v4.11 (SC-4: preview_w/h 전송값만 nativePreviewSize로 교체) ─
-  const capturePhoto = useCallback(async (source: 'manual' | 'auto' = 'manual') => {
+  const capturePhoto = useCallback(async (permit: string) => {
     const triggerTime = Date.now()
-    console.log(`[CAPTURE] ENTER source=${source} t=${triggerTime}`)
+    console.log(`[CAPTURE] ENTER source=auto t=${triggerTime}`)
 
     if (captureLockedRef.current) {
       console.log('[CAPTURE] SKIP_ALREADY_LOCKED')
@@ -251,15 +260,41 @@ const CameraScreen = ({
     captureLockedRef.current = true
     captureInProgressRef.current = true
     setCapturing(true)
+    const displayRequest = beginDisplay()
+    let failureKind: DisplayError = 'CAPTURE'
 
     try {
       console.log('[CAPTURE] previewView(cameraViewSize, guideBox기준):', JSON.stringify({ w: cameraViewSize.w, h: cameraViewSize.h }))
       console.log('[CAPTURE] nativePreviewSize(서버전송기준):', JSON.stringify(nativePreviewSize))
       console.log('[CAPTURE] guideBox:', JSON.stringify(guideBox))
 
+      const bounds = cameraViewRef.current?.getBoundingClientRect()
+      if (!bounds) throw new Error('FOCUS_VIEW_NOT_READY')
+      const focus = await (YuvCamera as any).triggerAutoFocus({
+        permit, x: bounds.left + guideBox.x + guideBox.w / 2,
+        y: bounds.top + guideBox.y + guideBox.h / 2,
+        viewportW: window.innerWidth, viewportH: window.innerHeight,
+      })
+      console.info('[AF_AE_RESULT]', focus)
+      if (!focus?.captureReady || typeof focus.permit !== 'string') {
+        captureInProgressRef.current = false
+        resetCaptureLock('focus_not_ready')
+        setCapturing(false)
+        await (YuvCamera as any).rearmAutoCapture({ permit })
+        return
+      }
+      permit = focus.permit
       const callTime = Date.now()
       console.log(`[CAPTURE] capturePhotoFile() 호출 t=${callTime} delay=${callTime - triggerTime}ms`)
-      const photoResult = await (YuvCamera as any).capturePhotoFile()
+      const photoResult = await (YuvCamera as any).capturePhotoFile({ permit })
+      if (photoResult?.deferred) {
+        captureInProgressRef.current = false
+        resetCaptureLock('capture_recheck_deferred')
+        setCapturing(false)
+        await (YuvCamera as any).rearmAutoCapture({ permit })
+        return
+      }
+      if (!isDisplayCurrent(displayRequest)) return
       const doneTime = Date.now()
       console.log(`[CAPTURE] capturePhotoFile() 완료 t=${doneTime} elapsed=${doneTime - callTime}ms`)
 
@@ -285,24 +320,56 @@ const CameraScreen = ({
         .then((r: any) => console.log('[CAPTURE] stopPreview 완료:', r))
         .catch((e: any) => console.warn('[CAPTURE] stopPreview warn:', e))
 
+      if (!isDisplayCurrent(displayRequest)) return
       captureInProgressRef.current = false
       setCapturing(false)
       navigateToScreen('result')
       // ── 화면 전환 완료, 백그라운드 업로드 시작 ───────────────────────────
 
       console.log('[STEP3] 파일 읽기 시작 (백그라운드)')
-      const fileData = await Filesystem.readFile({ path: photoResult.path })
+      const verifyStartedAt = Date.now()
+      const verifyTimeoutMs = 60000
+      const verifyAbortController = new AbortController()
+      function awaitVerify<T>(promise: Promise<T>): Promise<T> {
+        const remainingMs = verifyTimeoutMs - (Date.now() - verifyStartedAt)
+        if (remainingMs <= 0) {
+          verifyAbortController.abort()
+          return Promise.reject(new Error(`VERIFY_TIMEOUT_${verifyTimeoutMs}MS`))
+        }
+
+        return new Promise<T>((resolve, reject) => {
+          const timeoutId = window.setTimeout(() => {
+            verifyAbortController.abort()
+            reject(new Error(`VERIFY_TIMEOUT_${verifyTimeoutMs}MS`))
+          }, remainingMs)
+
+          promise.then(
+            value => { window.clearTimeout(timeoutId); resolve(value) },
+            error => { window.clearTimeout(timeoutId); reject(error) },
+          )
+        })
+      }
+      console.log(`[STEP3] verify timeout: ${verifyTimeoutMs}ms`)
+      const fileData = await awaitVerify(Filesystem.readFile({ path: photoResult.path }))
       const base64Str = typeof fileData.data === 'string' ? fileData.data : ''
       const binaryStr = atob(base64Str)
       const bytes = new Uint8Array(binaryStr.length)
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
 
-      const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
+      const hashBuf = await awaitVerify(crypto.subtle.digest('SHA-256', bytes))
       const clientSha256 = Array.from(new Uint8Array(hashBuf))
         .map(b => b.toString(16).padStart(2, '0')).join('')
       console.log('[STEP3] clientSha256 :', clientSha256)
       console.log('[STEP3] clientSize   :', photoResult.size)
 
+      await awaitVerify((YuvCamera as any).recordCaptureTrace({
+        stage: 'UPLOAD_READY', captureId: photoResult.captureId,
+        savedSha256: photoResult.savedSha256, readSha256: clientSha256,
+      }))
+      // A changed file is a capture/transport error, never an authenticity verdict.
+      if (photoResult.savedSha256 !== clientSha256 || bytes.length !== photoResult.size) {
+        throw new Error('CAPTURE_BYTES_CHANGED_BEFORE_UPLOAD')
+      }
       const blob = new Blob([bytes], { type: photoResult.mimeType })
       const formData = new FormData()
       formData.append('image', blob, 'geo_capture.jpg')
@@ -321,11 +388,7 @@ const CameraScreen = ({
       formData.append('exif_rotation',      String(photoResult.exifRotation ?? 0))
         formData.append('tilt_deg',           tiltDeg !== null ? String(tiltDeg) : '') // NS-LEGITTAG-AUTOCAPTURE-STEP-A2: 진단용 metadata, 좌표보정 아님
       formData.append('preview_scale_type', 'FILL_CENTER')
-      // LT-DINA-CONTEXT-001 수정: 등록된 dina_id 있을 때만 물리검증 요청에 포함
-      // dina_id는 서버(geocode-block.ts)에서 optional 필드 — 없으면 UNREGISTERED로 정상처리(홈->Camera 단독촬영 경로 그대로 보존)
-      if (dinaId) {
-        formData.append('dina_id', dinaId)
-      }
+      // 실물 촬영은 DINA/QR/등록 세션을 전송하거나 소비하지 않는다.
       console.log('[STEP4A] 메타데이터 전달:', JSON.stringify({
         preview: { w: nativePreviewSize.w, h: nativePreviewSize.h },
         guide:   { x: guideBox.x, y: guideBox.y, w: guideBox.w, h: guideBox.h },
@@ -335,66 +398,72 @@ const CameraScreen = ({
       }))
 
       console.log('[STEP3] multipart 전송 시작')
-      const uploadRes = await fetch(`${NEO_API_BASE}/geocode-block/detect`, {
+      if (!isDisplayCurrent(displayRequest)) return
+      failureKind = 'NETWORK'
+      const uploadRes = await awaitVerify(fetch(`${NEO_API_BASE}/geocode-block/detect`, {
         method: 'POST',
         body: formData,
-      })
+        signal: verifyAbortController.signal,
+      }))
 
+      if (!isDisplayCurrent(displayRequest)) return
       if (!uploadRes.ok) {
-        const errBody = await uploadRes.json().catch(() => ({}))
-        throw new Error(`verify-file error: ${uploadRes.status} ${JSON.stringify(errBody)}`)
+        publishDisplay(displayRequest, displayError('HTTP', uploadRes.status))
+        return
       }
-
-      const uploadResult = await uploadRes.json()
+      failureKind = 'JSON'
+      const uploadResult = await awaitVerify(uploadRes.json())
+      // Link to R2 request before any UI cancellation gate; tracing cannot replace a server verdict.
+      try {
+        await awaitVerify((YuvCamera as any).recordCaptureTrace({
+          stage: 'SERVER_RESPONSE', captureId: photoResult.captureId,
+          savedSha256: photoResult.savedSha256, readSha256: clientSha256,
+          requestId: uploadResult?.request_id,
+          serverSha256: typeof uploadResult?.serverSha256 === 'string' ? uploadResult.serverSha256 : '',
+        }))
+      } catch (traceError) { console.warn('[CAPTURE_BYTES] response trace failed', traceError) }
+      if (!isDisplayCurrent(displayRequest)) return
       console.log('[STEP3] 서버 응답    :', JSON.stringify(uploadResult))
-      console.log('[STEP3] transferIntegrity:', uploadResult.transferIntegrity)
-      console.log('[STEP3] clientSha256 :', uploadResult.clientSha256)
-      console.log('[STEP3] serverSha256 :', uploadResult.serverSha256)
-      console.log('[STEP3] serverSize   :', uploadResult.serverFileSize)
-      console.log('[STEP3] verdict      :', uploadResult.verdict)
+      console.log('[STEP3] transferIntegrity:', uploadResult?.transferIntegrity)
+      console.log('[STEP3] clientSha256 :', uploadResult?.clientSha256)
+      console.log('[STEP3] serverSha256 :', uploadResult?.serverSha256)
+      console.log('[STEP3] serverSize   :', uploadResult?.serverFileSize)
+      console.log('[STEP3] verdict      :', uploadResult?.verdict)
 
-      // GEO-AUTH-001 verdict매핑버그수정(2026-08-16): 서버(GeoDetectCircleV7Service)는
-      // 'GEO_PASS'|'GEO_FAIL'|'GEO_UNCERTAIN'만 반환함 - 기존 'SIGNAL_PRESENT'/'SIGNAL_UNCERTAIN'
-      // 비교는 서버가 절대 내려주지 않는 값이라 항상 else(ABSENT)로 빠지던 버그
-      if (uploadResult.transferIntegrity === false) {
-        setVerifyStatus('INSUFFICIENT_DATA')
-      } else if (uploadResult.verdict === 'GEO_PASS') {
-        setVerifyStatus('PRESENT')
-      } else if (uploadResult.verdict === 'GEO_UNCERTAIN') {
-        setVerifyStatus('INSUFFICIENT_DATA')
-      } else if (uploadResult.verdict === 'GEO_FAIL') {
-        setVerifyStatus('ABSENT')
-      } else {
-        // 알 수 없는 verdict(UNKNOWN) - 재촬영 유도(INSUFFICIENT_DATA)로 처리
-        setVerifyStatus('INSUFFICIENT_DATA')
-      }
+      publishDisplay(displayRequest, parsePhysicalDisplayResponse(uploadResult))
 
     } catch (e) {
+      if (!isDisplayCurrent(displayRequest)) return
       console.error('[CAPTURE] error:', e)
 
       await (YuvCamera as any).stopPreview()
         .catch((se: any) => console.warn('[CAPTURE] stopPreview(error path) warn:', se))
 
+      if (!isDisplayCurrent(displayRequest)) return
       captureInProgressRef.current = false
-      setNetworkError(true)
-      setVerifyStatus('INSUFFICIENT_DATA')
+      publishDisplay(displayRequest, displayError(e instanceof Error && e.message.startsWith('VERIFY_TIMEOUT_') && failureKind !== 'CAPTURE' ? 'NETWORK' : failureKind))
       resetCaptureLock('capture_error')
       setCapturing(false)
       navigateToScreen('result')
     }
-  }, [cameraViewSize, nativePreviewSize, guideBox, setCapturedImage, setVerifyStatus, setNetworkError, navigateToScreen, resetCaptureLock])
+  }, [cameraViewSize, nativePreviewSize, guideBox, setCapturedImage, navigateToScreen, resetCaptureLock, beginDisplay, isDisplayCurrent, publishDisplay])
 
   // ── GCS-AUTO-CAPTURE-001 재연결: 네이티브 autoCaptureReady -> capturePhoto(auto) ──
   // 4중게이트(밝기/포커스/모션/기울기) 전부 통과 시 네이티브가 이 이벤트를 쏜다.
   // capturePhoto는 기존에 이미 auto 모드를 지원하므로 그대로 재사용(무수정).
+  const captureCallbackRef = useRef(capturePhoto)
+  captureCallbackRef.current = capturePhoto
   useEffect(() => {
     let listenerHandle: any = null
-    ;(YuvCamera as any).addListener('autoCaptureReady', () => {
-      console.log('[AUTO-CAPTURE] JS 리스너 수신 -> capturePhoto(auto) 호출')
-      capturePhoto('auto')
-    }).then((handle: any) => { listenerHandle = handle })
-    return () => { listenerHandle?.remove?.() }
-  }, [capturePhoto])
+    let disposed = false
+    ;(YuvCamera as any).addListener('autoCaptureReady', (event: any) => {
+      if (!disposed && typeof event?.permit === 'string') void captureCallbackRef.current(event.permit)
+    }).then((handle: any) => {
+      if (disposed) void handle.remove()
+      else listenerHandle = handle
+    }).catch((e: any) => console.warn('[AUTO-CAPTURE] listener registration failed', e))
+    return () => { disposed = true; void listenerHandle?.remove?.() }
+  }, [])
 
   // ── setGuideBox: 가이드박스 확정 시 Java로 전달 (GCS-AUTO-CAPTURE-001) ───
   // SC-4 수정: previewW/H를 nativePreviewSize(네이티브 실측)로 교체.
@@ -409,12 +478,6 @@ const CameraScreen = ({
       guideY:   guideBox.y,
       guideW:   guideBox.w,
       guideH:   guideBox.h,
-    }).then(() => {
-      // GEOCAM-REFACTOR-INTEGRATED-001: 가이드박스 중앙에 AF/AE 트리거
-      const focusX = guideBox.x + guideBox.w / 2
-      const focusY = guideBox.y + guideBox.h / 2
-      ;(YuvCamera as any).triggerAutoFocus({ x: focusX, y: focusY })
-        .catch((e: any) => console.warn('[AF_AE] triggerAutoFocus 실패:', e))
     }).catch((e: any) => console.warn('[SET_GUIDE_BOX] 실패:', e))
   }, [nativePreviewSize, guideBox])
 
@@ -431,12 +494,6 @@ const CameraScreen = ({
 
   // GEOCAM-REFACTOR-V1 STEP2: 노란색으로 변경 (가시성 개선)
   const guideColor = 'rgba(250,204,21,0.85)'
-  const cornerStyle = (pos: object) => ({
-    position: 'absolute' as const,
-    width: '36px',
-    height: '36px',
-    ...pos,
-  })
 
   const guides = [
     { num: '01', title: '카드를 가이드박스에 맞춰주세요', desc: '기울어지지 않게 수평으로 놓아주세요' },
@@ -486,8 +543,8 @@ const CameraScreen = ({
         ))}
       </div>
 
-      {/* 카메라 영역 */}
-      <div ref={cameraViewRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {/* 촬영 좌표는 뷰포트에 고정한다. 하단 기본 여백 63px = 위 패딩 24 + 안내 두 줄 31 + 아래 마진 8. */}
+      <div ref={cameraViewRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 'calc(63px + max(40px, env(safe-area-inset-bottom)))', overflow: 'hidden' }}>
 
         {/* 로딩 스피너 */}
         {!previewReady && (
@@ -505,13 +562,13 @@ const CameraScreen = ({
         )}
 
         {/* 가이드박스 오버레이 (LT-GUIDEBOX-VISUAL-MISMATCH-001: guideBox SSOT 통합, visualGuideBox/visualMinBox 제거) */}
+      {cornerPoc.overlay}
         {guideBox.w > 0 && (
           <div style={{ position: 'absolute', left: `${guideBox.x}px`, top: `${guideBox.y}px`, width: `${guideBox.w}px`, height: `${guideBox.h}px`, pointerEvents: 'none', zIndex: 10 }}>
-            <div style={{ ...cornerStyle({ top: 0, left: 0 }), borderTop: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderTopLeftRadius: '8px' }} />
-            <div style={{ ...cornerStyle({ top: 0, right: 0 }), borderTop: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderTopRightRadius: '8px' }} />
-            <div style={{ ...cornerStyle({ bottom: 0, left: 0 }), borderBottom: `2px solid ${guideColor}`, borderLeft: `2px solid ${guideColor}`, borderBottomLeftRadius: '8px' }} />
-            <div style={{ ...cornerStyle({ bottom: 0, right: 0 }), borderBottom: `2px solid ${guideColor}`, borderRight: `2px solid ${guideColor}`, borderBottomRightRadius: '8px' }} />
+            {!cornerPoc.overlay && (<>
+            <div data-poc-guide="full-rectangle" style={{ position: "absolute", inset: 0, boxSizing: "border-box", border: "4px solid " + guideColor, borderRadius: "8px", boxShadow: "0 0 0 1px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(0,0,0,0.7)", pointerEvents: "none" }} />
             <div style={{ position: 'absolute', left: `${guideBox.w / 2 - 3}px`, top: `${guideBox.h / 2 - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)', pointerEvents: 'none' }} />
+            </>)}
             {/* 수평계 인디케이터 (촬영 품질 안내 전용, 판정 무관) — 가이드박스 중앙 배치 */}
             {tiltDeg !== null && (
               <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", zIndex: 16, padding: "6px 14px", borderRadius: "20px", background: "rgba(0,0,0,0.55)", border: `1px solid ${Math.abs(tiltDeg) <= UI_TILT_MAX_DEG ? "rgba(74,222,128,0.6)" : "rgba(250,204,21,0.6)"}`, display: "flex", alignItems: "center", gap: "6px" }}>
@@ -525,26 +582,16 @@ const CameraScreen = ({
         )}
       </div>
 
-      {/* 하단 촬영 버튼 */}
-      <div style={{ padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
+      {/* 하단 자동촬영 안내 */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, pointerEvents: 'none', padding: '24px', paddingBottom: 'max(40px, env(safe-area-inset-bottom))', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', lineHeight: '1.4', minHeight: '31px', marginBottom: '8px', textAlign: 'center', letterSpacing: '0.05em' }}>
           {capturing ? '처리 중...' : (
             <>
-              카드 전체가 네 모서리 안에 보이게 맞춰주세요<br />
+              카드 전체가 사각형 가이드 안에 보이게 맞춰주세요<br />
               카드가 중앙 표시를 충분히 덮도록 가까이 촬영하세요
             </>
           )}
         </p>
-        <button
-          onClick={() => capturePhoto('manual')}
-          disabled={!previewReady || capturing}
-          style={{ width: '72px', height: '72px', borderRadius: '50%', background: previewReady && !capturing ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.2)', border: '3px solid rgba(255,255,255,0.2)', cursor: previewReady && !capturing ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.1s' }}
-        >
-          {capturing
-            ? <svg width="28" height="28" viewBox="0 0 32 32" fill="none" style={{ animation: 'spin 1s linear infinite' }}><circle cx="16" cy="16" r="14" stroke="#0a0a0c" strokeWidth="2" strokeDasharray="8 4" /></svg>
-            : <div style={{ width: '54px', height: '54px', borderRadius: '50%', background: previewReady ? '#0a0a0c' : 'rgba(0,0,0,0.2)' }} />
-          }
-        </button>
       </div>
 
       {/* 촬영 가이드 오버레이 */}
@@ -585,3 +632,4 @@ const CameraScreen = ({
 }
 
 export default CameraScreen
+
